@@ -26,5 +26,3 @@ alias la='ls -A'
 alias l='ls -CF'
 
 # cheap LAN test helpers
-alias cheaplanwatch='/usr/local/sbin/cheaplanwatch'
-alias cheaplanwatch_eantc='/usr/local/sbin/cheaplanwatch_eantc'

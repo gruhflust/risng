@@ -130,36 +130,6 @@
     dest: "{{ risng_workdir }}/root/.bashrc"
     mode: "0644"
 
-- name: Task IR-41a - Ensure cheaplanwatch library directory exists
-  file:
-    path: "{{ risng_workdir }}/usr/local/lib/cheaplanwatch"
-    state: directory
-    mode: "0755"
-
-- name: Task IR-41b - Install cheaplanwatch embedded fallback script
-  copy:
-    src: "cheaplanwatch-embedded.sh"
-    dest: "{{ risng_workdir }}/usr/local/lib/cheaplanwatch/embedded.sh"
-    mode: "0755"
-
-- name: Task IR-41b1 - Install cheaplanwatch_eantc embedded fallback script
-  copy:
-    src: "cheaplanwatch-embedded_eantc.sh"
-    dest: "{{ risng_workdir }}/usr/local/lib/cheaplanwatch/embedded_eantc.sh"
-    mode: "0755"
-
-- name: Task IR-41c - Install cheaplanwatch runtime loader
-  copy:
-    src: "cheaplanwatch-runner.sh"
-    dest: "{{ risng_workdir }}/usr/local/sbin/cheaplanwatch"
-    mode: "0755"
-
-- name: Task IR-41c1 - Install cheaplanwatch_eantc runtime loader
-  copy:
-    src: "cheaplanwatch-runner_eantc.sh"
-    dest: "{{ risng_workdir }}/usr/local/sbin/cheaplanwatch_eantc"
-    mode: "0755"
-
 - name: Task IR-42 - Add sudoers file for {{ ssh_user }}
   copy:
     dest: "{{ risng_workdir }}/etc/sudoers.d/90-{{ ssh_user }}"

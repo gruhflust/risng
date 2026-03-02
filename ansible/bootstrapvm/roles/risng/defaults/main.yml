@@ -82,7 +82,6 @@ tools_packages:
   - build-essential
   - dkms
   - kbd
-  - qperf
 
 # -------------------------------------------------------------------
 # PXE boot temp files and ISO paths (keep off /tmp tmpfs by default)

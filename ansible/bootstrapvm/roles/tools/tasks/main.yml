@@ -36,7 +36,6 @@
       - iproute2
       - vlan
       - vim
-      - qperf
     state: present
   register: tool_install
   retries: 3
