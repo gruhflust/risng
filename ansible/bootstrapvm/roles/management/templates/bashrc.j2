@@ -44,7 +44,17 @@ xterm*|rxvt*)
     ;;
 esac
 
-RISNG_DIR="$HOME/risng"
+# Auto-detect RISng checkout path
+if [ -d "$HOME/risng" ]; then
+    RISNG_DIR="$HOME/risng"
+elif [ -d "$HOME/botrepo/risng_code" ]; then
+    RISNG_DIR="$HOME/botrepo/risng_code"
+elif [ -d "$HOME/botrepo/risng" ]; then
+    RISNG_DIR="$HOME/botrepo/risng"
+else
+    RISNG_DIR="$HOME/risng"
+fi
+
 RISNG_CODE_DIR="$RISNG_DIR"
 RISNG_ANSIBLE_DIR="$RISNG_CODE_DIR/ansible"
 RISNG_ANSIBLE_CFG="$RISNG_ANSIBLE_DIR/ansible.cfg"
