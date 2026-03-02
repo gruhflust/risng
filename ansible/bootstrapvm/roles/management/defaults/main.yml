@@ -79,7 +79,4 @@ tftp_server_ip: "{{ dns_bootstrap_ip | default(bootstrap_ip) }}"
 # Limit TFTP block size for better BIOS PXE compatibility (notably iPXE/SeaBIOS legacy clients).
 tftp_blocksize: "1024"
 
-  - "8088"
-  - "18088"
-  - "28088"
 
