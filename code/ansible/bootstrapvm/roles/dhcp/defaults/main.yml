@@ -16,10 +16,25 @@ dhcp_range_end:   "{{ dhcp_network_prefix }}.110"
 # - dhcp_static_hosts[].boot_filename still has highest priority.
 #
 # Keep risng as default unless you explicitly want another role.
-dhcp_default_boot_profile: "risng"
+dhcp_default_boot_profile: "live-ris"
 
 dhcp_boot_profiles:
-  risng:
+  live-ris:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  iCWP:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  iFDO:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  iCMD:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  FDPS:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  CORRP:
     uefi: "bootx64.efi"
     bios: "pxelinux.0"
   debian-live:
@@ -33,15 +48,30 @@ dhcp_boot_profiles:
 # BIOS labels must match LABEL entries in pxelinux fragments.
 # UEFI entries must match GRUB menuentry titles.
 dhcp_boot_menu_defaults:
-  risng:
-    bios_label: "risng"
-    uefi_menuentry: "RISng (UEFI)"
+  live-ris:
+    bios_label: "live-ris"
+    uefi_menuentry: "Live-RIS (UEFI)"
+  iCWP:
+    bios_label: "icwp"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (iCWP)"
+  iFDO:
+    bios_label: "ifdo"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (iFDO)"
+  iCMD:
+    bios_label: "icmd"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (iCMD)"
+  FDPS:
+    bios_label: "fdps"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (FDPS)"
+  CORRP:
+    bios_label: "corrp"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (CORRP)"
   debian-live:
-    bios_label: "debian-live"
-    uefi_menuentry: "Debian Live PXE Boot UEFI"
+    bios_label: "live-ris"
+    uefi_menuentry: "Live-RIS (UEFI)"
   spec:
-    bios_label: "spec"
-    uefi_menuentry: "AlmaLinux 9 (UEFI)"
+    bios_label: "icwp"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (iCWP)"
 
 
 dhcp_static_hosts:

@@ -1,5 +1,5 @@
 ---
-# spec role defaults for AlmaLinux 9 PXE boot
+# spec role defaults for CentOS 7.8 PXE autoinstall
 spec_iso_mount: "{{ pxe_tmp_dir }}/mnt-spec"
 spec_target: "{{ pxe_tftp_dir }}/images/spec"
 spec_target_relative: "images/spec"
@@ -7,9 +7,22 @@ spec_kernel: "vmlinuz"
 spec_initrd: "initrd.img"
 spec_grub_filename: "10-spec.cfg"
 spec_pxelinux_filename: "10-spec.cfg"
-spec_label: "AlmaLinux 9 (BIOS)"
-spec_grub_label: "AlmaLinux 9 (UEFI)"
+spec_label: "CentOS 7.8 AutoInstall (BIOS)"
+spec_grub_label: "CentOS 7.8 AutoInstall (UEFI)"
 
-# HTTP-exposed Alma installer tree (served from pxe_tftp_dir)
-spec_repo_relative: "almalinux/9/BaseOS/x86_64/os"
+# HTTP-exposed CentOS installer tree (served from pxe_tftp_dir)
+spec_repo_relative: "centos/7/os/x86_64"
 spec_repo_root: "{{ pxe_tftp_dir }}/{{ spec_repo_relative }}"
+
+# CentOS 7.8 source ISO
+centos78_iso_filename: "CentOS-7-x86_64-Minimal-2003.iso"
+centos78_iso_url: "http://vault.centos.org/7.8.2003/isos/x86_64/{{ centos78_iso_filename }}"
+centos78_iso_path: "{{ iso_download_dir }}/centos78.iso"
+
+# Supported RISng client roles for autoinstall
+risng_client_roles:
+  - iCWP
+  - iFDO
+  - iCMD
+  - FDPS
+  - CORRP

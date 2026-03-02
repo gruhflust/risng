@@ -1,0 +1,29 @@
+# RISng CentOS 7.8 Kickstart (role: {{ item }})
+# Minimal baseline, role-specific marker only.
+install
+text
+cdrom
+lang en_US.UTF-8
+keyboard de
+timezone Europe/Berlin --isUtc
+network --bootproto=dhcp --device=link --activate
+rootpw --plaintext risng
+firewall --disabled
+selinux --permissive
+authconfig --enableshadow --passalgo=sha512
+bootloader --location=mbr
+zerombr
+clearpart --all --initlabel
+autopart --type=lvm
+reboot
+
+%packages
+@core
+chrony
+kexec-tools
+%end
+
+%post --log=/root/ks-post.log
+echo "RISNG_ROLE={{ item }}" > /etc/risng-role
+hostnamectl set-hostname {{ item | lower }}-centos78
+%end

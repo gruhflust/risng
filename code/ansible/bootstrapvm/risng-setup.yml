@@ -101,7 +101,7 @@
     # - debian-live
     # - netinstall
     - risng
-    # - spec
+    - spec
 #
 ###############################################################################
 - name: 02 Offline phase  Serve PXE (DHCP/DNS/TFTP)

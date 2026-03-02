@@ -102,16 +102,16 @@ risng_target:  "{{ pxe_tftp_dir }}/images/risng"
 risng_target_relative: "images/risng"
 
 # PXE boot menu labels
-risng_label:       "Debian risng (BIOS)"
-risng_grub_label:  "Debian risng (UEFI)"
+risng_label:       "Live-RIS (BIOS)"
+risng_grub_label:  "Live-RIS (UEFI)"
 
 # ------------------------------------------------------------
 # spec PXE role configuration
-# Provides AlmaLinux 9 over PXE
+# Provides CentOS 7.8 autoinstall over PXE
 # ------------------------------------------------------------
 
 spec_iso_mount: "{{ pxe_tmp_dir }}/mnt-spec"
 spec_target: "{{ pxe_tftp_dir }}/images/spec"
 spec_target_relative: "images/spec"
-spec_label: "AlmaLinux 9 (BIOS)"
-spec_grub_label: "AlmaLinux 9 (UEFI)"
+spec_label: "CentOS 7.8 AutoInstall (BIOS)"
+spec_grub_label: "CentOS 7.8 AutoInstall (UEFI)"

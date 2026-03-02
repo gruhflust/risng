@@ -62,12 +62,10 @@ netinstall_iso_path: "{{ iso_download_dir }}/{{ netinstall_iso_filename | defaul
 # -------------------- Netboot tarball ----------------------------------------
 netboot_tarball_url:  "https://deb.debian.org/debian/dists/{{ debian_release }}/main/installer-amd64/current/images/netboot/netboot.tar.gz"
 netboot_tarball_path: "{{ iso_download_dir }}/debian-netboot.tar.gz"
-# -------------------- AlmaLinux 9 ISO ---------------------------------------
-# To track the floating symlink instead of a fixed release, override with e.g. "9-latest".
-alma9_iso_release:  "9.7"
-alma9_iso_filename: "AlmaLinux-{{ alma9_iso_release }}-x86_64-minimal.iso"
-alma9_iso_url:      "https://repo.almalinux.org/almalinux/{{ alma9_iso_release }}/isos/x86_64/{{ alma9_iso_filename }}"
-alma9_iso_path:     "{{ iso_download_dir }}/alma9.iso"
+# -------------------- CentOS 7.8 ISO ---------------------------------------
+centos78_iso_filename: "CentOS-7-x86_64-Minimal-2003.iso"
+centos78_iso_url:      "http://vault.centos.org/7.8.2003/isos/x86_64/{{ centos78_iso_filename }}"
+centos78_iso_path:     "{{ iso_download_dir }}/centos78.iso"
 
 
 

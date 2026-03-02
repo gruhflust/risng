@@ -15,8 +15,8 @@ risng_grub_filename: "10-risng.cfg"
 risng_pxelinux_filename: "10-risng.cfg"
 
 # PXE boot menu labels
-risng_label:       "RISng (BIOS)"
-risng_grub_label:  "RISng (UEFI)"
+risng_label:       "Live-RIS (BIOS)"
+risng_grub_label:  "Live-RIS (UEFI)"
 
 # Default hostname used until DHCP supplies a specific value
 risng_default_hostname: risng-client

@@ -1,7 +1,7 @@
 # pxelinux.cfg.j2 – Debian-Live Legacy-BIOS Eintrag (v1.2 – ohne DEFAULT)
 
-LABEL debian-live
-  MENU LABEL Debian Live PXE Boot BIOS
+LABEL live-ris
+  MENU LABEL Live-RIS (BIOS)
   KERNEL ::debian-live/live/vmlinuz
   INITRD ::debian-live/live/initrd.img
   APPEND boot=live fetch=tftp://{{ tftp_server_ip }}/debian-live/live/filesystem.squashfs debug nosplash toram
