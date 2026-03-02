@@ -15,7 +15,7 @@ spec_repo_relative: "centos/7/os/x86_64"
 spec_repo_root: "{{ pxe_tftp_dir }}/{{ spec_repo_relative }}"
 
 # CentOS 7.8 source ISO
-centos78_iso_filename: "CentOS-7-x86_64-Minimal-2003.iso"
+centos78_iso_filename: "CentOS-7-x86_64-DVD-2003.iso"
 centos78_iso_url: "http://vault.centos.org/7.8.2003/isos/x86_64/{{ centos78_iso_filename }}"
 centos78_iso_path: "{{ iso_download_dir }}/centos78.iso"
 

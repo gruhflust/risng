@@ -63,7 +63,7 @@ netinstall_iso_path: "{{ iso_download_dir }}/{{ netinstall_iso_filename | defaul
 netboot_tarball_url:  "https://deb.debian.org/debian/dists/{{ debian_release }}/main/installer-amd64/current/images/netboot/netboot.tar.gz"
 netboot_tarball_path: "{{ iso_download_dir }}/debian-netboot.tar.gz"
 # -------------------- CentOS 7.8 ISO ---------------------------------------
-centos78_iso_filename: "CentOS-7-x86_64-Minimal-2003.iso"
+centos78_iso_filename: "CentOS-7-x86_64-DVD-2003.iso"
 centos78_iso_url:      "http://vault.centos.org/7.8.2003/isos/x86_64/{{ centos78_iso_filename }}"
 centos78_iso_path:     "{{ iso_download_dir }}/centos78.iso"
 

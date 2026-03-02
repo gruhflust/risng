@@ -20,9 +20,7 @@ firstboot --disable
 reboot
 
 %packages --ignoremissing
-openssh-server
-openssh-clients
-curl
+@core
 %end
 
 %post --log=/root/ks-post.log
