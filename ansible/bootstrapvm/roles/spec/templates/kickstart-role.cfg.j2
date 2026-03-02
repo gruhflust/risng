@@ -25,9 +25,7 @@ reboot
 @core
 openssh-server
 openssh-clients
-python
-python-pip
-ansible
+curl
 %end
 
 %post --log=/root/ks-post.log
@@ -59,4 +57,8 @@ gpgcheck=0
 REPO
 
 yum clean all || true
+
+# Install ansible after base install from local repo (phase 1 may still need mirrored RPM set)
+yum -y install ansible || true
+
 %end
