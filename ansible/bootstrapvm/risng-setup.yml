@@ -98,6 +98,7 @@
     - management
     - tools
     - webserver
+    - gopass
     # - debian-live
     # - netinstall
     - risng

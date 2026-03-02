@@ -1,0 +1,93 @@
+---
+- name: GP-01 | skip role if disabled
+  ansible.builtin.meta: end_host
+  when: not (gopass_enabled | bool)
+
+- name: GP-02 | install gopass + gpg tooling on controlhost
+  ansible.builtin.apt:
+    name: "{{ gopass_packages }}"
+    state: present
+    update_cache: true
+
+- name: GP-03 | ensure risng gopass state directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ gopass_user }}"
+    group: "{{ gopass_user }}"
+    mode: "0700"
+  loop:
+    - "{{ gopass_state_dir }}"
+    - "{{ gopass_store_path }}"
+
+- name: GP-04 | check for existing GPG secret key by email
+  ansible.builtin.shell: |
+    set -euo pipefail
+    gpg --batch --list-secret-keys --with-colons "{{ gopass_gpg_email }}" 2>/dev/null \
+      | awk -F: '$1=="fpr"{print $10; exit}' || true
+  args:
+    executable: /bin/bash
+  become: true
+  become_user: "{{ gopass_user }}"
+  register: gopass_key_fpr
+  changed_when: false
+
+- name: GP-05 | render unattended keygen batch file
+  ansible.builtin.template:
+    src: gpg-batch.j2
+    dest: "{{ gopass_state_dir }}/gpg-batch.conf"
+    owner: "{{ gopass_user }}"
+    group: "{{ gopass_user }}"
+    mode: "0600"
+  when:
+    - gopass_generate_key | bool
+    - (gopass_key_fpr.stdout | default('') | trim) == ''
+
+- name: GP-06 | generate dedicated RISng controlhost GPG key (if missing)
+  ansible.builtin.command:
+    cmd: "gpg --batch --generate-key {{ gopass_state_dir }}/gpg-batch.conf"
+  become: true
+  become_user: "{{ gopass_user }}"
+  when:
+    - gopass_generate_key | bool
+    - (gopass_key_fpr.stdout | default('') | trim) == ''
+
+- name: GP-07 | refresh fingerprint after key generation
+  ansible.builtin.shell: |
+    set -euo pipefail
+    gpg --batch --list-secret-keys --with-colons "{{ gopass_gpg_email }}" 2>/dev/null \
+      | awk -F: '$1=="fpr"{print $10; exit}' || true
+  args:
+    executable: /bin/bash
+  become: true
+  become_user: "{{ gopass_user }}"
+  register: gopass_key_fpr_after
+  changed_when: false
+
+- name: GP-08 | write integration hint file for subsequent RISng roles
+  ansible.builtin.copy:
+    dest: "{{ gopass_state_dir }}/integration.env"
+    owner: "{{ gopass_user }}"
+    group: "{{ gopass_user }}"
+    mode: "0600"
+    content: |
+      GOPASS_MOUNT={{ gopass_mount_name }}
+      GOPASS_STORE={{ gopass_store_path }}
+      GOPASS_GPG_EMAIL={{ gopass_gpg_email }}
+      GOPASS_GPG_FPR={{ (gopass_key_fpr_after.stdout | default(gopass_key_fpr.stdout) | trim) }}
+      GOPASS_INIT_STORE={{ gopass_init_store | bool }}
+
+- name: GP-09 | optional initial store bootstrap (disabled by default)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    test -f "{{ gopass_store_path }}/.gpg-id" && exit 0
+    FPR="{{ (gopass_key_fpr_after.stdout | default(gopass_key_fpr.stdout) | trim) }}"
+    test -n "$FPR"
+    # prepare store path; keep command best-effort for portability across gopass versions
+    mkdir -p "{{ gopass_store_path }}"
+    printf '%s\n' "$FPR" > "{{ gopass_store_path }}/.gpg-id"
+  args:
+    executable: /bin/bash
+  become: true
+  become_user: "{{ gopass_user }}"
+  when: gopass_init_store | bool
