@@ -1,8 +1,6 @@
 # RISng CentOS 7.8 Kickstart (role: {{ item }})
 install
 text
-url --url="http://{{ tftp_server_ip }}/{{ spec_repo_relative }}"
-repo --name="base" --baseurl="http://{{ tftp_server_ip }}/{{ spec_repo_relative }}"
 lang en_US.UTF-8
 keyboard --vckeymap=de --xlayouts='de'
 timezone Europe/Berlin --isUtc

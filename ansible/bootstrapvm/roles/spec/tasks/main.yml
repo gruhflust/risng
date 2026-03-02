@@ -42,6 +42,24 @@
   ansible.builtin.command: >
     rsync -a --delete {{ spec_iso_mount }}/ {{ spec_repo_root }}/
 
+
+- name: 04 02d Validate synced CentOS repo metadata exists
+  ansible.builtin.stat:
+    path: "{{ spec_repo_root }}/repodata/repomd.xml"
+  register: spec_repo_repodata
+
+- name: 04 02e Validate synced CentOS package tree exists
+  ansible.builtin.stat:
+    path: "{{ spec_repo_root }}/Packages"
+  register: spec_repo_packages
+
+- name: 04 02f Fail early when local CentOS repo is incomplete
+  ansible.builtin.fail:
+    msg: >-
+      Local CentOS repo incomplete under {{ spec_repo_root }}
+      (repodata={{ spec_repo_repodata.stat.exists }}, packages={{ spec_repo_packages.stat.exists }}).
+  when: not spec_repo_repodata.stat.exists or not spec_repo_packages.stat.exists
+
 - name: 04 02b Ensure lightweight HTTP server unit exists for PXE repo
   ansible.builtin.copy:
     dest: /etc/systemd/system/pxe-http.service
