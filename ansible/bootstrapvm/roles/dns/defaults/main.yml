@@ -13,3 +13,8 @@ dns_nameserver: "{{ bootstrap_ip }}"
 
 # Upstream resolvers for recursive lookups (optional). Empty = no explicit forwarders.
 dns_forwarders: []
+
+# Service names can differ across images/releases.
+dns_service_candidates:
+  - bind9
+  - named

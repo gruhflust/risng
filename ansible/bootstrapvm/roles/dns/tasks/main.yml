@@ -29,7 +29,7 @@
     owner: root
     group: bind
     mode: "0644"
-  notify: restart bind9
+  notify: restart dns service
 
 - name: "03 Copy forward zone file"
   ansible.builtin.template:
@@ -38,7 +38,7 @@
     owner: bind
     group: bind
     mode: "0644"
-  notify: restart bind9
+  notify: restart dns service
 
 - name: "04 Copy reverse zone file"
   ansible.builtin.template:
@@ -47,7 +47,7 @@
     owner: bind
     group: bind
     mode: "0644"
-  notify: restart bind9
+  notify: restart dns service
 
 - name: "05 Copy named.conf.local"
   ansible.builtin.template:
@@ -56,7 +56,7 @@
     owner: root
     group: root
     mode: "0644"
-  notify: restart bind9
+  notify: restart dns service
 
 - name: "06 Validate named.conf syntax"
   ansible.builtin.command: named-checkconf
@@ -92,7 +92,7 @@
   notify: daemon reload
 
 - name: "10 Show bind9 status summary"
-  ansible.builtin.shell: systemctl status --no-pager bind9 | head -n 15
+  ansible.builtin.shell: systemctl status --no-pager bind9 || systemctl status --no-pager named | head -n 15
   register: bind_status
   changed_when: false
 
@@ -110,8 +110,32 @@
   register: bind9_reinstall
   changed_when: "'Setting up bind9' in bind9_reinstall.stdout"
 
-- name: "13 Ensure bind9 service is enabled and started"
+
+- name: "12a Repair interrupted package configuration (best effort)"
+  ansible.builtin.command: dpkg --configure -a
+  register: dpkg_repair
+  changed_when: false
+  failed_when: false
+
+- name: "12b Ensure package dependencies are healthy (best effort)"
+  ansible.builtin.command: apt-get -f install -y
+  register: apt_fix
+  changed_when: false
+  failed_when: false
+
+- name: "12c Reload service facts"
+  ansible.builtin.service_facts:
+
+- name: "12d Select DNS service name"
+  ansible.builtin.set_fact:
+    dns_service_name: "{{ (dns_service_candidates | select('in', (ansible_facts.services.keys() | list | map('regex_replace', '\\.service$', '') | list)) | list | first) | default('bind9') }}"
+
+- name: "12e Show selected DNS service"
+  ansible.builtin.debug:
+    msg: "Using DNS service unit: {{ dns_service_name }}"
+
+- name: "13 Ensure DNS service is enabled and started"
   ansible.builtin.systemd:
-    name: bind9
+    name: "{{ dns_service_name }}"
     state: started
     enabled: true

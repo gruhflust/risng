@@ -1,8 +1,8 @@
 # dns_role_handlers_v01
 
-- name: restart bind9
+- name: restart dns service
   ansible.builtin.systemd:
-    name: bind9
+    name: "{{ dns_service_name | default('bind9') }}"
     state: restarted
 
 - name: daemon reload
