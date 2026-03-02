@@ -157,29 +157,16 @@ if [ -x /usr/bin/dircolors ]; then
     alias pingpartnertest_increment='mkdir -p "$HOME/testresults" && run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_increment/pingpartner-pytest_increment.yml" "$HOME/testresults/pingpartner-pytest_increment.log"'
     
     # Qperf / iMIX Tests
-    alias cheaplantest='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplantest.yml" "$HOME/cheaplantest.log"'
-    alias cheaplanwatch='/usr/bin/env bash /var/lib/tftpboot/runtime/qperf/cheaplanwatch-client.sh'
-    alias cheaplanwatch_eantc='/usr/bin/env bash /var/lib/tftpboot/runtime/qperf/cheaplanwatch-client_eantc.sh'
-    alias cheaplanwatchserver='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatchserver.yml" "$HOME/cheaplanwatchserver.log"'
-    alias cheaplanwatchdeploy='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatchdeploy.yml" "$HOME/cheaplanwatchdeploy.log"'
-    alias cheapwatch='bash "$RISNG_ANSIBLE_DIR/runtime/qperf/files/cheapwatch.sh"'
 
     # EANTC mix variants (keep legacy flows untouched)
-    alias cheaplantest_eantc='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplantest_eantc.yml" "$HOME/cheaplantest_eantc.log"'
-    alias cheaplanwatch_eantc='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatch_eantc.yml" "$HOME/cheaplanwatch_eantc.log"'
-    alias cheaplanwatchserver_eantc='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatchserver_eantc.yml" "$HOME/cheaplanwatchserver_eantc.log"'
-    alias cheaplanwatchdeploy_eantc='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatchdeploy_eantc.yml" "$HOME/cheaplanwatchdeploy_eantc.log"'
 
     # EANTC randomized variants
-    alias cheaplantest_eantcrand='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplantest_eantcrand.yml" "$HOME/cheaplantest_eantcrand.log"'
-    alias cheaplanwatch_eantcrand='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatch_eantcrand.yml" "$HOME/cheaplanwatch_eantcrand.log"'
 
  # Import der Cue Informationen
     alias inventory-import='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/playbooks/inventory-import.yml" "$HOME/inventory-import.log"'
 
     # 08a NetBox rack overview
     alias importnetboxinfo='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/playbooks/import_netbox_info.yml" "$HOME/importnetboxinfo.log"'
-    alias dc-vLAN-test='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/playbooks/dc_vlan_test.yml" "$HOME/dc-vLAN-test.log"'
 
     alias unreport='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/playbooks/unreport.yml" "$HOME/unreport.log"'
     

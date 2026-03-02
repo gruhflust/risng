@@ -1,38 +1,25 @@
 # Welcome to risng
 
-This machine provides PXE-based client booting and the CHEAP test-suite.
 
-## CHEAP test-suite
 **risng - Cloud Host Endpoint Analysis Probe**
 
 ### Core aliases (reports/tests)
-- `cheaplantest` – Run full IMIX/qperf test workflow and generate consolidated reports.
-- `cheaplanwatchserver` – Start central cheaplanwatch server components, wait for ENTER, then collect client JSON and render server-side report (JSON/HTML/PDF).
-- `cheaplanwatch` – Run client-side live measurement stream (used together with `cheaplanwatchserver`).
-- `cheaplanwatchdeploy` – Push latest cheaplanwatch client runtime payload to currently reachable PXE clients.
-- `cheapwatch` – Optional live observer on server (connections + qperf log tail).
 
 ### EANTC IMIX variants (parallel, legacy-safe)
 These variants keep the legacy workflows untouched and produce distinguishable reports.
 
-- `cheaplantest_eantc` – Same as `cheaplantest`, but uses EANTC "IMIX with Jumbo Frame" msg_size mix. Report contains:
   - a header note
   - the rendered EANTC mix table (text)
   - **per-target** TCP/UDP summary tables (weighted by the mix)
 
-- `cheaplanwatch_eantc` – Same as `cheaplanwatch`, but uses EANTC msg_size mix.
 
-- `cheaplanwatchdeploy_eantc` – Publish the `_eantc` client payload.
 
-- `cheaplanwatchserver_eantc` – Server-side orchestration for `_eantc` runs (parallel entrypoint).
 
 ### EANTC randomized variants
 These reduce sequential/block effects (e.g. avoiding long consecutive 1500B periods).
 
-- `cheaplanwatch_eantcrand` – Continuous stream with randomized per-sample msg_size selection (weighted by EANTC).
   - Captures seed and observed msg_size counts in JSON for traceability.
 
-- `cheaplantest_eantcrand` – Per-host ~60s sampling using a quota "deck shuffle" approach:
   - Build a scaled quota deck from EANTC weights
   - Shuffle and draw msg_size entries until time is up
   - Report is cumulative (per-target TCP/UDP summaries) + legend.

@@ -79,11 +79,6 @@ tftp_server_ip: "{{ dns_bootstrap_ip | default(bootstrap_ip) }}"
 # Limit TFTP block size for better BIOS PXE compatibility (notably iPXE/SeaBIOS legacy clients).
 tftp_blocksize: "1024"
 
-# Runtime-delivered cheaplanwatch script endpoint for live PXE clients.
-cheaplanwatch_publish_dir: "{{ pxe_tftp_dir }}/runtime/qperf"
-cheaplanwatch_client_version: "0.7.0"
-cheaplanwatch_http_port: "8088"
-cheaplanwatch_http_port_candidates:
   - "8088"
   - "18088"
   - "28088"

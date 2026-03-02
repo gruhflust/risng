@@ -143,27 +143,27 @@
         tasks_from: 20_persist_network.yml   # ensures NIC config survives reboot
     - name: 02.97 Replace risng .bashrc with symlink to management template
       ansible.builtin.file:
-        src: "/home/risng/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
-        dest: "/home/risng/.bashrc"
-        owner: risng
-        group: risng
+        src: "{{ ssh_user_home }}/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
+        dest: "{{ ssh_user_home }}/.bashrc"
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
         state: link
         force: true
 
     - name: 02.98 Ensure risng wallpaper directory exists
       ansible.builtin.file:
-        path: "/home/risng/.local/share/backgrounds"
+        path: "{{ ssh_user_home }}/.local/share/backgrounds"
         state: directory
-        owner: risng
-        group: risng
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
         mode: "0755"
 
     - name: 02.98 Deploy risng wallpaper base image
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/roles/management/files/risng.background.png"
-        dest: "/home/risng/.local/share/backgrounds/risng.background.png"
-        owner: risng
-        group: risng
+        dest: "{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png"
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
         mode: "0644"
 
     - name: 02.98 Determine deployed RISng commit
@@ -224,24 +224,24 @@
           - -annotate
           - "+0+120"
           - "{{ risng_wallpaper_label }}"
-          - "/home/risng/.local/share/backgrounds/risng.background.png"
+          - "{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png"
       become: true
-      become_user: risng
+      become_user: "{{ ssh_user }}"
       when:
         - risng_wallpaper_label | default('') | length > 0
 
     - name: 02.98 Apply risng wallpaper in GNOME
       community.general.dconf:
         key: /org/gnome/desktop/background/picture-uri
-        value: "'file:///home/risng/.local/share/backgrounds/risng.background.png'"
+        value: "'file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png'"
         state: present
       become: true
-      become_user: risng
+      become_user: "{{ ssh_user }}"
 
     - name: 02.98 Apply risng dark mode wallpaper in GNOME
       community.general.dconf:
         key: /org/gnome/desktop/background/picture-uri-dark
-        value: "'file:///home/risng/.local/share/backgrounds/risng.background.png'"
+        value: "'file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png'"
         state: present
       become: true
-      become_user: risng
+      become_user: "{{ ssh_user }}"
