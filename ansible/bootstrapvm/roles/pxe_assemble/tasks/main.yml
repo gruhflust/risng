@@ -14,6 +14,19 @@
 #                           BIOS section                               #
 ########################################################################
 
+- name: Ensure BIOS local-disk boot entry exists
+  ansible.builtin.template:
+    src: 99-localdisk.cfg-bios.j2
+    dest: "{{ pxe_tftp_dir }}/pxelinux.cfg/99-localdisk.cfg"
+    mode: "0644"
+
+- name: Ensure UEFI local-disk boot entry exists
+  ansible.builtin.template:
+    src: 99-localdisk.cfg-uefi.j2
+    dest: "{{ grub_dir }}/99-localdisk.cfg"
+    mode: "0644"
+
+
 - name: Gather BIOS menu fragments
   ansible.builtin.find:
     paths: "{{ pxe_tftp_dir }}/pxelinux.cfg"
