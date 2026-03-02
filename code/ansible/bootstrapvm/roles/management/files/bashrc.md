@@ -15,24 +15,26 @@ if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
     debian_chroot=$(cat /etc/debian_chroot)
 fi
 
-case "$TERM" in
-    xterm-color|*-256color) color_prompt=yes;;
-esac
+# Ensure prompt variables are expanded
+shopt -s promptvars
 
-if [ -n "$force_color_prompt" ]; then
-    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
-        color_prompt=yes
-    else
-        color_prompt=
+# Resolve a single host IP for the prompt in a portable way.
+risng_prompt_ip() {
+    local ip
+
+    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    if [ -z "$ip" ] && command -v ip >/dev/null 2>&1; then
+        ip="$(ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -n1)"
     fi
-fi
+    if [ -z "$ip" ]; then
+        ip="$(hostname 2>/dev/null)"
+    fi
 
-if [ "$color_prompt" = yes ]; then
-    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
-else
-    PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
-fi
-unset color_prompt force_color_prompt
+    printf '%s' "$ip"
+}
+
+# Colourful prompt with username, host IP, and current directory
+PS1='${debian_chroot:+($debian_chroot)}\[\e[32m\]\u\[\e[0m\]@\[\e[38;5;217m\]$(risng_prompt_ip)\[\e[0m\]:\[\e[92m\]${PWD}\[\e[0m\]\$ '
 
 case "$TERM" in
 xterm*|rxvt*)
