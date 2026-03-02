@@ -23,13 +23,22 @@
     force: false
     timeout: 1200
 
-- name: 04 02 Extract CentOS 7.8 ISO
+- name: 04 02 Reset extracted ISO workspace to avoid stale trees from previous runs
+  ansible.builtin.file:
+    path: "{{ spec_iso_mount }}"
+    state: absent
+
+- name: 04 02a Recreate extracted ISO workspace
+  ansible.builtin.file:
+    path: "{{ spec_iso_mount }}"
+    state: directory
+    mode: "0755"
+
+- name: 04 02b Extract CentOS 7.8 ISO (always fresh)
   ansible.builtin.command: >
     bsdtar -C {{ spec_iso_mount }} -xf {{ centos78_iso_path }}
-  args:
-    creates: "{{ spec_iso_mount }}/images"
 
-- name: 04 02a Sync extracted CentOS tree into HTTP repo root
+- name: 04 02c Sync extracted CentOS tree into HTTP repo root
   ansible.builtin.command: >
     rsync -a --delete {{ spec_iso_mount }}/ {{ spec_repo_root }}/
 
