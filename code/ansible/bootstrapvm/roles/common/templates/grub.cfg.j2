@@ -1,0 +1,18 @@
+# grub.cfg.j2 – generic GRUB UEFI PXE entry (v2.0, EFI-safe)
+
+insmod efi_gop
+insmod gfxterm
+insmod tftp
+insmod net
+insmod linux
+
+loadfont /boot/grub/unicode.pf2
+set gfxmode=800x600
+set gfxpayload=keep
+terminal_output gfxterm
+background_image /booting.png
+
+menuentry "{{ menu_label }}" {
+  linux {{ kernel_path }} {{ append_args }}
+  initrd {{ initrd_path }}
+}

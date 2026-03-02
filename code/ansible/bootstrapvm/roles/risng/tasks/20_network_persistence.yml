@@ -1,0 +1,33 @@
+# ensures static IP config survives reboot
+- name: Task IR-68 - Ensure /etc/network/interfaces.d exists
+  file:
+    path: "{{ risng_workdir }}/etc/network/interfaces.d"
+    state: directory
+    mode: "0755"
+
+- name: Task IR-69 - Write /etc/network/interfaces.d/{{ risng_lan_interface }}
+  copy:
+    dest: "{{ risng_workdir }}/etc/network/interfaces.d/{{ risng_lan_interface }}"
+    content: |
+      auto {{ risng_lan_interface }}
+      iface {{ risng_lan_interface }} inet static
+        address {{ dhcp_gateway }}
+        netmask {{ dhcp_netmask }}
+    mode: "0644"
+
+- name: Task IR-70 - Ensure /etc/network/interfaces includes interfaces.d
+  lineinfile:
+    path: "{{ risng_workdir }}/etc/network/interfaces"
+    line: "source /etc/network/interfaces.d/*"
+    create: yes
+
+- name: Task IR-71 - Enable networking.service
+  file:
+    path: "{{ risng_workdir }}/etc/systemd/system/networking.service.wants"
+    state: directory
+
+- name: Task IR-72 - Symlink networking service
+  file:
+    src: "/lib/systemd/system/networking.service"
+    dest: "{{ risng_workdir }}/etc/systemd/system/networking.service.wants/networking.service"
+    state: link

@@ -1,0 +1,203 @@
+---
+# EANTC variant of cheaplanwatchserver.
+# Keeps legacy cheaplanwatchserver.yml unchanged.
+#
+# Differences:
+# - uses cheaplanwatch-client_eantc.sh payload
+# - uses distinct run workspace path
+
+- name: Start cheaplanwatchserver_eantc qperf server (+ iperf3) and prep clients
+  hosts: localhost
+  gather_facts: true
+  become: true
+  become_user: risng
+  vars:
+    run_as_user: risng
+    user_home: "/home/{{ run_as_user }}"
+    run_id: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
+    workspace: "{{ user_home }}/cheaplanwatch_eantc"
+    raw_dir: "{{ workspace }}/raw"
+    current_run_file: "{{ workspace }}/current-run.env"
+    qperf_targets_file: "{{ playbook_dir }}/qperf_targets.yml"
+    qperf_server_ip: "10.228.229.7"
+    qperf_server_port: "{{ lookup('env', 'CHEAPLANWATCH_SERVER_PORT') | default('19777', true) }}"
+    qperf_log: "{{ workspace }}/cheaplanwatch-qperf.log"
+    iperf_log: "{{ workspace }}/cheaplanwatch-iperf3.log"
+    qperf_server_pid_file: "{{ workspace }}/cheaplanwatch-qperf.pid"
+    iperf_server_pid_file: "{{ workspace }}/cheaplanwatch-iperf3.pid"
+
+    cheap_qperf_mode_note: "cheaplanwatch_eantc live mode (live|imix); default uses EANTC mix"
+    cheaplanwatch_payload: /var/lib/tftpboot/runtime/qperf/cheaplanwatch-client_eantc.sh
+
+  tasks:
+    - name: Ensure workspace exists
+      ansible.builtin.file:
+        path: "{{ workspace }}"
+        state: directory
+        owner: "{{ run_as_user }}"
+        group: "{{ run_as_user }}"
+        mode: "0755"
+
+    - name: Load qperf target definitions
+      ansible.builtin.include_vars:
+        file: "{{ qperf_targets_file }}"
+
+    - name: Stop stale qperf/iperf3 server processes if running (EANTC)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if [ -f "{{ qperf_server_pid_file }}" ]; then
+          kill "$(cat "{{ qperf_server_pid_file }}")" >/dev/null 2>&1 || true
+          rm -f "{{ qperf_server_pid_file }}"
+        fi
+        if [ -f "{{ iperf_server_pid_file }}" ]; then
+          kill "$(cat "{{ iperf_server_pid_file }}")" >/dev/null 2>&1 || true
+          rm -f "{{ iperf_server_pid_file }}"
+        fi
+        ps -eo pid=,args= | awk '$2=="qperf" && $3=="-lp" && $4=="{{ qperf_server_port }}" {print $1}' | while read -r pid; do
+          [ -n "$pid" ] && kill "$pid" >/dev/null 2>&1 || true
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Start qperf server (EANTC)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        qperf -lp {{ qperf_server_port }} > "{{ qperf_log }}" 2>&1 &
+        echo $! > "{{ qperf_server_pid_file }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Start iperf3 baseline server (one-off)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        iperf3 -s --one-off > "{{ iperf_log }}" 2>&1 &
+        echo $! > "{{ iperf_server_pid_file }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Write current run metadata for cheapwatch
+      ansible.builtin.copy:
+        dest: "{{ current_run_file }}"
+        mode: "0644"
+        content: |
+          CHEAPLANWATCH_RUN_ID={{ run_id }}
+          SERVER_PORT={{ qperf_server_port }}
+          WATCH_MODE=eantc
+
+    - name: Probe SSH reachability of targets
+      ansible.builtin.wait_for:
+        host: "{{ item.ip }}"
+        port: 22
+        timeout: 3
+      loop: "{{ qperf_targets | default([]) }}"
+      register: collect_probe
+      ignore_errors: true
+
+    - name: Add online targets to prep group
+      ansible.builtin.add_host:
+        name: "{{ item.item.name }}"
+        groups: cheaplanwatch_prep_clients
+        ansible_host: "{{ item.item.ip }}"
+        ansible_user: root
+        ansible_python_interpreter: auto_silent
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      loop: "{{ collect_probe.results | default([]) }}"
+      when: item.failed is not defined or not item.failed
+
+    - name: Show planned run
+      ansible.builtin.debug:
+        msg:
+          - "Run-ID: {{ run_id }}"
+          - "Clients online: {{ groups['cheaplanwatch_prep_clients'] | default([]) }}"
+          - "Payload: {{ cheaplanwatch_payload }}"
+          - "Optional live observer: cheapwatch"
+
+    - name: Wait for ENTER to stop server and collect results
+      ansible.builtin.pause:
+        prompt: "cheaplanwatchserver_eantc running. Press ENTER to stop + collect." 
+
+- name: Stop stale client scripts and deploy fresh EANTC runtime payload
+  hosts: cheaplanwatch_prep_clients
+  gather_facts: false
+  become: true
+  become_user: root
+  vars:
+    cheaplanwatch_payload: /var/lib/tftpboot/runtime/qperf/cheaplanwatch-client_eantc.sh
+  tasks:
+    - name: Terminate running cheaplanwatch client script instances
+      ansible.builtin.shell: |
+        set -euo pipefail
+        pgrep -af 'cheaplanwatch' || true
+        pkill -TERM -f '/var/lib/tftpboot/runtime/qperf/cheaplanwatch-client_eantc.sh' || true
+        pkill -TERM -f '/var/cache/cheaplanwatch/cheaplanwatch-client_eantc.sh' || true
+        pkill -TERM -f '/usr/local/sbin/cheaplanwatch_eantc' || true
+        pkill -TERM -f 'cheaplanwatch-client-runtime_eantc.sh' || true
+        sleep 0.5
+        pkill -KILL -f '/var/lib/tftpboot/runtime/qperf/cheaplanwatch-client_eantc.sh' || true
+        pkill -KILL -f '/var/cache/cheaplanwatch/cheaplanwatch-client_eantc.sh' || true
+        pkill -KILL -f '/usr/local/sbin/cheaplanwatch_eantc' || true
+        pkill -KILL -f 'cheaplanwatch-client-runtime_eantc.sh' || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+
+    - name: Ensure cheaplanwatch cache directory exists
+      ansible.builtin.file:
+        path: /var/cache/cheaplanwatch
+        state: directory
+        mode: "0755"
+
+    - name: Deploy latest cheaplanwatch_eantc runtime payload to client cache
+      ansible.builtin.copy:
+        src: "{{ cheaplanwatch_payload }}"
+        dest: /var/cache/cheaplanwatch/cheaplanwatch-client_eantc.sh
+        mode: "0755"
+
+    - name: Deploy latest cheaplanwatch_eantc runtime payload to direct client path
+      ansible.builtin.copy:
+        src: "{{ cheaplanwatch_payload }}"
+        dest: /usr/local/sbin/cheaplanwatch-client-runtime_eantc.sh
+        mode: "0755"
+
+- name: Stop qperf server and render final report (EANTC)
+  hosts: localhost
+  gather_facts: false
+  become: true
+  become_user: risng
+  vars:
+    run_as_user: risng
+    user_home: "/home/{{ run_as_user }}"
+    run_id: "{{ run_id | default(lookup('pipe','date +%Y%m%dT%H%M%S')) }}"
+    workspace: "{{ user_home }}/cheaplanwatch_eantc"
+    report_script: "{{ playbook_dir }}/files/cheaplanwatch_report_eantc.py"
+    result_json: "{{ workspace }}/{{ run_id }}-testrun.json"
+    result_pdf: "{{ workspace }}/{{ run_id }}-testrun.pdf"
+    mix_image: "{{ workspace }}/{{ run_id }}-traffic-mix-eanc.png"
+  tasks:
+    - name: Stop qperf server
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -f "{{ workspace }}/cheaplanwatch-qperf.pid" && kill "$(cat "{{ workspace }}/cheaplanwatch-qperf.pid")" >/dev/null 2>&1 || true
+        rm -f "{{ workspace }}/cheaplanwatch-qperf.pid" || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Stop iperf3 server
+      ansible.builtin.shell: |
+        set -euo pipefail
+        test -f "{{ workspace }}/cheaplanwatch-iperf3.pid" && kill "$(cat "{{ workspace }}/cheaplanwatch-iperf3.pid")" >/dev/null 2>&1 || true
+        rm -f "{{ workspace }}/cheaplanwatch-iperf3.pid" || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Show report hint
+      ansible.builtin.debug:
+        msg:
+          - "cheaplanwatchserver_eantc complete. Next step: run clients with 'cheaplanwatch_eantc' and then collect artifacts via a follow-up playbook (TODO)."
+          - "(This file is a scaffold; we will align it with the legacy cheaplanwatchserver flow.)"

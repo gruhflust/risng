@@ -1,0 +1,15 @@
+# risng_getisos_v01 – pre-download PXE ISO assets for risng setup
+---
+- name: Download risng PXE ISOs ahead of setup
+  hosts: bootstrapvm
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+
+  tasks:
+    - name: 00 Invoke management role to fetch ISO artifacts
+      ansible.builtin.import_role:
+        name: management
+        tasks_from: 10_iso_downloads.yml

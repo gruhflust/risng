@@ -1,0 +1,21 @@
+---
+- name: Ensure SSH public key is copied to all servers
+  hosts: servers
+  gather_facts: false
+
+  tasks:
+    - name: Ensure .ssh directory exists
+      ansible.builtin.file:
+        path: "~/.ssh"
+        state: directory
+        mode: '0700'
+      become: true
+      become_user: risng
+
+    - name: Copy the SSH public key to the target
+      ansible.posix.authorized_key:
+        user: risng
+        key: "{{ lookup('file', '/home/{{ ansible_user }}/.ssh/id_rsa.pub') }}"
+        state: present
+      become: true
+      become_user: risng

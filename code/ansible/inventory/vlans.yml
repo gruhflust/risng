@@ -1,0 +1,39 @@
+---
+vlans:
+  - id: 401
+    subnet: 10.208.1.96/27
+    highest_host: 10.208.1.126
+  - id: 402
+    subnet: 10.208.7.192/26
+    highest_host: 10.208.7.254
+  - id: 403
+    subnet: 10.208.4.192/26
+    highest_host: 10.208.4.254
+  - id: 404
+    subnet: 10.208.5.192/26
+    highest_host: 10.208.5.254
+  - id: 405
+    subnet: 10.208.2.96/27
+    highest_host: 10.208.2.126
+  - id: 406
+    subnet: 10.208.2.224/27
+    highest_host: 10.208.2.254
+  - id: 407
+    subnet: 10.208.3.96/27
+    highest_host: 10.208.3.126
+  - id: 800
+    subnet: 192.168.188.0/17
+    highest_host: 192.168.255.254
+  - id: 2000
+    subnet: 10.228.0.0/28
+    highest_host: 10.228.0.14
+  - id: 2001
+    subnet: 10.228.0.16/28
+    highest_host: 10.228.0.30
+  - id: 2002
+    subnet: 10.228.0.32/28
+    highest_host: 10.228.0.46
+  - id: 2003
+    subnet: 10.228.0.48/28
+    highest_host: 10.228.0.62
+    

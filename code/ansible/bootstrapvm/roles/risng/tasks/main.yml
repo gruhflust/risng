@@ -1,0 +1,371 @@
+# roles/risng/tasks/main.yml
+# Version: risng_main_v16 – checksum-based ISO retrieval
+
+- name: Task IR-01 - Ensure bootstrap_ip is defined
+  ansible.builtin.set_fact:
+    bootstrap_ip: "{{ ansible_default_ipv4.address }}"
+  when: bootstrap_ip is not defined
+
+- name: Task IR-02 - Ensure working directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ risng_workdir }}"
+    - "{{ risng_target }}"
+    - "{{ pxelinux_dir }}"
+    - "{{ grub_dir }}"
+
+# -------------------------------------------------------------------
+# Step 0.1: Prepare ISO mountpoint and extract vmlinuz/initrd (NEW)
+# -------------------------------------------------------------------
+
+- name: Task IR-03 - Fetch Debian Live ISO checksums when URL is undefined
+  ansible.builtin.uri:
+    url: "{{ debian_live_iso_base_url }}/SHA256SUMS"
+    return_content: true
+  register: debian_live_iso_checksums
+  when: debian_live_iso_url | length == 0
+
+- name: Task IR-03a - Reset Debian Live ISO detection facts
+  ansible.builtin.set_fact:
+    debian_live_iso_filename: "{{ debian_live_iso_filename | default('') }}"
+    debian_live_iso_checksum: "{{ debian_live_iso_checksum | default('') }}"
+  when: debian_live_iso_url | length == 0 and debian_live_iso_checksums.status == 200
+
+- name: Task IR-04 - Determine Debian Live ISO filename and checksum when needed
+  vars:
+    candidate_filename: "{{ debian_live_iso_checksums.content | regex_search('debian-live-(?:testing|[0-9.]+)-amd64-' ~ item ~ '\\.iso') | default('', true) }}"
+    candidate_checksum: "{{ debian_live_iso_checksums.content | regex_search('([a-f0-9]{64})\\s+debian-live-(?:testing|[0-9.]+)-amd64-' ~ item ~ '\\.iso', '\\1') | default('', true) }}"
+  ansible.builtin.set_fact:
+    debian_live_iso_filename: "{{ candidate_filename }}"
+    debian_live_iso_checksum: "{{ candidate_checksum }}"
+    debian_live_iso_url: "{{ debian_live_iso_base_url }}/{{ candidate_filename }}"
+  loop: "{{ debian_live_iso_flavors }}"
+  loop_control:
+    label: "{{ item }}"
+  when: debian_live_iso_url | length == 0 and debian_live_iso_checksums.status == 200 and debian_live_iso_filename | length == 0 and candidate_filename | length > 0 and candidate_checksum | length > 0
+
+- name: Task IR-05 - Fail when Debian Live ISO filename or checksum cannot be determined
+  ansible.builtin.fail:
+    msg: "Could not determine Debian Live ISO from {{ debian_live_iso_base_url }}"
+  when: debian_live_iso_url | length == 0 or debian_live_iso_checksum | length == 0
+
+- name: Task IR-06 - Show resolved Debian Live ISO information
+  ansible.builtin.debug:
+    msg:
+      - "Debian Live ISO base URL: {{ debian_live_iso_base_url }}"
+      - "Selected filename: {{ debian_live_iso_filename }}"
+      - "Checksum: {{ debian_live_iso_checksum }}"
+      - "Download URL: {{ debian_live_iso_url }}"
+
+- name: Task IR-07 - Ensure ISO mount directory exists  # ← uses {{ pxe_tmp_dir }}/iso-mount
+  file:
+    path: "{{ debian_live_iso_mount }}"
+    state: directory
+    mode: "0755"
+
+- name: Task IR-08 - Check for existing Debian Live ISO
+  stat:
+    path: "{{ debian_live_iso_path }}"
+  register: debian_live_iso_stat
+
+- name: Task IR-09 - Ensure Debian Live ISO is present
+  ansible.builtin.get_url:
+    url: "{{ debian_live_iso_url }}"
+    dest: "{{ debian_live_iso_path }}"
+    checksum: "sha256:{{ debian_live_iso_checksum }}"
+  when: not debian_live_iso_stat.stat.exists or debian_live_iso_stat.stat.size | default(0) < 1000000000
+
+- name: Task IR-10 - Extract Debian Live ISO if kernel is not present
+  command: >
+    bsdtar -C {{ debian_live_iso_mount }} -xf {{ debian_live_iso_path }}
+  args:
+    creates: "{{ debian_live_iso_mount }}/live/vmlinuz"
+
+- name: Task IR-11 - Detect kernel version from live ISO vmlinuz
+  ansible.builtin.command: >
+    file --brief {{ debian_live_iso_mount }}/live/{{ risng_kernel }}
+  register: risng_live_kernel_file
+  changed_when: false
+
+- name: Task IR-12 - Extract kernel release string from vmlinuz metadata
+  ansible.builtin.set_fact:
+    risng_live_kernel_version: "{{ risng_live_kernel_file.stdout
+      | regex_search('version\\s+([^\\s]+)', '\\1')
+      | default('')
+      | regex_replace('[^0-9A-Za-z.+-]', '') }}"
+
+- name: Task IR-13 - Fail when kernel version cannot be detected
+  ansible.builtin.fail:
+    msg: "Unable to detect kernel version from {{ debian_live_iso_mount }}/live/{{ risng_kernel }}"
+  when: risng_live_kernel_version | length == 0
+
+- name: Task IR-14 - Define kernel packages matching live kernel version
+  ansible.builtin.set_fact:
+    risng_kernel_packages:
+      - "linux-image-{{ risng_live_kernel_version }}"
+      - "linux-headers-{{ risng_live_kernel_version }}"
+  when: risng_kernel_packages | length == 0
+
+- name: Task IR-15 - Show live kernel package selection
+  ansible.builtin.debug:
+    msg:
+      - "Detected live kernel version: {{ risng_live_kernel_version }}"
+      - "Kernel packages: {{ risng_kernel_packages | join(', ') }}"
+
+# -------------------------------------------------------------------
+# Step 1: Bootstrap minimal Debian system (native architecture)
+# -------------------------------------------------------------------
+
+- name: Task IR-16 - Stat check for existing debootstrap rootfs
+  stat:
+    path: "{{ risng_workdir }}/bin/bash"
+  register: risng_rootfs_check
+
+- name: Task IR-17 - Remove old debootstrap target if incomplete
+  file:
+    path: "{{ risng_workdir }}"
+    state: absent
+  when: not risng_rootfs_check.stat.exists
+
+- name: Task IR-18 - Recreate working directory
+  file:
+    path: "{{ risng_workdir }}"
+    state: directory
+    mode: "0755"
+
+- name: Task IR-19 - Run debootstrap with complete systemd support
+  vars:
+    debootstrap_includes: >-
+      systemd,systemd-sysv,live-boot,openssh-server,python3,rsync,
+      netbase,ifupdown,locales,vim,less,dialog,sudo
+  command: >
+    debootstrap
+    --no-check-gpg
+    --include={{ debootstrap_includes | replace('\n', '') | replace(' ', '') }}
+    {{ debian_codename }} {{ risng_workdir }} {{ debian_mirror_url }}
+  args:
+    creates: "{{ risng_workdir }}/bin/bash"
+
+- name: Task IR-20 - Verify presence of init system (systemd)
+  stat:
+    path: "{{ risng_workdir }}/usr/lib/systemd/systemd"
+  register: init_check
+
+- name: Task IR-21 - Abort if init system is missing
+  fail:
+    msg: "ERROR: /usr/lib/systemd/systemd missing – debootstrap rootfs unbootable!"
+  when: not init_check.stat.exists
+
+- name: Task IR-22 - Ensure target /root directory exists
+  file:
+    path: "{{ risng_workdir }}/root"
+    state: directory
+    mode: "0750"
+
+- name: Task IR-23 - Collect helper files from role
+  set_fact:
+    helper_files: "{{ lookup('fileglob', role_path + '/files/*', errors='ignore', wantlist=True) }}"
+
+- name: Task IR-24 - Copy helper files into /root of target system
+  copy:
+    src: "{{ item }}"
+    dest: "{{ risng_workdir }}/root/{{ item | basename }}"
+    mode: "0644"
+  loop: "{{ helper_files }}"
+  when: helper_files | length > 0
+
+# -------------------------------------------------------------------
+# Step 2: Customize system (SSH user, hostname, keys, etc.)
+# -------------------------------------------------------------------
+- import_tasks: customise_root.yml
+
+# -------------------------------------------------------------------
+# Step 2.4: Prepare package list (kernel + tools)
+# -------------------------------------------------------------------
+- name: Task IR-49 - Ensure kernel packages are defined
+  ansible.builtin.fail:
+    msg: "risng_kernel_packages must be defined and non-empty"
+  when: risng_kernel_packages | length == 0
+
+- name: Task IR-50 - Build risng package install list
+  ansible.builtin.set_fact:
+    risng_packages: "{{ risng_kernel_packages + tools_packages }}"
+
+# -------------------------------------------------------------------
+# Step 2.5: Install additional tools inside the risng rootfs
+# -------------------------------------------------------------------
+- import_tasks: install_tools.yml
+
+# -------------------------------------------------------------------
+# Step 2.6: Ensure VLAN support is available in the risng rootfs
+# -------------------------------------------------------------------
+- import_tasks: vlan_support.yml
+
+# -------------------------------------------------------------------
+# Step 2.6.5: Validate kernel module availability inside the risng rootfs
+# -------------------------------------------------------------------
+- name: Task IR-63 - Collect installed kernel module directories inside risng rootfs
+  ansible.builtin.find:
+    paths: "{{ risng_workdir }}/lib/modules"
+    file_type: directory
+    recurse: false
+  register: risng_module_dirs
+  failed_when: false
+
+- name: Task IR-64 - Determine effective kernel version for module validation
+  ansible.builtin.set_fact:
+    risng_effective_kernel_version: >-
+      {{
+        (
+          risng_module_dirs.files
+          | map(attribute='path')
+          | map('basename')
+          | select('equalto', risng_live_kernel_version)
+          | list
+          | first
+        )
+        | default(
+          risng_module_dirs.files
+          | map(attribute='path')
+          | map('basename')
+          | list
+          | sort
+          | last
+          | default(risng_live_kernel_version)
+        )
+      }}
+  when: risng_module_dirs is defined
+
+- name: Task IR-65 - Show resolved kernel version for module validation
+  ansible.builtin.debug:
+    msg:
+      - "Live ISO kernel version: {{ risng_live_kernel_version }}"
+      - "Module directories found: {{ risng_module_dirs.files | map(attribute='path') | map('basename') | list | default([]) }}"
+      - "Validating modules for kernel version: {{ risng_effective_kernel_version }}"
+  when: risng_effective_kernel_version is defined
+
+- name: Task IR-66 - Verify kernel modules directory exists for live kernel
+  ansible.builtin.stat:
+    path: "{{ risng_workdir }}/lib/modules/{{ risng_effective_kernel_version | default(risng_live_kernel_version) }}"
+  register: risng_kernel_modules_dir
+  failed_when: not risng_kernel_modules_dir.stat.exists
+
+- name: Task IR-67 - Check 8021q module can be resolved inside risng rootfs
+  ansible.builtin.command: >
+    chroot {{ risng_workdir }} /bin/bash -c "modprobe -n -S {{ risng_effective_kernel_version | default(risng_live_kernel_version) }} 8021q"
+  changed_when: false
+
+# -------------------------------------------------------------------
+# Step 3: Configure persistent network setup inside rootfs
+# -------------------------------------------------------------------
+- import_tasks: 20_network_persistence.yml
+
+# -------------------------------------------------------------------
+# Step 4: Create squashfs for PXE boot
+# -------------------------------------------------------------------
+- name: Task IR-73 - Verify VLAN module presence in risng rootfs
+  ansible.builtin.find:
+    paths: "{{ risng_workdir }}/lib/modules"
+    file_type: directory
+    patterns: "8021q"
+    recurse: yes
+  register: vlan_module_paths
+
+- name: Task IR-74 - Fail if VLAN module directory is missing
+  ansible.builtin.fail:
+    msg: "VLAN support missing: {{ risng_workdir }}/lib/modules/*/kernel/net/8021q not found"
+  when: vlan_module_paths.files | map(attribute='path') | select('search', '/kernel/net/8021q$') | list | length == 0
+
+- name: Task IR-75 - Create squashfs rootfs
+  command: >
+    mksquashfs {{ risng_workdir }} {{ risng_target }}/filesystem.squashfs -comp xz -noappend
+  args:
+    creates: "{{ risng_target }}/filesystem.squashfs"
+
+# -------------------------------------------------------------------
+# Step 5: Copy initrd and vmlinuz from Debian Live ISO or chroot kernel
+# -------------------------------------------------------------------
+- name: Task IR-76 - Select kernel and initrd source (default live ISO)
+  ansible.builtin.set_fact:
+    risng_kernel_source: "{{ debian_live_iso_mount }}/live/{{ risng_kernel }}"
+    risng_initrd_source: "{{ debian_live_iso_mount }}/live/{{ risng_initrd }}"
+    risng_kernel_version_selected: "{{ risng_live_kernel_version }}"
+
+- name: Task IR-77 - Prefer risng chroot kernel artifacts when kernel version differs
+  ansible.builtin.set_fact:
+    risng_kernel_source: "{{ risng_workdir }}/boot/vmlinuz-{{ risng_effective_kernel_version }}"
+    risng_initrd_source: "{{ risng_workdir }}/boot/initrd.img-{{ risng_effective_kernel_version }}"
+    risng_kernel_version_selected: "{{ risng_effective_kernel_version }}"
+  when: risng_effective_kernel_version is defined and risng_effective_kernel_version != risng_live_kernel_version
+
+- name: Task IR-78 - Validate selected kernel and initrd exist
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ risng_kernel_source }}"
+    - "{{ risng_initrd_source }}"
+  register: risng_kernel_artifacts
+
+- name: Task IR-79 - Fail when selected kernel artifacts are missing
+  ansible.builtin.fail:
+    msg: "Kernel artifact missing: {{ risng_kernel_artifacts.results | selectattr('stat.exists', 'equalto', false) | map(attribute='invocation.module_args.path') | first }}"
+  when: risng_kernel_artifacts.results | selectattr('stat.exists', 'equalto', false) | list | length > 0
+
+- name: Task IR-80 - Copy selected initrd
+  copy:
+    remote_src: true
+    src: "{{ risng_initrd_source }}"
+    dest: "{{ risng_target }}/initrd.img"
+    mode: "0644"
+
+- name: Task IR-81 - Copy selected vmlinuz
+  copy:
+    remote_src: true
+    src: "{{ risng_kernel_source }}"
+    dest: "{{ risng_target }}/vmlinuz"
+    mode: "0644"
+
+# -------------------------------------------------------------------
+# Step 6: Deploy PXELINUX (BIOS) menu entry
+# -------------------------------------------------------------------
+- name: Task IR-82 - Deploy PXELINUX (BIOS) entry
+  template:
+    src: "{{ pxe_entry_pxelinux_template }}"
+    dest: "{{ pxelinux_dir }}/{{ risng_pxelinux_filename }}"
+    mode: "0644"
+  vars:
+    filename_prefix: risng
+    menu_title: "{{ risng_label }}"
+    kernel_path: "/{{ risng_target_relative }}/{{ risng_kernel }}"
+    initrd_path: "/{{ risng_target_relative }}/{{ risng_initrd }}"
+    kernel_cmdline: >-
+      boot=live fetch=tftp://{{ tftp_server_ip }}/{{ risng_target_relative }}/filesystem.squashfs
+      debug nosplash toram
+
+# -------------------------------------------------------------------
+# Step 7: Deploy GRUB (UEFI) menu entry
+# -------------------------------------------------------------------
+- name: Task IR-83 - Deploy GRUB (UEFI) entry
+  template:
+    src: "{{ pxe_entry_grub_template }}"
+    dest: "{{ grub_dir }}/{{ risng_grub_filename }}"
+    mode: "0644"
+  vars:
+    filename_prefix: risng
+    menu_title: "{{ risng_grub_label }}"
+    kernel_path: "/{{ risng_target_relative }}/{{ risng_kernel }}"
+    initrd_path: "/{{ risng_target_relative }}/{{ risng_initrd }}"
+    append_args: >-
+      boot=live net.ifnames=0 ip=dhcp
+      fetch=tftp://{{ tftp_server_ip }}/{{ risng_target_relative }}/filesystem.squashfs
+      locales=de_DE.UTF-8 keyboard-layouts=de
+      debug nosplash toram
+
+# -------------------------------------------------------------------
+# Step 8: Generate bootloader binaries
+# -------------------------------------------------------------------
+- import_tasks: bootloader_generation.yml
+

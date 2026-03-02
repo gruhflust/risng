@@ -1,0 +1,44 @@
+# group_vars_all_v03 – consistent PXE boot configuration (bios + uefi)
+
+# Debian base system
+debian_codename: "trixie"
+debian_mirror_url: "http://deb.debian.org/debian"
+
+
+# Temporary workspace + ISO download path (prefer /var/tmp over tmpfs /tmp)
+pxe_tmp_dir: "/var/tmp/pxe-build"
+iso_download_dir: "{{ pxe_tmp_dir }}/iso"
+
+# TFTP export targets
+pxe_tftp_dir: "/var/lib/tftpboot"
+pxelinux_dir: "{{ pxe_tftp_dir }}/pxelinux.cfg"
+grub_dir:     "{{ pxe_tftp_dir }}/boot/grub"
+tftp_root: /var/lib/tftpboot
+
+
+# PXE Menu defaults
+pxe_timeout:        100
+pxe_default_label:  debian-live
+pxe_menu_prefixes:  [10,20]
+
+# Network interface mapping
+# internetinterface: "ens33"
+# risng_lan_interface: "ens36"
+
+# DHCP & TFTP IP config
+dhcp_network_prefix: "10.228.229"  # Network prefix for DHCP range
+bootstrap_ip: "10.228.229.7"
+dhcp_gateway: "{{ bootstrap_ip }}"
+dhcp_prefix: "24"
+dhcp_netmask: "255.255.255.0"
+tftp_server_ip: "{{ bootstrap_ip }}"
+
+
+
+
+# SSH settings for rootfs (user+key injection)
+ssh_user: "risng"
+ssh_user_home: "/home/risng"
+ssh_pubkey_path: "{{ pxe_tftp_dir }}/ssh/id_rsa.pub"
+
+# Optional: Static MAC-based DHCP leases

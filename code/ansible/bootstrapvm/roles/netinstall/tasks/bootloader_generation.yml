@@ -1,0 +1,30 @@
+# roles/netinstall/tasks/bootloader_generation.yml
+# netinstall_bootloader_generation_v04 – only use host's PXELINUX files
+# -------------------------------------------------------------------
+# Copies PXELINUX BIOS bootloader files to TFTP root for Legacy PXE boot
+# -------------------------------------------------------------------
+
+- name: 04 08 01 Copy PXELINUX BIOS bootloader files from host system
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ item }}"
+    dest: "{{ pxe_tftp_dir }}/"
+    mode: "0644"
+  loop:
+    - /usr/lib/PXELINUX/pxelinux.0
+    - /usr/lib/syslinux/modules/bios/ldlinux.c32
+    - /usr/lib/syslinux/modules/bios/vesamenu.c32
+
+- name: 04 08 02 Check PXELINUX BIOS bootloader files exist
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ pxe_tftp_dir }}/pxelinux.0"
+    - "{{ pxe_tftp_dir }}/ldlinux.c32"
+    - "{{ pxe_tftp_dir }}/vesamenu.c32"
+  register: pxelinux_check
+
+- name: 04 08 03 Report PXELINUX file presence
+  ansible.builtin.debug:
+    msg: "{{ item.stat.path }} exists: {{ item.stat.exists }}"
+  loop: "{{ pxelinux_check.results }}"

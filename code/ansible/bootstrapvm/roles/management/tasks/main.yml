@@ -1,0 +1,452 @@
+# roles/management/tasks/main.yml
+# Version: management_v22 – bootstrap_ip fallback + robust DNS install
+
+- name: Ensure bootstrap_ip is defined
+  ansible.builtin.set_fact:
+    bootstrap_ip: "{{ ansible_default_ipv4.address }}"
+  when: bootstrap_ip is not defined
+
+- name: Ensure dhcp_network_prefix is defined
+  ansible.builtin.set_fact:
+    dhcp_network_prefix: "{{ (dhcp_gateway | default(bootstrap_ip | default(ansible_default_ipv4.address))).split('.')[:-1] | join('.') }}"
+  when: dhcp_network_prefix is not defined
+
+- name: Ensure DHCP range variables are defined
+  ansible.builtin.set_fact:
+    dhcp_range_start: "{{ dhcp_network_prefix }}.101"
+    dhcp_range_end: "{{ dhcp_network_prefix }}.200"
+  when:
+    - dhcp_range_start is not defined or dhcp_range_end is not defined
+    
+- name: Ensure dhcp_network_prefix is defined
+  ansible.builtin.set_fact:
+    dhcp_network_prefix: "{{ (dhcp_gateway | default(bootstrap_ip | default(ansible_default_ipv4.address))).split('.')[:-1] | join('.') }}"
+  when: dhcp_network_prefix is not defined
+
+- name: Ensure DHCP range variables are defined
+  ansible.builtin.set_fact:
+    dhcp_range_start: "{{ dhcp_network_prefix }}.101"
+    dhcp_range_end: "{{ dhcp_network_prefix }}.200"
+  when:
+    - dhcp_range_start is not defined or dhcp_range_end is not defined
+
+- name: 02_00 Stop packagekitd to release dpkg lock
+  ansible.builtin.systemd:
+    name: packagekit
+    state: stopped
+  ignore_errors: true
+
+- name: 02_00a Backup current resolv conf
+  ansible.builtin.copy:
+    src: /etc/resolv.conf
+    dest: /etc/resolv.conf.orig
+    remote_src: true
+    mode: "0644"
+  when: resolv_conf_backup | default(true)
+
+- name: 02_01 Check carrier of internet NIC (non-fatal)
+  ansible.builtin.shell: cat /sys/class/net/{{ internetinterface }}/carrier
+  register: net_carrier
+  changed_when: false
+  failed_when: false
+
+- name: 02_01a Warn if no carrier is detected
+  ansible.builtin.debug:
+    msg: "Warning: Interface {{ internetinterface }} has no carrier – no cable or link down!"
+  when: net_carrier.stdout != "1"
+
+- name: 02_01a Wait until internet NIC has IPv4 address (non-fatal)
+  ansible.builtin.shell: |
+    for i in $(seq 1 10); do
+      ip -4 addr show {{ internetinterface }} | grep -q 'inet ' && break
+      sleep 1
+    done
+    ip -4 addr show {{ internetinterface }} | grep 'inet '
+  register: iface_ip_check
+  changed_when: false
+  failed_when: false
+
+- name: 02_01b Warn if no IPv4 address detected
+  ansible.builtin.debug:
+    msg: "Warning: Interface {{ internetinterface }} has no IPv4 address after 10s – DHCP or link issue?"
+  when: iface_ip_check.stdout_lines | length == 0
+
+- name: 02_01b Fail if multiple IPs on internet NIC
+  ansible.builtin.fail:
+    msg: "Interface {{ internetinterface }} has multiple IPs: {{ iface_ip_check.stdout_lines }}"
+  when: iface_ip_check.stdout_lines | length > 1
+
+- name: 02_01c Wait until DNS resolves debian (non-fatal)
+  ansible.builtin.shell: |
+    for i in $(seq 1 10); do
+      getent hosts deb.debian.org && exit 0
+      sleep 1
+    done
+    exit 1
+  register: dns_check
+  changed_when: false
+  failed_when: false
+
+- name: 02_01d Warn if DNS resolution failed
+  ansible.builtin.debug:
+    msg: "Warning: DNS resolution for deb.debian.org failed after 10 seconds. Please check resolv.conf or upstream DNS."
+  when: dns_check.rc != 0
+
+- name: 02_01e Show DNS resolution output
+  ansible.builtin.debug:
+    msg: "{{ dns_check.stdout_lines }}"
+
+- name: 02_03 Create PXE directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ pxe_tmp_owner }}"
+    group: "{{ pxe_tmp_group }}"
+    mode: "{{ pxe_tmp_mode }}"
+  loop:
+    - "{{ pxe_tmp_dir }}"
+    - "{{ pxe_tmp_dir }}/log"
+    - "{{ pxe_tmp_dir }}/iso"
+    - "{{ pxe_tmp_dir }}/mnt-live"
+    - "{{ pxe_tmp_dir }}/live-root"
+    - "{{ pxe_tmp_dir }}/netinstall"
+    - "{{ pxe_tmp_dir }}/rootfs-netinstall"
+    - "{{ pxe_tftp_dir }}"
+    - "{{ pxelinux_dir }}"
+    - "{{ grub_dir }}"
+    - "{{ pxe_tftp_dir }}/debian-live/live"
+    - "{{ pxe_tftp_dir }}/images/netinstall"
+
+- name: 02_04a Install PXE-safe base packages
+  ansible.builtin.apt:
+    name:
+      - git
+      - tree
+      - vim
+      - ansible
+      - chromium
+      - tftpd-hpa
+      - tftp-hpa
+      - pxelinux
+      - isc-dhcp-server
+      - bind9
+      - bind9-utils
+      - bind9-dnsutils
+      - libarchive-tools
+      - syslinux-common
+      - tshark
+      - tcpdump
+      - net-tools
+      - rclone
+      - grub-efi-amd64-bin
+      - squashfs-tools
+      - openssh-server
+      - debootstrap
+      - qemu-user-static
+      - binfmt-support
+      - rsync
+      - docker-compose
+      - python3-pip
+      - open-vm-tools
+      - open-vm-tools-desktop
+    state: present
+    update_cache: true
+  register: pkgs_base
+  retries: 5
+  delay: 10
+  until: pkgs_base is succeeded
+
+- name: 02_04a1 Protect bind9 from being auto-removed (if installed)
+  ansible.builtin.shell: |
+    if dpkg -l | grep -q '^ii  bind9 '; then
+      apt-mark manual bind9 bind9-utils
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: 02_04a2 Reinstall bind9 if systemd unit is missing
+  ansible.builtin.shell: |
+    if ! systemctl list-unit-files | grep -q '^bind9\.service'; then
+      apt-get install --reinstall -y bind9 bind9-utils
+    fi
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- import_tasks: 02_prepare_iso.yml
+
+- name: 02_04a3 Install pynetbox and pytest via pip
+  ansible.builtin.pip:
+    name:
+      - pynetbox
+      - pytest
+    executable: pip3
+    extra_args: --break-system-packages
+  tags: pip
+
+- name: 02_04b Start and enable open-vm-tools
+  ansible.builtin.systemd:
+    name: open-vm-tools
+    state: started
+    enabled: true
+
+- name: 02_04c Ensure tftpd-hpa config points to correct TFTP root
+  ansible.builtin.template:
+    src: tftpd-hpa.j2
+    dest: /etc/default/tftpd-hpa
+    mode: "0644"
+  notify: Restart tftpd-hpa
+
+- name: 02_04d Install network-sensitive packages
+  ansible.builtin.apt:
+    name:
+      - xfconf
+      - flameshot
+    state: present
+  register: pkgs_sens
+  retries: 3
+  delay: 5
+  until: pkgs_sens is succeeded
+
+- name: 02_05a Restore DNS from resolv.conf.orig if available
+  copy:
+    src: /etc/resolv.conf.orig
+    dest: /etc/resolv.conf
+    remote_src: true
+    mode: "0644"
+  when: ansible_facts.exists['/etc/resolv.conf.orig'] is defined
+
+- name: 02_06b Ensure TFTP root directory exists
+  ansible.builtin.file:
+    path: "{{ pxe_tftp_dir }}"
+    state: directory
+    owner: tftp
+    group: tftp
+    mode: "0755"
+
+- name: 02_06c Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: 02_07 Copy unicode.pf2 font for GRUB
+  ansible.builtin.copy:
+    src: /usr/share/grub/unicode.pf2
+    dest: "{{ grub_dir }}/unicode.pf2"
+    mode: "0644"
+
+- name: 02_07a Stop tftpd-hpa if running
+  ansible.builtin.systemd:
+    name: tftpd-hpa
+    state: stopped
+  ignore_errors: true
+
+- name: 02_07b Enable tftpd-hpa
+  ansible.builtin.systemd:
+    name: tftpd-hpa
+    enabled: true
+
+- name: 02_07c Start tftpd-hpa
+  ansible.builtin.systemd:
+    name: tftpd-hpa
+    state: started
+
+- name: 02_07d Show tftp journal lines
+  ansible.builtin.shell: journalctl -xeu tftpd-hpa --no-pager -n 20
+  register: tftp_journal
+  changed_when: false
+  failed_when: false
+
+- name: 02_07e Debug tftp journal
+  debug:
+    var: tftp_journal.stdout_lines
+
+- name: 02_07f Fix permissions on TFTP directory
+  ansible.builtin.file:
+    path: "{{ pxe_tftp_dir }}"
+    owner: root
+    group: tftp
+    mode: "0755"
+    recurse: true
+
+- name: 02_07g Ensure runtime qperf publish directory exists
+  ansible.builtin.file:
+    path: "{{ cheaplanwatch_publish_dir }}"
+    state: directory
+    owner: root
+    group: tftp
+    mode: "0755"
+
+- name: 02_07h Publish cheaplanwatch runtime client payload
+  ansible.builtin.template:
+    src: cheaplanwatch-client.sh.j2
+    dest: "{{ cheaplanwatch_publish_dir }}/cheaplanwatch-client.sh"
+    owner: root
+    group: tftp
+    mode: "0755"
+
+- name: 02_07h1 Publish cheaplanwatch_eantc runtime client payload
+  ansible.builtin.template:
+    src: cheaplanwatch-client_eantc.sh.j2
+    dest: "{{ cheaplanwatch_publish_dir }}/cheaplanwatch-client_eantc.sh"
+    owner: root
+    group: tftp
+    mode: "0755"
+
+- name: 02_07i Select free cheaplanwatch HTTP port (fallback candidates)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    for p in {{ cheaplanwatch_http_port_candidates | join(' ') }}; do
+      if ! ss -ltn "( sport = :${p} )" | tail -n +2 | grep -q .; then
+        echo "$p"
+        exit 0
+      fi
+    done
+    echo "{{ cheaplanwatch_http_port }}"
+  args:
+    executable: /bin/bash
+  register: cheaplanwatch_port_pick
+  changed_when: false
+
+- name: 02_07i1 Set selected cheaplanwatch HTTP port
+  ansible.builtin.set_fact:
+    cheaplanwatch_http_port_effective: "{{ cheaplanwatch_port_pick.stdout | trim | default(cheaplanwatch_http_port) }}"
+
+- name: 02_07i2 Ensure qperf/iperf3 tools are present on risng server
+  ansible.builtin.apt:
+    name:
+      - qperf
+      - iperf3
+    state: present
+    update_cache: true
+
+- name: 02_07i3 Install cheaplanwatch HTTP distribution service unit
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/cheaplanwatch-http.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=cheaplanwatch runtime payload HTTP service
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/python3 -m http.server {{ cheaplanwatch_http_port_effective }} --directory {{ cheaplanwatch_publish_dir }}
+      Restart=always
+      RestartSec=2
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: 02_07j Enable and start cheaplanwatch HTTP distribution service
+  ansible.builtin.systemd:
+    name: cheaplanwatch-http
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: 02_07j1 Show selected cheaplanwatch HTTP port
+  ansible.builtin.debug:
+    msg: "cheaplanwatch HTTP service listens on port {{ cheaplanwatch_http_port_effective }}"
+
+- name: 02_07k Ensure cheaplanwatch report directory exists
+  ansible.builtin.file:
+    path: /home/risng/cheaplanwatch
+    state: directory
+    owner: risng
+    group: risng
+    mode: "0755"
+
+- name: 02_08 Enable SSH service
+  ansible.builtin.systemd:
+    name: ssh
+    state: started
+    enabled: true
+
+- name: 02_09 Upgrade system packages
+  ansible.builtin.apt:
+    upgrade: dist
+  register: upgrade_result
+  retries: 3
+  delay: 5
+  until: upgrade_result is succeeded
+
+- name: 02_10 Set timezone to Europe/Berlin
+  community.general.timezone:
+    name: Europe/Berlin
+
+- name: 02_11 Install motd template
+  ansible.builtin.template:
+    src: motd.md.j2
+    dest: /etc/motd
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: 02_12 Avoid duplicate MOTD output from bash profile (PAM already shows MOTD)
+  ansible.builtin.lineinfile:
+    path: "{{ ssh_user_home }}/.bash_profile"
+    regexp: '^\[ -r /etc/motd \] && cat /etc/motd$'
+    state: absent
+    owner: "{{ ssh_user }}"
+    group: "{{ ssh_user }}"
+    mode: "0644"
+    create: true
+
+- name: 02_13a Ensure .bash_profile includes .bashrc loading
+  ansible.builtin.lineinfile:
+    path: "{{ ssh_user_home }}/.bash_profile"
+    line: '[ -r ~/.bashrc ] && . ~/.bashrc'
+    insertafter: EOF
+    create: true
+    owner: "{{ ssh_user }}"
+    group: "{{ ssh_user }}"
+    mode: "0644"
+    state: present
+
+- name: 02_14 Ensure ssh directory exists
+  ansible.builtin.file:
+    path: "{{ ssh_user_home }}/.ssh"
+    state: directory
+    owner: "{{ ssh_user }}"
+    group: "{{ ssh_user }}"
+    mode: "0700"
+
+- name: 02_15 Generate SSH keypair if missing
+  community.crypto.openssh_keypair:
+    path: "{{ ssh_user_home }}/.ssh/id_ed25519"
+    type: ed25519
+    owner: "{{ ssh_user }}"
+    group: "{{ ssh_user }}"
+    mode: "0600"
+    force: false
+    comment: "risng ssh key"
+    passphrase: ""
+
+- import_tasks: 02_generate_known_hosts.yml
+
+- name: 02_15b Ensure GRUB directory exists
+  ansible.builtin.file:
+    path: "{{ grub_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: 02_16 Install GRUB header
+  ansible.builtin.template:
+    src: 00-header.cfg.j2
+    dest: "{{ grub_dir }}/00-header.cfg"
+    mode: "0644"
+    force: true
+
+- name: 02_17 Install GRUB fallback entry
+  ansible.builtin.template:
+    src: 99-fallback.cfg.j2
+    dest: "{{ grub_dir }}/99-fallback.cfg"
+    mode: "0644"
+
+- name: 02_18 Generate PXE bootloaders
+  import_tasks: bootloader_generation.yml
+
+- name: 02_19 Download ISOs and tarballs
+  import_tasks: 10_iso_downloads.yml

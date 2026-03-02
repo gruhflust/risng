@@ -1,0 +1,26 @@
+# roles/systemupdate/tasks/main.yml
+# Version: systemupdate_v05 – backups resolv.conf first, then update, then heal
+
+- name: Ensure network interfaces are detected
+  import_tasks: "{{ role_path }}/../../detect_interfaces.yml"
+
+- name: 00 Backup current resolv.conf if not yet saved
+  ansible.builtin.copy:
+    src: /etc/resolv.conf
+    dest: /etc/resolv.conf.orig
+    remote_src: true
+    
+    mode: "0644"
+  when: resolv_conf_backup | default(true)
+
+- name: 01 Upgrade system packages
+  ansible.builtin.apt:
+    upgrade: dist
+    update_cache: true
+  register: upgrade_result
+  retries: 3
+  delay: 5
+  until: upgrade_result is succeeded
+
+- name: 02 Heal Internet using inline taskfile
+  include_tasks: heal_internet.yml

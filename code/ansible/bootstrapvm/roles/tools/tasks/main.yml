@@ -1,0 +1,45 @@
+# roles/tools/tasks/main.yml
+# Version: tools_v01 – installs CLI and admin tools from curated list
+
+- name: 05_01 Update apt cache
+  ansible.builtin.apt:
+    update_cache: true
+  tags: tools
+
+- name: 05_02 Install CLI and admin tools from curated list
+  ansible.builtin.apt:
+    name:
+      - htop
+      - iotop
+      - iperf3
+      - iftop
+      - ncdu
+      - nmap
+      - screen
+      - tmux
+      - jq
+      - curl
+      - wget
+      - unzip
+      - netcat-openbsd
+      - tree
+      - bash-completion
+      - parted
+      - imagemagick
+      - lsof
+      - pciutils
+      - usbutils
+      - lshw
+      - whois
+      - bind9-dnsutils
+      - traceroute
+      - iproute2
+      - vlan
+      - vim
+      - qperf
+    state: present
+  register: tool_install
+  retries: 3
+  delay: 5
+  until: tool_install is succeeded
+  tags: tools

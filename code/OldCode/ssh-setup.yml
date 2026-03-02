@@ -1,0 +1,45 @@
+---
+- name: Setup SSH for localhost
+  hosts: localhost
+  become: true
+
+  vars_files:
+    - ../host_vars/localhost.yml
+
+  tasks:
+    - name: 01 Install SSH packages
+      ansible.builtin.apt:
+        name:
+          - ssh
+        state: present
+        update_cache: true
+
+    - name: 02 Upgrade system packages
+      ansible.builtin.apt:
+        upgrade: dist
+
+    - name: 03 Ensure .ssh directory exists
+      ansible.builtin.file:
+        path: "{{ ssh_user_home }}/.ssh"
+        state: directory
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: '0700'
+
+    - name: 04 Generate SSH key pair
+      community.crypto.openssh_keypair:
+        path: "{{ ssh_user_home }}/.ssh/id_rsa"
+        type: rsa
+        size: 2048
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: '0600'
+        force: false
+
+    - name: 05 Copy public key to authorized_keys
+      ansible.builtin.copy:
+        src: "{{ ssh_user_home }}/.ssh/id_rsa.pub"
+        dest: "{{ ssh_user_home }}/.ssh/authorized_keys"
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: '0600'

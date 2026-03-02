@@ -1,0 +1,133 @@
+---
+# customise_live_root_v03 – robustified version with full feature parity
+
+# 01 Copy resolv.conf from host
+- name: 02 05 01 Copy resolv.conf
+  ansible.builtin.copy:
+    src: /etc/resolv.conf
+    dest: "{{ debian_live_workdir }}/etc/resolv.conf"
+    remote_src: true
+    mode: '0644'
+
+# 02 Enable sshd autostart
+- name: 02 05 02 Enable sshd autostart
+  ansible.builtin.lineinfile:
+    path: "{{ debian_live_workdir }}/root/.bash_profile"
+    line: "pgrep -x sshd >/dev/null || /usr/sbin/sshd"
+    create: true
+    mode: '0644'
+
+# 03a Check if public key is present
+- name: 02 05 03a Stat SSH public key
+  ansible.builtin.stat:
+    path: "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+  register: ssh_pubkey
+
+# 03b Copy SSH key if present
+- name: 02 05 03b Inject SSH public key
+  ansible.builtin.copy:
+    src: "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+    dest: "{{ debian_live_workdir }}/root/.ssh/authorized_keys"
+    mode: '0600'
+    remote_src: true
+  when: ssh_pubkey.stat.exists
+
+# 03c Warn if key is missing
+- name: 02 05 03c Warn if no public key found
+  ansible.builtin.debug:
+    msg: "WARNING: SSH public key not found – live root will have no remote access!"
+  when: not ssh_pubkey.stat.exists
+
+# 04 Create autologin directory
+- name: 02 05 04 Create autologin directory
+  ansible.builtin.file:
+    path: "{{ debian_live_workdir }}/etc/systemd/system/getty@tty1.service.d"
+    state: directory
+    mode: '0755'
+
+# 05 Deploy systemd autologin override
+- name: 02 05 05 Deploy autologin override
+  ansible.builtin.copy:
+    dest: "{{ debian_live_workdir }}/etc/systemd/system/getty@tty1.service.d/override.conf"
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+    mode: '0644'
+
+# 06 Remove first-boot helpers and Plymouth
+- name: 02 05 06 Remove first-boot helpers
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ debian_live_workdir }}/usr/libexec/gnome-initial-setup"
+    - "{{ debian_live_workdir }}/usr/share/gnome-initial-setup"
+    - "{{ debian_live_workdir }}/usr/share/applications/gnome-initial-setup.desktop"
+    - "{{ debian_live_workdir }}/etc/skel/.config/autostart/gnome-initial-setup-first-login.desktop"
+    - "{{ debian_live_workdir }}/etc/xdg/autostart/gnome-initial-setup.desktop"
+    - "{{ debian_live_workdir }}/usr/share/plymouth"
+    - "{{ debian_live_workdir }}/lib/systemd/system/plymouth-start.service"
+    - "{{ debian_live_workdir }}/lib/systemd/system/plymouth-read-write.service"
+    - "{{ debian_live_workdir }}/lib/systemd/system/plymouth-quit.service"
+    - "{{ debian_live_workdir }}/usr/bin/plymouth"
+
+# 07 German keyboard layout
+- name: 02 05 07 Configure German keyboard
+  ansible.builtin.copy:
+    dest: "{{ debian_live_workdir }}/etc/default/keyboard"
+    content: |
+      XKBMODEL="pc105"
+      XKBLAYOUT="de"
+      XKBVARIANT=""
+      XKBOPTIONS=""
+    mode: '0644'
+
+# 08 Mask suspend / hibernate
+- name: 02 05 08 Mask suspend / hibernate
+  ansible.builtin.file:
+    src: /dev/null
+    dest: "{{ debian_live_workdir }}/etc/systemd/system/{{ item }}"
+    state: link
+  loop:
+    - systemd-suspend.service
+    - systemd-hibernate.service
+    - systemd-suspend-then-hibernate.service
+
+# 09 Find wallpaper candidates
+- name: 02 05 09 Find wallpaper candidates
+  ansible.builtin.find:
+    paths:
+      - "{{ debian_live_workdir }}/usr/share/desktop-base/emerald-theme/wallpaper/contents/images"
+      - "{{ debian_live_workdir }}/usr/share/backgrounds"
+    file_type: file
+  register: wallpaper_files
+  ignore_errors: true
+
+# 10 Overwrite wallpapers
+- name: 02 05 10 Overwrite wallpapers
+  ansible.builtin.copy:
+    src: wallpaper.png
+    dest: "{{ item.path }}"
+    mode: '0644'
+  loop: "{{ wallpaper_files.files | default([]) }}"
+  when: wallpaper_files is defined
+
+# 11 Ensure /etc/ssh exists
+- name: 02 05 11 Ensure ssh directory
+  ansible.builtin.file:
+    path: "{{ debian_live_workdir }}/etc/ssh"
+    state: directory
+    mode: '0755'
+
+# 12 Generate offline SSH host keys
+- name: 02 05 12 Generate SSH host keys
+  community.crypto.openssh_keypair:
+    path: "{{ debian_live_workdir }}/etc/ssh/ssh_host_{{ item }}_key"
+    type: "{{ item }}"
+    mode: '0600'
+    force: false
+  loop:
+    - rsa
+    - ecdsa
+    - ed25519

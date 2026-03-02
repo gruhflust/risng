@@ -1,0 +1,39 @@
+---
+- name: Run risng network tests via pytest
+  hosts: risng
+  gather_facts: false
+  vars:
+    username: risng
+  tasks:
+    - name: Ensure temporary test directory exists
+      delegate_to: localhost
+      ansible.builtin.file:
+        path: "/tmp/irontest/{{ inventory_hostname }}"
+        state: directory
+
+    - name: Render pytest script for host
+      delegate_to: localhost
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../../python/pnt_pytest.py.j2"
+        dest: "/tmp/irontest/{{ inventory_hostname }}/pnt_pytest.py"
+      vars:
+        device_name: "{{ inventory_hostname }}"
+        remote_host: "{{ hostvars[inventory_hostname].ansible_host | default(inventory_hostname) }}"
+        username: "{{ username }}"
+
+    - name: Execute pytest
+      delegate_to: localhost
+      ansible.builtin.command:
+        chdir: "/tmp/irontest/{{ inventory_hostname }}"
+        cmd: "pytest pnt_pytest.py"
+      environment:
+        PYTHONPYCACHEPREFIX: "{{ ansible_env.HOME }}/.cache/pycache"
+        PYTEST_ADDOPTS: "--cache-dir={{ ansible_env.HOME }}/.cache/pytest"
+      register: pytest_result
+      failed_when: pytest_result.rc != 0
+      changed_when: false
+
+    - name: Show pytest output
+      delegate_to: localhost
+      ansible.builtin.debug:
+        var: pytest_result.stdout

@@ -1,0 +1,388 @@
+---
+- name: Start cheaplanwatch server, wait for operator keypress, then collect and render
+  hosts: localhost
+  gather_facts: false
+  become: true
+  become_user: risng
+  vars:
+    run_as_user: risng
+    user_home: "/home/{{ run_as_user }}"
+    workspace: "{{ user_home }}/cheaplanwatch"
+    run_id: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
+    qperf_server_port: 19765
+    qperf_server_ip: "10.228.229.7"
+    qperf_server_pid_file: "{{ workspace }}/cheaplanwatch-qperf.pid"
+    qperf_server_log: "{{ workspace }}/cheaplanwatch-qperf.log"
+    iperf_server_pid_file: "{{ workspace }}/cheaplanwatch-iperf3.pid"
+    iperf_server_log: "{{ workspace }}/cheaplanwatch-iperf3.log"
+    qperf_targets_file: "{{ playbook_dir }}/qperf_targets.yml"
+    aggregate_json: "{{ workspace }}/{{ run_id }}-testrun.json"
+    raw_dir: "{{ workspace }}/raw/{{ run_id }}"
+    report_script: "{{ playbook_dir }}/files/cheaplanwatch_report.py"
+    current_run_file: "{{ workspace }}/current-run.env"
+    watch_mode: "{{ lookup('env', 'CHEAPLANWATCH_MODE') | default('live', true) }}"
+    watch_imix_sizes: "{{ lookup('env', 'CHEAPLANWATCH_IMIX_SIZES') | default('1:64K:*2,1:128K:*4', true) }}"
+    cheap_qperf_mode_note: "cheaplanwatch live mode={{ watch_mode }}; cheaplantest uses IMIX from qperf_imix.yml"
+  tasks:
+    - name: Publish run id for this cheaplanwatchserver session
+      ansible.builtin.set_fact:
+        cheaplanwatchserver_run_id: "{{ run_id }}"
+        cheaplanwatchserver_raw_dir: "{{ raw_dir }}"
+
+    - name: Ensure cheaplanwatch workspace exists
+      ansible.builtin.file:
+        path: "{{ workspace }}"
+        state: directory
+        owner: "{{ run_as_user }}"
+        group: "{{ run_as_user }}"
+        mode: "0755"
+
+    - name: Remove previous cheaplanwatch aggregate artifacts on server
+      ansible.builtin.shell: |
+        rm -f "{{ workspace }}"/*-testrun.json "{{ workspace }}"/*-testrun.html "{{ workspace }}"/*-testrun.pdf
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+
+    - name: Ensure raw collection directory for this run exists
+      ansible.builtin.file:
+        path: "{{ raw_dir }}"
+        state: directory
+        owner: "{{ run_as_user }}"
+        group: "{{ run_as_user }}"
+        mode: "0755"
+
+    - name: Write active cheaplanwatch run metadata for cheapwatch
+      ansible.builtin.copy:
+        dest: "{{ current_run_file }}"
+        mode: "0644"
+        content: |
+          RUN_ID={{ run_id }}
+          SERVER_IP={{ qperf_server_ip }}
+          SERVER_PORT={{ qperf_server_port }}
+          WATCH_MODE={{ watch_mode }}
+          WATCH_IMIX_SIZES={{ watch_imix_sizes }}
+
+    - name: Load qperf target definitions
+      ansible.builtin.include_vars:
+        file: "{{ qperf_targets_file }}"
+
+    - name: Stop stale cheaplanwatch qperf server process if running
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if [ -f "{{ qperf_server_pid_file }}" ]; then
+          kill "$(cat "{{ qperf_server_pid_file }}")" >/dev/null 2>&1 || true
+          rm -f "{{ qperf_server_pid_file }}"
+        fi
+        if [ -f "{{ iperf_server_pid_file }}" ]; then
+          kill "$(cat "{{ iperf_server_pid_file }}")" >/dev/null 2>&1 || true
+          rm -f "{{ iperf_server_pid_file }}"
+        fi
+        ps -eo pid=,args= | awk '$2=="qperf" && $3=="-lp" && $4=="{{ qperf_server_port }}" {print $1}' | while read -r pid; do
+          [ -n "$pid" ] && kill "$pid" >/dev/null 2>&1 || true
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Start cheaplanwatch qperf server in background
+      ansible.builtin.shell: |
+        set -euo pipefail
+        qperf -lp {{ qperf_server_port }} > "{{ qperf_server_log }}" 2>&1 &
+        echo $! > "{{ qperf_server_pid_file }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Start persistent iperf3 server for baseline bandwidth checks
+      ansible.builtin.shell: |
+        set -euo pipefail
+        iperf3 -s -p 5201 > "{{ iperf_server_log }}" 2>&1 &
+        echo $! > "{{ iperf_server_pid_file }}"
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: Wait for iperf3 server port
+      ansible.builtin.wait_for:
+        host: "{{ qperf_server_ip }}"
+        port: 5201
+        delay: 1
+        timeout: 15
+
+    - name: Wait for qperf server port
+      ansible.builtin.wait_for:
+        host: "{{ qperf_server_ip }}"
+        port: "{{ qperf_server_port }}"
+        delay: 1
+        timeout: 15
+
+    # optional observer moved to standalone script: cheapwatch
+
+    - name: Probe SSH reachability for pre-run cleanup
+      ansible.builtin.wait_for:
+        host: "{{ item.ip }}"
+        port: 22
+        timeout: 3
+      loop: "{{ qperf_targets | default([]) }}"
+      register: cleanup_probe
+      ignore_errors: true
+
+    - name: Register online clients for pre-run cleanup
+      ansible.builtin.add_host:
+        name: "{{ item.item.name }}"
+        groups: cheaplanwatch_prep_clients
+        ansible_host: "{{ item.item.ip }}"
+        ansible_user: root
+        ansible_python_interpreter: auto_silent
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      loop: "{{ cleanup_probe.results | default([]) }}"
+      when: item.failed is not defined or not item.failed
+
+    - name: Read deployed cheaplanwatch client script version
+      ansible.builtin.shell: |
+        awk -F'=' '/^CHEAPLANWATCH_CLIENT_VERSION=/{gsub(/"/,"",$2); print $2; exit}' /var/lib/tftpboot/runtime/qperf/cheaplanwatch-client.sh
+      args:
+        executable: /bin/bash
+      register: cheaplanwatch_client_version_detect
+      changed_when: false
+      failed_when: false
+
+    - name: Show operator hint for manual client runs
+      ansible.builtin.debug:
+        msg:
+          - "cheaplanwatch server ready on {{ qperf_server_ip }}:{{ qperf_server_port }} (qperf)"
+          - "iperf3 baseline server started on {{ qperf_server_ip }}:5201 (persistent for multiple clients)"
+          - "Run-ID for this testrun: {{ run_id }}"
+          - "Qperf mode: {{ cheap_qperf_mode_note }}"
+          - "Client script version: {{ cheaplanwatch_client_version_detect.stdout | default('unknown') | trim }}"
+          - "Optional live observer: cheapwatch"
+          - "Stale cheaplanwatch client processes were terminated on reachable clients."
+          - "Latest cheaplanwatch payload was deployed to reachable clients (prophylaktisch)."
+          - "Start clients with: CHEAPLANWATCH_RUN_ID={{ run_id }} CHEAPLANWATCH_MODE={{ watch_mode }} CHEAPLANWATCH_IMIX_SIZES='{{ watch_imix_sizes }}' cheaplanwatch"
+          - "cheapwatch auto-reads {{ current_run_file }} and can display one live line per client."
+          - "When finished, press ENTER here to stop server and collect JSON files."
+
+    - name: Wait for operator ENTER
+      ansible.builtin.pause:
+        prompt: "Press ENTER to stop server and collect client JSONs"
+
+    - name: Stop qperf and iperf3 servers
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if [ -f "{{ qperf_server_pid_file }}" ]; then
+          kill "$(cat "{{ qperf_server_pid_file }}")" >/dev/null 2>&1 || true
+          rm -f "{{ qperf_server_pid_file }}"
+        fi
+        if [ -f "{{ iperf_server_pid_file }}" ]; then
+          kill "$(cat "{{ iperf_server_pid_file }}")" >/dev/null 2>&1 || true
+          rm -f "{{ iperf_server_pid_file }}"
+        fi
+        # observer handled manually via cheapwatch
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Probe SSH reachability for collection
+      ansible.builtin.wait_for:
+        host: "{{ item.ip }}"
+        port: 22
+        timeout: 3
+      loop: "{{ qperf_targets | default([]) }}"
+      register: collect_probe
+      ignore_errors: true
+
+    - name: Register online clients for collection
+      ansible.builtin.add_host:
+        name: "{{ item.item.name }}"
+        groups: cheaplanwatch_collect_clients
+        ansible_host: "{{ item.item.ip }}"
+        ansible_user: root
+        ansible_python_interpreter: auto_silent
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      loop: "{{ collect_probe.results | default([]) }}"
+      when: item.failed is not defined or not item.failed
+
+- name: Stop stale cheaplanwatch client scripts and deploy fresh runtime payload
+  hosts: cheaplanwatch_prep_clients
+  gather_facts: false
+  become: true
+  become_user: root
+  vars:
+    cheaplanwatch_payload: /var/lib/tftpboot/runtime/qperf/cheaplanwatch-client.sh
+  tasks:
+    - name: Terminate running cheaplanwatch client script instances
+      ansible.builtin.shell: |
+        set -euo pipefail
+        pgrep -af 'cheaplanwatch' || true
+        pkill -TERM -f '/var/lib/tftpboot/runtime/qperf/cheaplanwatch-client.sh' || true
+        pkill -TERM -f '/var/cache/cheaplanwatch/cheaplanwatch-client.sh' || true
+        pkill -TERM -f '/usr/local/sbin/cheaplanwatch' || true
+        pkill -TERM -f 'cheaplanwatch-client-runtime.sh' || true
+        sleep 0.5
+        pkill -KILL -f '/var/lib/tftpboot/runtime/qperf/cheaplanwatch-client.sh' || true
+        pkill -KILL -f '/var/cache/cheaplanwatch/cheaplanwatch-client.sh' || true
+        pkill -KILL -f '/usr/local/sbin/cheaplanwatch' || true
+        pkill -KILL -f 'cheaplanwatch-client-runtime.sh' || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+
+    - name: Ensure cheaplanwatch cache directory exists
+      ansible.builtin.file:
+        path: /var/cache/cheaplanwatch
+        state: directory
+        mode: "0755"
+
+    - name: Deploy latest cheaplanwatch runtime payload to client cache
+      ansible.builtin.copy:
+        src: "{{ cheaplanwatch_payload }}"
+        dest: /var/cache/cheaplanwatch/cheaplanwatch-client.sh
+        mode: "0755"
+
+    - name: Deploy latest cheaplanwatch runtime payload to direct client path
+      ansible.builtin.copy:
+        src: "{{ cheaplanwatch_payload }}"
+        dest: /usr/local/sbin/cheaplanwatch-client-runtime.sh
+        mode: "0755"
+
+- name: Stop active cheaplanwatch client instances after server stop
+  hosts: cheaplanwatch_collect_clients
+  gather_facts: false
+  become: true
+  become_user: root
+  tasks:
+    - name: Terminate running cheaplanwatch client script instances after ENTER
+      ansible.builtin.shell: |
+        set -euo pipefail
+        pgrep -af 'cheaplanwatch' || true
+        pkill -TERM -f '/var/lib/tftpboot/runtime/qperf/cheaplanwatch-client.sh' || true
+        pkill -TERM -f '/var/cache/cheaplanwatch/cheaplanwatch-client.sh' || true
+        pkill -TERM -f '/usr/local/sbin/cheaplanwatch' || true
+        pkill -TERM -f 'cheaplanwatch-client-runtime.sh' || true
+        sleep 0.5
+        pkill -KILL -f '/var/lib/tftpboot/runtime/qperf/cheaplanwatch-client.sh' || true
+        pkill -KILL -f '/var/cache/cheaplanwatch/cheaplanwatch-client.sh' || true
+        pkill -KILL -f '/usr/local/sbin/cheaplanwatch' || true
+        pkill -KILL -f 'cheaplanwatch-client-runtime.sh' || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+      failed_when: false
+
+- name: Collect raw cheaplanwatch JSON files from online clients
+  hosts: cheaplanwatch_collect_clients
+  gather_facts: false
+  become: true
+  become_user: root
+  tasks:
+    - name: Find cheaplanwatch artifacts for current run id on client
+      ansible.builtin.find:
+        paths: /tmp/cheaplanwatch
+        patterns:
+          - "{{ hostvars['localhost'].cheaplanwatchserver_run_id }}-*.json"
+          - "{{ hostvars['localhost'].cheaplanwatchserver_run_id }}-*.samples.ndjson"
+        file_type: file
+      register: found_artifacts
+      failed_when: false
+
+    - name: Ensure per-client raw directory exists on server
+      ansible.builtin.file:
+        path: "{{ hostvars['localhost'].cheaplanwatchserver_raw_dir }}/{{ inventory_hostname }}"
+        state: directory
+        mode: "0755"
+      delegate_to: localhost
+      become: true
+      become_user: risng
+
+    - name: Copy run artifacts from client to server raw directory
+      ansible.builtin.fetch:
+        src: "{{ item.path }}"
+        dest: "{{ hostvars['localhost'].cheaplanwatchserver_raw_dir }}/{{ inventory_hostname }}/"
+        flat: true
+      loop: "{{ found_artifacts.files | default([]) }}"
+      when: found_artifacts.files | default([]) | length > 0
+
+    - name: Select newest JSON file if present
+      ansible.builtin.set_fact:
+        cheaplanwatch_latest_json: >-
+          {{
+            (found_artifacts.files | default([]) | selectattr('path', 'search', '\\.json$') | sort(attribute='mtime') | last).path
+            if ((found_artifacts.files | default([]) | selectattr('path', 'search', '\\.json$') | list | length) > 0)
+            else ''
+          }}
+
+    - name: Slurp newest JSON file
+      ansible.builtin.slurp:
+        src: "{{ cheaplanwatch_latest_json }}"
+      register: client_json_raw
+      when: cheaplanwatch_latest_json | length > 0
+      failed_when: false
+
+    - name: Parse client JSON payload
+      ansible.builtin.set_fact:
+        cheaplanwatch_client_payload: >-
+          {{
+            ((client_json_raw.content | b64decode | from_json) if (client_json_raw is defined and client_json_raw.content is defined) else {})
+            | combine({'target': inventory_hostname, 'address': ansible_host | default('')}, recursive=True)
+          }}
+
+    - name: Delete run artifacts on client after successful copy
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ found_artifacts.files | default([]) }}"
+      when: found_artifacts.files | default([]) | length > 0
+      failed_when: false
+
+- name: Render aggregate report on server
+  hosts: localhost
+  gather_facts: false
+  become: true
+  become_user: risng
+  vars:
+    run_as_user: risng
+    user_home: "/home/{{ run_as_user }}"
+    workspace: "{{ user_home }}/cheaplanwatch"
+    run_id: "{{ hostvars['localhost'].cheaplanwatchserver_run_id | default(lookup('pipe', 'date +%Y%m%dT%H%M%S')) }}"
+    aggregate_json: "{{ workspace }}/{{ run_id }}-testrun.json"
+    aggregate_pdf: "{{ workspace }}/{{ run_id }}-testrun.pdf"
+    report_script: "{{ playbook_dir }}/files/cheaplanwatch_report.py"
+  tasks:
+    - name: Build aggregate object from clients with payload
+      ansible.builtin.set_fact:
+        cheaplanwatch_aggregate:
+          report_banner: "risng - Cloud Host Endpoint Analysis Probe"
+          run_id: "{{ run_id }}"
+          generated_at: "{{ run_id }}"
+          clients: >-
+            {{
+              (groups['cheaplanwatch_collect_clients'] | default([]))
+              | map('extract', hostvars)
+              | map(attribute='cheaplanwatch_client_payload')
+              | select('defined')
+              | select('ne', {})
+              | list
+            }}
+
+    - name: Write aggregate JSON
+      ansible.builtin.copy:
+        dest: "{{ aggregate_json }}"
+        mode: "0644"
+        content: "{{ cheaplanwatch_aggregate | to_nice_json }}"
+
+    - name: Render aggregate HTML+PDF
+      ansible.builtin.command:
+        cmd: "python3 {{ report_script }} {{ aggregate_json }} {{ aggregate_pdf }}"
+      changed_when: false
+
+    - name: Show report locations
+      ansible.builtin.debug:
+        msg:
+          - "cheaplanwatch JSON: {{ aggregate_json }}"
+          - "cheaplanwatch HTML: {{ aggregate_pdf | regex_replace('\\.pdf$', '.html') }}"
+          - "cheaplanwatch PDF: {{ aggregate_pdf }}"
+          - "raw client artifacts: {{ hostvars['localhost'].cheaplanwatchserver_raw_dir }}"
+          - "clients in report: {{ cheaplanwatch_aggregate.clients | length }}"

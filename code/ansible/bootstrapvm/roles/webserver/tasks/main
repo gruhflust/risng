@@ -1,0 +1,45 @@
+---
+# webserver_tasks_v2 – install lightweight Flask web viewer system-wide
+
+- name: 01 Install system packages
+  apt:
+    name:
+      - python3
+      - python3-flask
+    state: present
+    update_cache: true
+
+- name: 02 Ensure viewer directory exists
+  file:
+    path: /opt/pntviewer
+    state: directory
+    mode: '0755'
+
+- name: 03 Deploy Flask app
+  copy:
+    dest: /opt/pntviewer/report_viewer.py
+    mode: '0755'
+    content: "{{ lookup('template', 'report_viewer.py.j2') }}"
+
+- name: 04 Deploy systemd unit
+  copy:
+    dest: /etc/systemd/system/pntviewer.service
+    content: |
+      [Unit]
+      Description=PXE Report Web Viewer
+      After=network.target
+
+      [Service]
+      ExecStart=/usr/bin/python3 /opt/pntviewer/report_viewer.py
+      WorkingDirectory=/opt/pntviewer
+      Restart=always
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: 05 Enable and start Flask service
+  systemd:
+    name: pntviewer
+    enabled: true
+    state: started
+    daemon_reload: true

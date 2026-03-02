@@ -1,0 +1,177 @@
+---
+# This playbook enriches DHCP default definitions with deterministic
+# pingpartner_ip values so network boot workflows can reference a stable
+# partner address for reachability tests. It performs a read–transform–write
+# cycle against two existing files without contacting any remote hosts.
+#
+# Inputs
+# - enrichtest_repo_root: Base path to the risng checkout. Defaults to the
+#   repository root resolved from this playbook location.
+# - enrichtest_dhcp_defaults_path: Path to the DHCP defaults file whose host
+#   and extra_nic entries contain pingpartner_ip placeholders.
+# - enrichtest_vlan_inventory_path: Path to the VLAN inventory that provides
+#   the highest_host value per VLAN, used as the pingpartner address.
+#
+# Processing steps
+# 1. Load VLAN metadata from inventory/vlans.yml.
+# 2. Read the DHCP defaults YAML without templating to preserve exact text.
+# 3. Build a lookup of VLAN ID -> highest_host for quick pingpartner_ip
+#    resolution.
+# 4. Validate that every VLAN referenced by extra_nics exists in the
+#    inventory (fails fast with a clear message if any are missing).
+# 5. Generate target structures:
+#    - For each host **without extra_nics**, pingpartner_ip = host.ip + 1
+#      (via ansible.utils.ipmath).
+#    - For each extra NIC, pingpartner_ip = highest_host from the VLAN lookup.
+# 6. Replace pingpartner_ip lines in the DHCP defaults file in place, only
+#    when a computed value exists, preserving surrounding content.
+# 7. Emit a summary handler describing the source and inventory files touched.
+#
+# Outputs
+# - The DHCP defaults file is rewritten in place with updated pingpartner_ip
+#   fields for hosts and extra_nics. No new files are created, and the VLAN
+#   inventory remains unchanged.
+#
+# enrichtest_v1 – Generate pingpartner_ip values for DHCP defaults
+
+- name: Enrich DHCP defaults with pingpartner IP addresses
+  hosts: localhost
+  gather_facts: false
+  vars:
+    enrichtest_repo_root: "{{ playbook_dir | realpath | dirname | dirname | dirname | dirname }}"
+    enrichtest_dhcp_defaults_path: "{{ enrichtest_repo_root }}/code/ansible/bootstrapvm/roles/dhcp/defaults/main.yml"
+    enrichtest_vlan_inventory_path: "{{ enrichtest_repo_root }}/code/ansible/inventory/vlans.yml"
+  tasks:
+    - name: 00 Initialize pingpartner caches
+      ansible.builtin.set_fact:
+        enrichtest_ping_hosts: []
+        enrichtest_ping_nics: []
+
+    - name: 00 Load VLAN inventory
+      ansible.builtin.include_vars:
+        file: "{{ enrichtest_vlan_inventory_path }}"
+        name: enrichtest_vlan_inventory
+
+    - name: 01 Load DHCP defaults without templating
+      ansible.builtin.set_fact:
+        enrichtest_dhcp_defaults: "{{ lookup('file', enrichtest_dhcp_defaults_path) | from_yaml }}"
+
+    - name: 01b Load DHCP defaults as raw text
+      ansible.builtin.set_fact:
+        enrichtest_dhcp_defaults_text: "{{ lookup('file', enrichtest_dhcp_defaults_path) }}"
+
+    - name: 02 Build VLAN ID -> highest_host lookup
+      ansible.builtin.set_fact:
+        enrichtest_vlan_ping_lookup: "{{ dict((enrichtest_vlan_inventory.vlans | default([])) | map(attribute='id') | map('string') | list | zip((enrichtest_vlan_inventory.vlans | default([])) | map(attribute='highest_host') | list)) }}"
+
+    - name: 03 Collect VLAN IDs referenced in DHCP defaults
+      ansible.builtin.set_fact:
+        enrichtest_required_vlans: "{{ enrichtest_dhcp_defaults.dhcp_static_hosts | default([]) | json_query('[].extra_nics[].vlan_id') | select('defined') | list | unique | sort }}"
+
+    - name: 04 Ensure all referenced VLAN IDs exist in inventory
+      ansible.builtin.assert:
+        that:
+          - "enrichtest_vlan_ping_lookup.get(item | string) is defined"
+        quiet: true
+        fail_msg: "VLAN {{ item }} fehlt in {{ enrichtest_vlan_inventory_path }}"
+      loop: "{{ enrichtest_required_vlans }}"
+      loop_control:
+        label: "VLAN {{ item }}"
+
+    - name: 05 Build pingpartner targets
+      vars:
+        enrichtest_hosts: "{{ enrichtest_dhcp_defaults.dhcp_static_hosts | default([]) }}"
+        enrichtest_pingpartner_missing: >-
+          {{ item.pingpartner_ip is not defined or
+             (item.pingpartner_ip | string | lower) in ['n/a', 'na', 'none', 'null', ''] }}
+      ansible.builtin.set_fact:
+        enrichtest_ping_hosts: >-
+          {{ enrichtest_ping_hosts + [
+            {
+              'name': item.name,
+              'pingpartner_ip': (item.ip | ansible.utils.ipmath(1))
+            }
+          ] }}
+      loop: "{{ enrichtest_hosts }}"
+      when:
+        - item.ip is defined
+        - enrichtest_pingpartner_missing
+
+    - name: 05b Build extra_nic pingpartner targets
+      vars:
+        enrichtest_hosts: "{{ enrichtest_dhcp_defaults.dhcp_static_hosts | default([]) }}"
+      ansible.builtin.set_fact:
+        enrichtest_ping_nics: >-
+          {{ enrichtest_ping_nics + [
+            {
+              'host': item.0.name,
+              'mac': item.1.mac,
+              'vlan_id': item.1.vlan_id,
+              'vlan_ip': item.1.vlan_ip,
+              'pingpartner_ip': enrichtest_vlan_ping_lookup.get(item.1.vlan_id | string)
+            }
+          ] }}
+      loop: "{{ enrichtest_hosts | subelements('extra_nics', skip_missing=True) }}"
+
+    - name: 05c Combine pingpartner targets
+      ansible.builtin.set_fact:
+        enrichtest_ping_targets:
+          hosts: "{{ enrichtest_ping_hosts }}"
+          nics: "{{ enrichtest_ping_nics }}"
+
+    - name: 06 Update host pingpartner_ip lines in memory
+      vars:
+        enrichtest_host_pattern: >-
+          (?ms)(^\s*- name:\s*{{ item.name | regex_escape }}[^\n]*\n.*?^\s*pingpartner_ip:\s*)(?:"[^"]*"|'[^']*'|[^\n#]+)?
+        enrichtest_host_replacement: "\\1\"{{ item.pingpartner_ip }}\""
+        enrichtest_current_defaults_text: "{{ enrichtest_dhcp_defaults_text | default('') }}"
+        enrichtest_updated_defaults_text: >-
+          {{ enrichtest_current_defaults_text |
+             regex_replace(
+               enrichtest_host_pattern,
+               enrichtest_host_replacement
+             )
+          }}
+      ansible.builtin.set_fact:
+        enrichtest_dhcp_defaults_text: "{{ enrichtest_updated_defaults_text }}"
+      loop: "{{ enrichtest_ping_hosts | selectattr('pingpartner_ip', 'defined') | list }}"
+      when:
+        - item.pingpartner_ip is not none
+      changed_when: enrichtest_updated_defaults_text != enrichtest_current_defaults_text
+      notify:
+        - Show summary
+
+    - name: 07 Update extra_nic pingpartner_ip lines in memory
+      vars:
+        enrichtest_nic_pattern: >-
+          (?ms)(^\s*- mac:\s*\"?{{ item.mac | regex_escape }}\"?\s*\n.*?^\s*pingpartner_ip:\s*)(?:"[^"]*"|'[^']*'|[^\n#]+)?
+        enrichtest_nic_replacement: "\\1\"{{ item.pingpartner_ip }}\""
+        enrichtest_current_defaults_text: "{{ enrichtest_dhcp_defaults_text | default('') }}"
+        enrichtest_updated_defaults_text: >-
+          {{ enrichtest_current_defaults_text |
+             regex_replace(
+               enrichtest_nic_pattern,
+               enrichtest_nic_replacement
+             )
+          }}
+      ansible.builtin.set_fact:
+        enrichtest_dhcp_defaults_text: "{{ enrichtest_updated_defaults_text }}"
+      loop: "{{ enrichtest_ping_nics | selectattr('pingpartner_ip', 'defined') | list }}"
+      when:
+        - item.pingpartner_ip is not none
+      changed_when: enrichtest_updated_defaults_text != enrichtest_current_defaults_text
+      notify:
+        - Show summary
+
+    - name: 08 Write updated DHCP defaults to disk
+      ansible.builtin.copy:
+        dest: "{{ enrichtest_dhcp_defaults_path }}"
+        content: "{{ enrichtest_dhcp_defaults_text }}"
+
+  handlers:
+    - name: Show summary
+      ansible.builtin.debug:
+        msg:
+          - "Updated pingpartner_ip for DHCP defaults based on inventory/vlans.yml"
+          - "Source: {{ enrichtest_dhcp_defaults_path }}"
+          - "Inventory: {{ enrichtest_vlan_inventory_path }}"

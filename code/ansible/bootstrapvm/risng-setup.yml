@@ -1,0 +1,247 @@
+# pnt_setup_v26  – 3-phase PXE setup: update → image build → PXE serve
+###############################################################################
+- name: 00 Initial phase  System update and DNS healing
+  hosts: bootstrapvm
+  become: true
+  gather_facts: true   
+  
+  pre_tasks:
+    - name: 00.00 Enable NTP time sync (best effort)
+      ansible.builtin.command: timedatectl set-ntp true
+      changed_when: false
+      failed_when: false
+
+    - name: 00.00a Collect available services
+      ansible.builtin.service_facts:
+
+    - name: 00.00b Restart systemd-timesyncd when available
+      ansible.builtin.systemd:
+        name: systemd-timesyncd
+        state: restarted
+      when: "'systemd-timesyncd.service' in ansible_facts.services"
+      failed_when: false
+
+    - name: 00.00c Check NTP synchronization state (best effort)
+      ansible.builtin.command: timedatectl show -p NTPSynchronized --value
+      register: ntp_sync_state
+      changed_when: false
+      failed_when: false
+
+    - name: 00.00d Warn if system time is not yet synchronized
+      ansible.builtin.debug:
+        msg: "Warning: NTPSynchronized={{ ntp_sync_state.stdout | default('unknown') }}. Trying fallback wall-clock sync from HTTPS Date header."
+      when: (ntp_sync_state.stdout | default('no') | trim) != 'yes'
+
+    - name: 00.00e Get reference UTC time from deb.debian.org (fallback)
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import urllib.request
+        from email.utils import parsedate_to_datetime
+        h = urllib.request.urlopen('https://deb.debian.org', timeout=10).headers.get('Date', '')
+        if not h:
+            raise SystemExit(1)
+        dt = parsedate_to_datetime(h).astimezone()
+        print(dt.strftime('%Y-%m-%d %H:%M:%S'))
+        PY
+      args:
+        executable: /bin/bash
+      register: reference_time
+      changed_when: false
+      failed_when: false
+      when: (ntp_sync_state.stdout | default('no') | trim) != 'yes'
+
+    - name: 00.00f Apply fallback system time when reference time is available
+      ansible.builtin.command: "timedatectl set-time '{{ reference_time.stdout | trim }}'"
+      changed_when: true
+      failed_when: false
+      when:
+        - (ntp_sync_state.stdout | default('no') | trim) != 'yes'
+        - (reference_time.stdout | default('') | trim) | length > 0
+
+    - name: 00.00g Show current system time status
+      ansible.builtin.command: timedatectl status
+      register: timedatectl_status
+      changed_when: false
+
+    - name: 00.00h Debug time status (for snapshot-resume drift)
+      ansible.builtin.debug:
+        var: timedatectl_status.stdout_lines
+
+    - import_tasks: "{{ playbook_dir }}/detect_interfaces.yml"
+
+
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+
+  roles:
+    - systemupdate
+
+###############################################################################
+- name: 01 Online phase  Build PXE export (internet mode)
+  hosts: bootstrapvm
+  become: true
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+
+  pre_tasks:
+    - import_tasks: detect_interfaces.yml
+
+    - name: 01.01 Bring up WAN NIC and disable PXE NIC
+      shell: |
+        ip link set {{ internetinterface }} up
+        ip addr flush dev {{ risng_lan_interface }} || true
+        ip link set {{ risng_lan_interface }} down || true
+      args:
+        executable: /bin/bash
+
+  roles:
+    - management
+    - tools
+    - webserver
+    # - debian-live
+    # - netinstall
+    - risng
+    # - spec
+#
+###############################################################################
+- name: 02 Offline phase  Serve PXE (DHCP/DNS/TFTP)
+  hosts: bootstrapvm
+  become: true
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+
+  pre_tasks:
+    - import_tasks: "{{ playbook_dir }}/detect_interfaces.yml"
+
+    - name: 02.01 bring up PXE NIC with static IP
+      shell: |
+        ip addr flush dev {{ risng_lan_interface }} || true
+        ip addr add {{ dhcp_gateway }}/{{ dhcp_prefix }} dev {{ risng_lan_interface }}
+        ip link set {{ risng_lan_interface }} up
+      args:
+        executable: /bin/bash
+  
+  #  - name: 02.01 Deactivate WAN and bring up PXE NIC with static IP
+  #    shell: |
+  #      ip link set {{ internetinterface }} down || true
+  #      ip addr flush dev {{ risng_lan_interface }} || true
+  #      ip addr add {{ dhcp_gateway }}/{{ dhcp_prefix }} dev {{ risng_lan_interface }}
+  #      ip link set {{ risng_lan_interface }} up
+  #    args:
+  #      executable: /bin/bash
+
+
+
+  roles:
+    - pxe_assemble
+    - dns
+    - dhcp
+
+  post_tasks:
+    - import_role:
+        name: management
+        tasks_from: 20_persist_network.yml   # ensures NIC config survives reboot
+    - name: 02.97 Replace risng .bashrc with symlink to management template
+      ansible.builtin.file:
+        src: "/home/risng/risng/code/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
+        dest: "/home/risng/.bashrc"
+        owner: risng
+        group: risng
+        state: link
+        force: true
+
+    - name: 02.98 Ensure risng wallpaper directory exists
+      ansible.builtin.file:
+        path: "/home/risng/.local/share/backgrounds"
+        state: directory
+        owner: risng
+        group: risng
+        mode: "0755"
+
+    - name: 02.98 Deploy risng wallpaper base image
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/roles/management/files/risng.background.png"
+        dest: "/home/risng/.local/share/backgrounds/risng.background.png"
+        owner: risng
+        group: risng
+        mode: "0644"
+
+    - name: 02.98 Determine deployed RISng commit
+      ansible.builtin.command:
+        argv:
+          - git
+          - -C
+          - "{{ ssh_user_home | default(ansible_env.HOME | default('~')) }}/risng"
+          - log
+          - -1
+          - --pretty=format:%h
+      register: risng_git_commit
+      changed_when: false
+      failed_when: false
+
+    - name: 02.98 Determine deployed RISng branch
+      ansible.builtin.command:
+        argv:
+          - git
+          - -C
+          - "{{ ssh_user_home | default(ansible_env.HOME | default('~')) }}/risng"
+          - rev-parse
+          - --abbrev-ref
+          - HEAD
+      register: risng_git_branch
+      changed_when: false
+      failed_when: false
+
+    - name: 02.98 Build risng wallpaper timestamp label (UTC)
+      ansible.builtin.command:
+        argv:
+          - date
+          - -u
+          - "+%F %H:%M:%S UTC"
+      register: risng_wallpaper_timestamp
+      changed_when: false
+
+    - name: 02.98 Compose risng wallpaper annotation label
+      ansible.builtin.set_fact:
+        risng_wallpaper_label: >-
+          {{ ansible_host | default(ansible_ssh_host | default(inventory_hostname)) }} for risng
+          on {{ risng_wallpaper_timestamp.stdout | default('timestamp unavailable', true) }}
+          (git-commit: {{ risng_git_commit.stdout | default('unknown', true) | trim | default('unknown') }}[branch {{ risng_git_branch.stdout | default('unknown', true) | trim | default('unknown') }}])
+      changed_when: false
+
+    - name: 02.98 Annotate risng wallpaper with timestamp
+      ansible.builtin.command:
+        argv:
+          - mogrify
+          - -gravity
+          - north
+          - -pointsize
+          - "36"
+          - -fill
+          - "#FFFFFF"
+          - -undercolor
+          - "#000000B3"
+          - -annotate
+          - "+0+120"
+          - "{{ risng_wallpaper_label }}"
+          - "/home/risng/.local/share/backgrounds/risng.background.png"
+      become: true
+      become_user: risng
+      when:
+        - risng_wallpaper_label | default('') | length > 0
+
+    - name: 02.98 Apply risng wallpaper in GNOME
+      community.general.dconf:
+        key: /org/gnome/desktop/background/picture-uri
+        value: "'file:///home/risng/.local/share/backgrounds/risng.background.png'"
+        state: present
+      become: true
+      become_user: risng
+
+    - name: 02.98 Apply risng dark mode wallpaper in GNOME
+      community.general.dconf:
+        key: /org/gnome/desktop/background/picture-uri-dark
+        value: "'file:///home/risng/.local/share/backgrounds/risng.background.png'"
+        state: present
+      become: true
+      become_user: risng

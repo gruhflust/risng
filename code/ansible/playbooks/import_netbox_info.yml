@@ -1,0 +1,181 @@
+---
+- name: Import NetBox rack information
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    netbox_username: "risng"
+    netbox_base_url: "https://cmdb01.stable.dc.dev.int.dfs.de"
+    netbox_report_stem: "{{ lookup('env', 'HOME') }}/importnetboxinfo"
+    netbox_report_json_path: "{{ netbox_report_stem }}.json"
+    netbox_report_pdf_path: "{{ netbox_report_stem }}.pdf"
+    netbox_report_html_path: "{{ netbox_report_stem }}.html"
+    netbox_token_file_path: "{{ lookup('env', 'HOME') }}/token.md"
+
+  tasks:
+    - name: Initialize NetBox API token variable
+      ansible.builtin.set_fact:
+        netbox_token: "{{ netbox_token | default('') }}"
+
+    - name: Check for NetBox token file
+      ansible.builtin.stat:
+        path: "{{ netbox_token_file_path }}"
+      register: netbox_token_file_stat
+      when: (netbox_token | default('')) | length == 0
+
+    - name: Load NetBox token from file when available
+      ansible.builtin.set_fact:
+        netbox_token: "{{ lookup('file', netbox_token_file_path) | trim }}"
+      when:
+        - (netbox_token | default('')) | length == 0
+        - netbox_token_file_stat is defined
+        - netbox_token_file_stat.stat.exists
+
+    - name: Ensure NetBox API token is provided
+      ansible.builtin.fail:
+        msg: "[importnetboxinfo] → Kein API-Token angegeben – Abbruch."
+      when: (netbox_token | default('')) | length == 0
+
+    - name: Announce NetBox request
+      ansible.builtin.debug:
+        msg: "[importnetboxinfo] → Rufe NetBox API auf..."
+
+    - name: Request rack list from NetBox
+      ansible.builtin.uri:
+        url: "{{ netbox_base_url }}/api/dcim/racks/?limit=0"
+        method: GET
+        headers:
+          Authorization: "Token {{ netbox_token }}"
+          Accept: application/json
+        return_content: true
+        status_code: 200
+        validate_certs: false
+      register: netbox_response
+      failed_when: netbox_response.status != 200
+
+    - name: Extract rack data from response
+      ansible.builtin.set_fact:
+        netbox_racks: "{{ netbox_response.json.results | default([]) }}"
+
+    - name: Initialize rack entry list
+      ansible.builtin.set_fact:
+        netbox_rack_entries: []
+
+    - name: Build rack entry collection
+      ansible.builtin.set_fact:
+        netbox_rack_entries: "{{ netbox_rack_entries + [ _entry ] }}"
+      vars:
+        _site: "{{ item.site.name | default('') if item.site is mapping else (item.site | default('')) }}"
+        _location: "{{ item.location.name | default('') if item.location is mapping else (item.location | default('')) }}"
+        _role: "{{ item.role.name | default('') if item.role is mapping else (item.role | default('')) }}"
+        _status_obj: "{{ item.status if item.status is mapping else {} }}"
+        _status_label: "{{ _status_obj.label | default(_status_obj.value | default(item.status | default('n/a'))) }}"
+        _tags: >-
+          {{
+            (item.tags | default([]))
+            | selectattr('name', 'defined')
+            | map(attribute='name')
+            | list
+          }}
+        _entry:
+          name: "{{ item.name | default('<unnamed>') }}"
+          site: "{{ _site | default('n/a') | trim }}"
+          location: "{{ _location | default('n/a') | trim }}"
+          role: "{{ _role | default('n/a') | trim }}"
+          status: "{{ _status_label | default('n/a') | trim }}"
+          serial: "{{ item.serial | default('') | trim }}"
+          asset_tag: "{{ item.asset_tag | default('') | trim }}"
+          u_height: "{{ item.u_height | default('') }}"
+          description: "{{ item.description | default('') | trim }}"
+          tags: "{{ _tags }}"
+      loop: "{{ netbox_racks }}"
+      loop_control:
+        label: "{{ item.name | default('<unnamed>') }}"
+      when: netbox_racks | length > 0
+
+    - name: Ensure rack entry list initialized
+      ansible.builtin.set_fact:
+        netbox_rack_entries: "{{ netbox_rack_entries | default([]) }}"
+
+    - name: Prepare username label
+      ansible.builtin.set_fact:
+        netbox_username_display: "{{ (netbox_username | default('') | trim) | default('unknown user', true) }}"
+
+    - name: Show rack summary header
+      ansible.builtin.debug:
+        msg: "[importnetboxinfo] → Racks für {{ netbox_username_display }}:"
+      when: netbox_racks | length > 0
+
+    - name: Show rack summary lines
+      ansible.builtin.debug:
+        msg: "  - {{ item.name | default('<unnamed>') }} | site: {{ item.site.name | default('n/a') if item.site is mapping else 'n/a' }} | location: {{ item.location.name | default('n/a') if item.location is mapping else 'n/a' }} | role: {{ item.role.name | default('n/a') if item.role is mapping else 'n/a' }}"
+      loop: "{{ netbox_racks }}"
+      when: netbox_racks | length > 0
+
+    - name: Handle empty rack list
+      ansible.builtin.debug:
+        msg: "[importnetboxinfo] → NetBox meldet keine Racks."
+      when: netbox_racks | length == 0
+
+    - name: Capture NetBox report timestamp
+      ansible.builtin.set_fact:
+        netbox_report_generated_at: "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
+
+    - name: Compose NetBox rack report metadata
+      ansible.builtin.set_fact:
+        netbox_report_metadata:
+          title: "NetBox Rack Overview"
+          subtitle: "Racks for {{ netbox_username_display }}"
+          username: "{{ netbox_username_display }}"
+          generated_at: "{{ netbox_report_generated_at }}"
+          rack_count: "{{ netbox_rack_entries | length }}"
+          base_url: "{{ netbox_base_url }}"
+
+    - name: Assemble NetBox rack report payload
+      ansible.builtin.set_fact:
+        netbox_report_payload:
+          metadata: "{{ netbox_report_metadata }}"
+          racks: "{{ netbox_rack_entries }}"
+
+    - name: Persist NetBox rack data to JSON
+      ansible.builtin.copy:
+        dest: "{{ netbox_report_json_path }}"
+        content: "{{ netbox_report_payload | to_nice_json }}"
+        mode: "0644"
+        owner: "{{ netbox_username }}"
+        group: "{{ netbox_username }}"
+
+    - name: Ensure NetBox rack report helper script is available
+      ansible.builtin.copy:
+        src: files/netbox_racks_report.py
+        dest: /tmp/netbox_racks_report.py
+        mode: "0755"
+
+    - name: Ensure report icon is available for NetBox export
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../runtime/report_snapshot/files/risng_icon.png"
+        dest: /tmp/risng_icon.png
+        mode: "0644"
+
+    - name: Render NetBox rack HTML and PDF summary
+      ansible.builtin.command:
+        cmd: python3 /tmp/netbox_racks_report.py "{{ netbox_report_json_path }}" "{{ netbox_report_pdf_path }}"
+
+    - name: Show NetBox rack report artefacts
+      ansible.builtin.debug:
+        msg:
+          - "[importnetboxinfo] → JSON: {{ netbox_report_json_path }}"
+          - "[importnetboxinfo] → HTML: {{ netbox_report_html_path }}"
+          - "[importnetboxinfo] → PDF: {{ netbox_report_pdf_path }}"
+
+    - name: Ensure NetBox rack report artefacts owned by risng
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: file
+        owner: "{{ netbox_username }}"
+        group: "{{ netbox_username }}"
+        mode: "0644"
+      loop:
+        - "{{ netbox_report_json_path }}"
+        - "{{ netbox_report_html_path }}"
+        - "{{ netbox_report_pdf_path }}"

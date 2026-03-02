@@ -1,0 +1,213 @@
+# Injects SSH key, resolv.conf, user setup, ssh host keys
+
+- name: Task IR-25 - Create user
+  command: >
+    chroot {{ risng_workdir }} useradd -m -s /bin/bash {{ ssh_user }}
+  args:
+    creates: "{{ risng_workdir }}/home/{{ ssh_user }}"
+
+- name: Task IR-26 - Create .ssh directory
+  file:
+    path: "{{ risng_workdir }}/home/{{ ssh_user }}/.ssh"
+    state: directory
+    owner: "{{ ssh_user }}"
+    group: "{{ ssh_user }}"
+    mode: "0700"
+
+- name: Task IR-27 - Copy SSH public key
+  copy:
+    src: "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+    dest: "{{ risng_workdir }}/home/{{ ssh_user }}/.ssh/authorized_keys"
+    remote_src: true
+    owner: "{{ ssh_user }}"
+    group: "{{ ssh_user }}"
+    mode: "0600"
+
+- name: Task IR-28 - Copy resolv.conf
+  copy:
+    src: /etc/resolv.conf
+    dest: "{{ risng_workdir }}/etc/resolv.conf"
+    remote_src: true
+    mode: "0644"
+
+- name: Task IR-29 - Ensure ssh directory
+  file:
+    path: "{{ risng_workdir }}/etc/ssh"
+    state: directory
+    mode: "0755"
+
+- name: Task IR-30 - Generate SSH host keys
+  community.crypto.openssh_keypair:
+    path: "{{ risng_workdir }}/etc/ssh/ssh_host_{{ item }}_key"
+    type: "{{ item }}"
+    mode: "0600"
+    force: false
+  loop: [rsa, ed25519, ecdsa]
+
+- name: Task IR-31 - Inject fixed SSH hostkey (ed25519)
+  ansible.builtin.copy:
+    src: "{{ ssh_user_home }}/.ssh/id_ed25519"
+    dest: "{{ risng_workdir }}/etc/ssh/ssh_host_ed25519_key"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Task IR-32 - Inject fixed SSH hostkey (ed25519.pub)
+  ansible.builtin.copy:
+    src: "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+    dest: "{{ risng_workdir }}/etc/ssh/ssh_host_ed25519_key.pub"
+    owner: root
+    group: root
+    mode: "0644"
+
+
+
+- name: Task IR-33 - Enable systemd default target (multi-user)
+  file:
+    src: "/lib/systemd/system/multi-user.target"
+    dest: "{{ risng_workdir }}/etc/systemd/system/default.target"
+    state: link
+
+- name: Task IR-34 - Enable SSH service by default
+  file:
+    src: "/lib/systemd/system/ssh.service"
+    dest: "{{ risng_workdir }}/etc/systemd/system/multi-user.target.wants/ssh.service"
+    state: link
+
+- name: Task IR-35 - Set default hostname placeholder
+  copy:
+    dest: "{{ risng_workdir }}/etc/hostname"
+    content: "{{ risng_default_hostname }}\n"
+    mode: "0644"
+
+- name: Task IR-36 - Install DHCP hostname helper script
+  copy:
+    src: "{{ role_path }}/../common/files/apply-dhcp-hostname.sh"
+    dest: "{{ risng_workdir }}/usr/local/sbin/apply-dhcp-hostname.sh"
+    mode: "0755"
+
+- name: Task IR-37 - Install DHCP hostname systemd service
+  template:
+    src: "{{ role_path }}/../common/templates/apply-dhcp-hostname.service.j2"
+    dest: "{{ risng_workdir }}/etc/systemd/system/apply-dhcp-hostname.service"
+    mode: "0644"
+
+- name: Task IR-38 - Enable DHCP hostname systemd service
+  file:
+    src: "../apply-dhcp-hostname.service"
+    dest: "{{ risng_workdir }}/etc/systemd/system/multi-user.target.wants/apply-dhcp-hostname.service"
+    state: link
+
+- name: Task IR-39 - Create getty override directory
+  file:
+    path: "{{ risng_workdir }}/etc/systemd/system/getty@tty1.service.d"
+    state: directory
+    mode: "0755"
+
+# Optional: Enable autologin for configured SSH user on tty1
+#- name: Task IR-40a - Enable autologin (tty1 for SSH user)
+#  copy:
+#    dest: "{{ risng_workdir }}/etc/systemd/system/getty@tty1.service.d/override.conf"
+#    content: |
+#      [Service]
+#      ExecStart=
+#      ExecStart=-/sbin/agetty --autologin {{ ssh_user }} --noclear %I $TERM
+#    mode: "0644"
+
+# Optional: Legacy reference for root autologin on tty2
+- name: Task IR-40 - Enable autologin (tty1 for root)
+  copy:
+    dest: "{{ risng_workdir }}/etc/systemd/system/getty@tty1.service.d/override.conf"
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+    mode: "0644"
+
+- name: Task IR-41 - Copy custom root .bashrc with IP prompt
+  copy:
+    src: "bashrc-root-risng"
+    dest: "{{ risng_workdir }}/root/.bashrc"
+    mode: "0644"
+
+- name: Task IR-41a - Ensure cheaplanwatch library directory exists
+  file:
+    path: "{{ risng_workdir }}/usr/local/lib/cheaplanwatch"
+    state: directory
+    mode: "0755"
+
+- name: Task IR-41b - Install cheaplanwatch embedded fallback script
+  copy:
+    src: "cheaplanwatch-embedded.sh"
+    dest: "{{ risng_workdir }}/usr/local/lib/cheaplanwatch/embedded.sh"
+    mode: "0755"
+
+- name: Task IR-41b1 - Install cheaplanwatch_eantc embedded fallback script
+  copy:
+    src: "cheaplanwatch-embedded_eantc.sh"
+    dest: "{{ risng_workdir }}/usr/local/lib/cheaplanwatch/embedded_eantc.sh"
+    mode: "0755"
+
+- name: Task IR-41c - Install cheaplanwatch runtime loader
+  copy:
+    src: "cheaplanwatch-runner.sh"
+    dest: "{{ risng_workdir }}/usr/local/sbin/cheaplanwatch"
+    mode: "0755"
+
+- name: Task IR-41c1 - Install cheaplanwatch_eantc runtime loader
+  copy:
+    src: "cheaplanwatch-runner_eantc.sh"
+    dest: "{{ risng_workdir }}/usr/local/sbin/cheaplanwatch_eantc"
+    mode: "0755"
+
+- name: Task IR-42 - Add sudoers file for {{ ssh_user }}
+  copy:
+    dest: "{{ risng_workdir }}/etc/sudoers.d/90-{{ ssh_user }}"
+    content: "{{ ssh_user }} ALL=(ALL) NOPASSWD:ALL"
+    mode: "0440"
+
+- name: Task IR-43 - Copy SSH public key for root
+  copy:
+    src: "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+    dest: "{{ risng_workdir }}/root/.ssh/authorized_keys"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Task IR-44 - Enable root autologin on tty1 (optional override)
+  copy:
+    dest: "{{ risng_workdir }}/etc/systemd/system/getty@tty1.service.d/override.conf"
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+    mode: "0644"
+  when: risng_autologin_user == "root"
+
+# Keyboard and locale configuration
+- name: Task IR-45 - Configure German keyboard
+  ansible.builtin.copy:
+    dest: "{{ risng_workdir }}/etc/default/keyboard"
+    content: |
+      XKBMODEL="pc105"
+      XKBLAYOUT="de"
+      XKBVARIANT=""
+      XKBOPTIONS=""
+    mode: "0644"
+
+- name: Task IR-46 - Set German locale
+  ansible.builtin.copy:
+    dest: "{{ risng_workdir }}/etc/default/locale"
+    content: "LANG=de_DE.UTF-8\n"
+    mode: "0644"
+
+- name: Task IR-47 - Ensure locale is enabled
+  ansible.builtin.lineinfile:
+    path: "{{ risng_workdir }}/etc/locale.gen"
+    line: "de_DE.UTF-8 UTF-8"
+    create: true
+
+- name: Task IR-48 - Generate locales
+  ansible.builtin.command: >
+    chroot {{ risng_workdir }} locale-gen

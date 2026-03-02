@@ -1,0 +1,96 @@
+# roles/spec/tasks/main.yml
+# Simple AlmaLinux 9 PXE setup similar to risng
+
+- name: 04 01 Ensure working directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ spec_iso_mount }}"
+    - "{{ spec_target }}"
+    - "{{ spec_repo_root }}"
+    - "{{ pxelinux_dir }}"
+    - "{{ grub_dir }}"
+
+- name: 04 02 Extract AlmaLinux ISO
+  ansible.builtin.command: >
+    bsdtar -C {{ spec_iso_mount }} -xf {{ alma9_iso_path }}
+  args:
+    creates: "{{ spec_iso_mount }}/images"
+
+- name: 04 02a Sync extracted AlmaLinux tree into HTTP repo root
+  ansible.builtin.command: >
+    rsync -a --delete {{ spec_iso_mount }}/ {{ spec_repo_root }}/
+
+- name: 04 02b Ensure lightweight HTTP server unit exists for PXE repo
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/pxe-http.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=PXE HTTP file server ({{ pxe_tftp_dir }})
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/python3 -m http.server 80 --directory {{ pxe_tftp_dir }}
+      Restart=always
+      RestartSec=2
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: 04 02c Enable and start PXE HTTP file server
+  ansible.builtin.systemd:
+    name: pxe-http
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: 04 03 Copy kernel
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ spec_iso_mount }}/images/pxeboot/{{ spec_kernel }}"
+    dest: "{{ spec_target }}/{{ spec_kernel }}"
+    mode: "0644"
+
+- name: 04 04 Copy initrd
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ spec_iso_mount }}/images/pxeboot/{{ spec_initrd }}"
+    dest: "{{ spec_target }}/{{ spec_initrd }}"
+    mode: "0644"
+
+- name: 04 05 Deploy PXELINUX entry
+  ansible.builtin.template:
+    src: "{{ pxe_entry_pxelinux_template }}"
+    dest: "{{ pxelinux_dir }}/{{ spec_pxelinux_filename }}"
+    mode: "0644"
+  vars:
+    filename_prefix: spec
+    menu_title: "{{ spec_label }}"
+    kernel_path: "/{{ spec_target_relative }}/{{ spec_kernel }}"
+    initrd_path: "/{{ spec_target_relative }}/{{ spec_initrd }}"
+    kernel_cmdline: >-
+      inst.stage2=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}/images/install.img
+      inst.repo=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+      ip=dhcp
+
+- name: 04 06 Deploy GRUB entry
+  ansible.builtin.template:
+    src: "{{ pxe_entry_grub_template }}"
+    dest: "{{ grub_dir }}/{{ spec_grub_filename }}"
+    mode: "0644"
+  vars:
+    filename_prefix: spec
+    menu_title: "{{ spec_grub_label }}"
+    kernel_path: "/{{ spec_target_relative }}/{{ spec_kernel }}"
+    initrd_path: "/{{ spec_target_relative }}/{{ spec_initrd }}"
+    append_args: >-
+      inst.stage2=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}/images/install.img
+      inst.repo=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+      ip=dhcp
+
+- import_tasks: bootloader_generation.yml

@@ -1,0 +1,7 @@
+
+menuentry "Debian Live PXE Boot UEFI" {
+  linux /debian-live/live/vmlinuz boot=live net.ifnames=0 ip=dhcp \
+           fetch=tftp://{{ tftp_server_ip }}/debian-live/live/filesystem.squashfs \
+           keyboard-layouts=de locales=de_DE.UTF-8 debug nosplash toram
+  initrd /debian-live/live/initrd.img
+}

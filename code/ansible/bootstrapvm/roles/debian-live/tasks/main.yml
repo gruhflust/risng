@@ -1,0 +1,75 @@
+# debian-live_v04 – updated PXE role using shared templates
+---
+- name: 03 01 Copy GRUB wallpaper
+  copy:
+    src: files/booting.png
+    dest: "{{ grub_dir }}/booting.png"
+    mode: "0644"
+
+- name: 03 02 Ensure working directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ debian_live_iso_mount }}"
+    - "{{ debian_live_workdir }}"
+    - "{{ debian_live_target }}"
+
+- name: 03 03 Extract ISO
+  command: >
+    bsdtar -C {{ debian_live_iso_mount }} -xf {{ debian_live_iso_path }}
+  args:
+    creates: "{{ debian_live_iso_mount }}/live"
+
+- name: 03 04 Unsquash filesystem
+  command: >
+    unsquashfs -d {{ debian_live_workdir }} {{ debian_live_squashfs }}
+  args:
+    creates: "{{ debian_live_workdir }}/etc"
+
+- name: 03 05 Customise live root
+  import_tasks: customise_live_root.yml
+
+- name: 03 06 Repack squashfs
+  command: >
+    mksquashfs {{ debian_live_workdir }} {{ debian_live_target }}/filesystem.squashfs -comp xz -noappend
+  args:
+    creates: "{{ debian_live_target }}/filesystem.squashfs"
+
+- name: 03 07 Copy kernel
+  copy:
+    remote_src: true
+    src: "{{ debian_live_iso_mount }}/live/{{ debian_live_kernel }}"
+    dest: "{{ debian_live_target }}/{{ debian_live_kernel }}"
+    mode: "0644"
+
+- name: 03 08 Copy initrd
+  copy:
+    remote_src: true
+    src: "{{ debian_live_iso_mount }}/live/{{ debian_live_initrd }}"
+    dest: "{{ debian_live_target }}/{{ debian_live_initrd }}"
+    mode: "0644"
+
+- name: 03 09 Deploy PXELINUX entry
+  template:
+    src: "pxelinux.cfg.j2"
+    dest: "{{ pxelinux_dir }}/10-debian-live.cfg"
+    mode: "0644"
+  vars:
+    boot_label: debian-live
+    menu_label: Debian Live (BIOS)
+    kernel_path: /debian-live/live/vmlinuz
+    initrd_path: /debian-live/live/initrd.img
+    append_args: "boot=live fetch=tftp://{{ tftp_server_ip }}/debian-live/live/filesystem.squashfs debug nosplash toram"
+
+- name: 03 10 Deploy GRUB entry
+  template:
+    src: "grub.cfg.j2"
+    dest: "{{ grub_dir }}/10-debian-live.cfg"
+    mode: "0644"
+  vars:
+    menu_label: Debian Live PXE Boot (UEFI)
+    kernel_path: /debian-live/live/vmlinuz
+    initrd_path: /debian-live/live/initrd.img
+    append_args: "boot=live net.ifnames=0 ip=dhcp fetch=tftp://{{ tftp_server_ip }}/debian-live/live/filesystem.squashfs keyboard-layouts=de locales=de_DE.UTF-8 debug nosplash toram"

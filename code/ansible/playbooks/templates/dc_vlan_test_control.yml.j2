@@ -1,0 +1,96 @@
+---
+# Control file for the ``dc-vLAN-test`` playbook. Each step is executed from top
+# to bottom and calls the NetBox REST API. The ``query`` sections can be used to
+# add filters that gradually shrink the result set until only the target device
+# or its interface with the desired MAC address remains.
+#
+# Suggested workflow:
+#   1. Run the playbook without additional filters to get an overview.
+#   2. Take a suitable filter value (for example the rack ID or device name)
+#      from the result list.
+#   3. Add the value in this control file and run the playbook again.
+#   4. Add further filters until the list contains only the host and interface
+#      you are looking for.
+#
+# Base URL of the NetBox instance. Adjust if required.
+base_url: https://cmdb01.stable.dc.dev.int.dfs.de
+
+# Location for the report. ``~`` is not expanded automatically, so we use Jinja
+# to look up the home directory dynamically.
+report_stem: "{{ lookup('env', 'HOME') }}/dc-vLAN-test"
+
+# Definition of the individual queries. Each block contains an API endpoint,
+# optional filters, and the fields that should appear in the summary. Leave
+# unused filters empty.
+stages:
+  - id: racks
+    title: "Racks"
+    endpoint: /api/dcim/racks/
+    description: "Entry list of all racks at the selected site."
+    query:
+      limit: 0
+      site_id:
+      location_id:
+      status:
+      role_id:
+      tenant_id:
+    # Optional filters that are applied to the API results. Use ``*`` and ``?``
+    # as wildcards. Leave empty to keep the full result list.
+    # result_filter:
+    #   display: "dclhos*"
+    summary_fields:
+      - label: "Rack"
+        path: name
+      - label: "Site"
+        path: site.name
+      - label: "Location"
+        path: location.name
+      - label: "Status"
+        path: status.label
+
+  - id: devices
+    title: "Devices"
+    endpoint: /api/dcim/devices/
+    description: "Show all devices, optionally filtered by rack or site."
+    query:
+      limit: 0
+      rack_id:
+      site_id:
+      location_id:
+      status:
+      role_id:
+      tenant_id:
+      name:
+    # result_filter:
+    #   display: "dclhos*"
+    summary_fields:
+      - label: "Device"
+        path: name
+      - label: "Rack"
+        path: rack.name
+      - label: "Role"
+        path: device_role.name
+      - label: "Status"
+        path: status.label
+
+  - id: interfaces
+    title: "Interfaces"
+    endpoint: /api/dcim/interfaces/
+    description: "List interfaces of the matching devices and show the MAC address."
+    query:
+      limit: 0
+      device_id:
+      name:
+      type:
+      mac_address:
+    # result_filter:
+    #   display: "dclhos*"
+    summary_fields:
+      - label: "Interface"
+        path: name
+      - label: "Device"
+        path: device.name
+      - label: "MAC"
+        path: mac_address
+      - label: "Enabled"
+        path: enabled

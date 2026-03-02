@@ -1,0 +1,31 @@
+- name: 16a Warn when MAC address is missing on host
+  ansible.builtin.debug:
+    msg: "WARN: Adapter mit MAC {{ slavelan_nic.mac }} auf {{ inventory_hostname }} nicht gefunden – überspringe."
+  when: slavelan_base_iface == ''
+  changed_when: false
+
+- name: 16b Ensure VLAN interface exists
+  when: slavelan_base_iface != ''
+  block:
+    - name: 16b.1 Check if VLAN interface is present
+      ansible.builtin.command: ip -o link show {{ slavelan_vlan_iface }}
+      register: slavelan_vlan_check
+      failed_when: false
+      changed_when: false
+
+    - name: 16b.2 Create VLAN interface when missing
+      ansible.builtin.command: ip link add link {{ slavelan_base_iface }} name {{ slavelan_vlan_iface }} type vlan id {{ slavelan_nic.vlan_id }}
+      when: slavelan_vlan_check.rc != 0
+
+    - name: 16b.3 Bring VLAN interface up
+      ansible.builtin.command: ip link set {{ slavelan_vlan_iface }} up
+
+    - name: 16b.4 Check if VLAN IP is already configured
+      ansible.builtin.command: ip -o -4 addr show dev {{ slavelan_vlan_iface }} | grep -w {{ slavelan_nic.vlan_ip }}/{{ slavelan_prefix_len }}
+      register: slavelan_ip_check
+      failed_when: false
+      changed_when: false
+
+    - name: 16b.5 Add VLAN IP address when missing
+      ansible.builtin.command: ip address add {{ slavelan_nic.vlan_ip }}/{{ slavelan_prefix_len }} dev {{ slavelan_vlan_iface }}
+      when: slavelan_ip_check.rc != 0

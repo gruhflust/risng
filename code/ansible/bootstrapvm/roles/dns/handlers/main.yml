@@ -1,0 +1,10 @@
+# dns_role_handlers_v01
+
+- name: restart bind9
+  ansible.builtin.systemd:
+    name: bind9
+    state: restarted
+
+- name: daemon reload
+  ansible.builtin.command: systemctl daemon-reload
+  changed_when: false

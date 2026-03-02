@@ -1,0 +1,52 @@
+---
+# test-client mit .99
+
+- name: 00 Online Phase management and debian-live
+  hosts: horst
+  become: true
+
+  vars:
+    internetinterface: "ens33"
+    risng_lan_interface: "ens36"
+    dhcp_gateway: "10.228.229.99"
+    dhcp_prefix: "24"              # <<< NEW – replaces ipaddr('prefix')
+    dhcp_netmask: "255.255.255.0"
+    ssh_user: "risng"
+    ssh_user_home: "/home/risng"
+
+  pre_tasks:
+    - name: 10-01 Show current interface state
+      ansible.builtin.shell: ip -brief addr
+      register: iface_status
+      changed_when: false
+
+    - name: 10-02 Enable internet NIC and disable PXE NIC
+      ansible.builtin.shell: |
+        ip link set {{ internetinterface }} up
+        ip link set {{ risng_lan_interface }} down || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: 10-03 Ensure .ssh directory exists
+      ansible.builtin.file:
+        path: "{{ ssh_user_home }}/.ssh"
+        state: directory
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: "0700"
+
+    - name: 10-04 Generate ed25519 SSH keypair
+      community.crypto.openssh_keypair:
+        path: "{{ ssh_user_home }}/.ssh/id_ed25519"
+        type: ed25519
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: "0600"
+        force: false
+        comment: "risng ssh key"
+        passphrase: ""
+
+  roles:
+    - management
+

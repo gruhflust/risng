@@ -1,0 +1,236 @@
+# management_iso_downloads_v06
+# -------------------------------------------------------------
+# Download required ISO images / tarballs exactly once.
+# -------------------------------------------------------------
+---
+- name: 02 19 00 Fetch Debian Live ISO checksums
+  ansible.builtin.uri:
+    url: "{{ debian_live_iso_base_url }}/SHA256SUMS"
+    return_content: true
+  register: debian_live_iso_checksums
+
+- name: 02 19 00a Reset Debian Live ISO detection facts
+  ansible.builtin.set_fact:
+    debian_live_iso_filename: "{{ debian_live_iso_filename | default('') }}"
+    debian_live_iso_checksum: "{{ debian_live_iso_checksum | default('') }}"
+  when: debian_live_iso_checksums.status == 200
+
+- name: 02 19 00a1 Determine Debian Live ISO filename and checksum (flavor fallback)
+  vars:
+    candidate_filename: "{{ debian_live_iso_checksums.content | regex_search('debian-live-(?:testing|[0-9.]+)-amd64-' ~ item ~ '\\.iso') | default('', true) }}"
+    candidate_checksum: "{{ debian_live_iso_checksums.content | regex_search('([a-f0-9]{64})\\s+debian-live-(?:testing|[0-9.]+)-amd64-' ~ item ~ '\\.iso', '\\1') | default('', true) }}"
+  ansible.builtin.set_fact:
+    debian_live_iso_filename: "{{ candidate_filename }}"
+    debian_live_iso_checksum: "{{ candidate_checksum }}"
+  loop: "{{ debian_live_iso_flavors }}"
+  loop_control:
+    label: "{{ item }}"
+  when: debian_live_iso_checksums.status == 200 and debian_live_iso_filename | length == 0 and candidate_filename | length > 0 and candidate_checksum | length > 0
+
+- name: 02 19 00a2 Set Debian Live ISO download URL and canonical local path
+  ansible.builtin.set_fact:
+    debian_live_iso_url: "{{ debian_live_iso_base_url }}/{{ debian_live_iso_filename }}"
+    debian_live_iso_source_filename: "{{ debian_live_iso_filename }}"
+    debian_live_iso_path: "{{ iso_download_dir }}/debian-live.iso"
+  when: debian_live_iso_filename | length > 0
+
+- name: 02 19 00b Fail if Debian Live ISO filename or checksum could not be determined
+  ansible.builtin.fail:
+    msg: "Could not determine Debian Live ISO from {{ debian_live_iso_base_url }}"
+  when: debian_live_iso_filename | length == 0 or debian_live_iso_checksum | length == 0
+
+- name: 02 19 00c Show resolved Debian Live ISO information
+  ansible.builtin.debug:
+    msg:
+      - "Debian Live ISO base URL: {{ debian_live_iso_base_url }}"
+      - "Selected upstream filename: {{ debian_live_iso_source_filename | default(debian_live_iso_filename) }}"
+      - "Checksum: {{ debian_live_iso_checksum }}"
+      - "Download URL: {{ debian_live_iso_url }}"
+      - "Local canonical path: {{ debian_live_iso_path }}"
+
+- name: 02 19 01 Ensure ISO download directory exists
+  ansible.builtin.file:
+    path: "{{ iso_download_dir }}"
+    state: directory
+    owner: "{{ pxe_tmp_owner }}"
+    group: "{{ pxe_tmp_group }}"
+    mode: "{{ pxe_tmp_mode }}"
+
+# ------------------ Debian Live ISO ------------------------------------------
+- name: 02 19 02 Check for Debian Live ISO
+  ansible.builtin.stat:
+    path: "{{ debian_live_iso_path }}"
+  register: liveiso
+
+- name: 02 19 03 Download Debian Live ISO (when absent or incomplete)
+  block:
+    - name: Show Debian Live ISO URL
+      ansible.builtin.debug:
+        msg:
+          - "Using Debian Live ISO URL: {{ debian_live_iso_url }}"
+          - "Expected checksum: {{ debian_live_iso_checksum }}"
+    - name: Fetch Debian Live ISO
+      ansible.builtin.get_url:
+        url: "{{ debian_live_iso_url }}"
+        dest: "{{ debian_live_iso_path }}"
+        checksum: "sha256:{{ debian_live_iso_checksum }}"
+        owner: "{{ pxe_tmp_owner }}"
+        group: "{{ pxe_tmp_group }}"
+        mode: "0644"
+        force: true
+        unsafe_writes: true
+  when: not liveiso.stat.exists or liveiso.stat.size | default(0) < 1000000000
+
+# Remaining tasks unchanged
+
+# --- Resolve Debian Net-install ISO dynamically ---
+- name: 02 19 03a Fetch Debian net-install ISO checksums
+  ansible.builtin.uri:
+    url: "{{ netinstall_iso_base_url }}/SHA256SUMS"
+    return_content: true
+  register: netinstall_iso_checksums
+
+- name: 02 19 03b Determine Debian net-install ISO filename and checksum
+  vars:
+    netinstall_iso_matches: "{{ netinstall_iso_checksums.content | regex_findall('^([a-f0-9]{64})\\s+(debian-(?:testing|[0-9.]+)-amd64-netinst\\.iso)$', multiline=True) }}"
+  ansible.builtin.set_fact:
+    netinstall_iso_filename: "{{ (netinstall_iso_matches | first | last) | default('') }}"
+    netinstall_iso_checksum: "{{ (netinstall_iso_matches | first | first) | default('') }}"
+  when: netinstall_iso_checksums.status == 200 and netinstall_iso_matches | length > 0
+
+- name: 02 19 03b1 Set Debian net-install ISO download URL and canonical local path
+  ansible.builtin.set_fact:
+    netinstall_iso_url: "{{ netinstall_iso_base_url }}/{{ netinstall_iso_filename }}"
+    netinstall_iso_source_filename: "{{ netinstall_iso_filename }}"
+    netinstall_iso_path: "{{ iso_download_dir }}/debian-netinst.iso"
+  when: netinstall_iso_filename | length > 0
+
+- name: 02 19 03c Fail if Debian net-install ISO filename or checksum could not be determined
+  ansible.builtin.fail:
+    msg: "Could not determine Debian net-install ISO from {{ netinstall_iso_base_url }}"
+  when: netinstall_iso_filename | length == 0 or netinstall_iso_checksum | length == 0
+
+- name: 02 19 03d Show resolved Debian net-install ISO information
+  ansible.builtin.debug:
+    msg:
+      - "Debian net-install ISO base URL: {{ netinstall_iso_base_url }}"
+      - "Selected upstream filename: {{ netinstall_iso_source_filename | default(netinstall_iso_filename) }}"
+      - "Checksum: {{ netinstall_iso_checksum }}"
+      - "Download URL: {{ netinstall_iso_url }}"
+      - "Local canonical path: {{ netinstall_iso_path }}"
+
+# ------------------ Debian Net-install ISO -----------------------------------
+- name: 02 19 04 Check for Debian net-install ISO
+  ansible.builtin.stat:
+    path: "{{ netinstall_iso_path }}"
+  register: netiso
+
+- name: 02 19 05 Download Debian net-install ISO (when absent)
+  ansible.builtin.get_url:
+    url: "{{ netinstall_iso_url }}"
+    dest: "{{ netinstall_iso_path }}"
+    checksum: "sha256:{{ netinstall_iso_checksum }}"
+    owner: "{{ pxe_tmp_owner }}"
+    group: "{{ pxe_tmp_group }}"
+    mode: "0644"
+    force: true
+    unsafe_writes: true
+  when: not netiso.stat.exists
+
+# ------------------ Debian Netboot tarball -----------------------------------
+- name: 02 19 06 Check for Debian netboot tarball
+  ansible.builtin.stat:
+    path: "{{ netboot_tarball_path }}"
+  register: nettgz
+
+- name: 02 19 07 Download Debian netboot tarball (when absent)
+  ansible.builtin.get_url:
+    url: "{{ netboot_tarball_url }}"
+    dest: "{{ netboot_tarball_path }}"
+    owner: "{{ pxe_tmp_owner }}"
+    group: "{{ pxe_tmp_group }}"
+    mode: "0644"
+    force: true
+    unsafe_writes: true
+  when: not nettgz.stat.exists
+
+- name: 02 19 07a Ensure netboot_extract_dir exists
+  ansible.builtin.file:
+    path: "{{ netboot_extract_dir }}"
+    state: directory
+    owner: "{{ pxe_tmp_owner }}"
+    group: "{{ pxe_tmp_group }}"
+    mode: "{{ pxe_tmp_mode }}"
+
+- name: 02 19 08 Extract netboot.tar.gz (PXE kernel + initrd)
+  ansible.builtin.unarchive:
+    src: "{{ netboot_tarball_path }}"
+    dest: "{{ netboot_extract_dir }}"
+    remote_src: true
+  args:
+    creates: "{{ netboot_extract_dir }}/debian-installer"
+
+# ------------------ AlmaLinux 9 ISO -----------------------------------------
+- name: 02 19 09a Fetch AlmaLinux CHECKSUM file
+  ansible.builtin.uri:
+    url: "{{ alma9_iso_url | regex_replace('/[^/]+$', '/CHECKSUM') }}"
+    return_content: true
+    timeout: 30
+    headers:
+      User-Agent: "ansible-getisos/1.0"
+  register: alma9_checksums
+  retries: 5
+  delay: 8
+  until:
+    - alma9_checksums.status == 200
+    - "'SHA256' in (alma9_checksums.content | default(''))"
+
+- name: 02 19 09b Find SHA256 matches for selected AlmaLinux ISO filename
+  ansible.builtin.set_fact:
+    alma9_checksum_matches: >-
+      {{
+        alma9_checksums.content
+        | regex_findall('(?m)^SHA256 \(' ~ (alma9_iso_filename | regex_escape) ~ '\) = ([a-f0-9]{64})$')
+      }}
+
+- name: 02 19 09b1 Select AlmaLinux ISO checksum
+  ansible.builtin.set_fact:
+    alma9_iso_checksum: "{{ (alma9_checksum_matches | first | default('', true)) }}"
+
+- name: 02 19 09c Show checksum source snippet when parsing fails
+  ansible.builtin.debug:
+    msg:
+      - "Could not parse checksum for {{ alma9_iso_filename }}"
+      - "CHECKSUM URL: {{ alma9_iso_url | regex_replace('/[^/]+$', '/CHECKSUM') }}"
+      - "Checksum matches: {{ alma9_checksum_matches | default([]) }}"
+      - "First lines: {{ (alma9_checksums.content | default('') | split('\n'))[:8] }}"
+  when: alma9_iso_checksum | length == 0
+
+- name: 02 19 09d Fail if AlmaLinux ISO checksum cannot be determined
+  ansible.builtin.fail:
+    msg: "Could not determine checksum for {{ alma9_iso_filename }} from {{ alma9_iso_url | regex_replace('/[^/]+$', '/CHECKSUM') }}"
+  when: alma9_iso_checksum | length == 0
+
+- name: 02 19 09d Check local AlmaLinux 9 ISO checksum
+  ansible.builtin.stat:
+    path: "{{ alma9_iso_path }}"
+    checksum_algorithm: sha256
+  register: almaiso
+
+- name: 02 19 10 Download AlmaLinux 9 ISO (missing or checksum mismatch)
+  ansible.builtin.get_url:
+    url: "{{ alma9_iso_url }}"
+    dest: "{{ alma9_iso_path }}"
+    owner: "{{ pxe_tmp_owner }}"
+    group: "{{ pxe_tmp_group }}"
+    mode: "0644"
+    checksum: "sha256:{{ alma9_iso_checksum }}"
+    timeout: 600
+    force: true
+    unsafe_writes: true
+  register: alma9_download
+  retries: 3
+  delay: 15
+  until: alma9_download is succeeded
+  when: not almaiso.stat.exists or (almaiso.stat.checksum | default('')) != alma9_iso_checksum
+

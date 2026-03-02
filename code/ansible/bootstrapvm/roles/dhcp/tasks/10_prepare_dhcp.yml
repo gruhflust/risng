@@ -1,0 +1,91 @@
+# 10_prepare_dhcp_v12
+
+- name: 01 Ensure /etc/dhcp exists
+  ansible.builtin.file:
+    path: /etc/dhcp
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: 02 Deploy dhcpd.conf
+  ansible.builtin.template:
+    src: dhcpd.conf.j2
+    dest: /etc/dhcp/dhcpd.conf
+    mode: "0644"
+  notify: Restart DHCP server
+
+- name: 03 Deploy static-hosts.conf
+  ansible.builtin.template:
+    src: static-hosts.j2
+    dest: /etc/dhcp/static-hosts.conf
+    mode: "0644"
+  notify: Restart DHCP server
+  
+- name: 04 Deploy /etc/default/isc-dhcp-server
+  ansible.builtin.template:
+    src: isc-dhcp-server.j2
+    dest: /etc/default/isc-dhcp-server
+    mode: "0644"
+
+- name: 05 Deploy systemd unit override (ensures correct interface)
+  ansible.builtin.template:
+    src: isc-dhcp-server.service.j2
+    dest: /etc/systemd/system/isc-dhcp-server.service
+    mode: "0644"
+
+- name: 06 Ensure PXE host override directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) }}/pxelinux.cfg"
+    - "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) }}/boot/grub/hosts"
+
+- name: 06a Gather existing PXELINUX config fragments
+  ansible.builtin.find:
+    paths: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) }}/pxelinux.cfg"
+    patterns: "*.cfg"
+    file_type: file
+  register: pxe_cfg_fragments
+
+- name: 06b Strip inline comments from PXELINUX KERNEL/INITRD lines
+  ansible.builtin.replace:
+    path: "{{ item.path }}"
+    regexp: '^(\s*(?:KERNEL|INITRD)\s+[^#\n]+)\s+#.*$'
+    replace: '\1'
+  loop: "{{ pxe_cfg_fragments.files | default([]) }}"
+
+- name: 07 Install GRUB host-default include block
+  ansible.builtin.blockinfile:
+    path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) }}/boot/grub/grub.cfg"
+    marker: "# {mark} OPENCLAW_DHCP_HOST_BOOT_DEFAULTS"
+    insertafter: '^set timeout='
+    create: true
+    block: |
+      if [ -f /boot/grub/hosts/${net_default_mac}.cfg ]; then
+        source /boot/grub/hosts/${net_default_mac}.cfg
+      fi
+
+- name: 08 Write per-host PXELINUX default selection by MAC
+  ansible.builtin.template:
+    src: pxelinux-host-default.j2
+    dest: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) }}/pxelinux.cfg/01-{{ item.mac | lower | replace(':', '-') }}"
+    mode: "0644"
+  vars:
+    host_bios_label: "{{ dhcp_boot_menu_defaults[item.boot_profile].bios_label }}"
+  loop: "{{ dhcp_static_hosts | selectattr('boot_profile', 'defined') | list }}"
+  when:
+    - item.boot_profile in dhcp_boot_menu_defaults
+
+- name: 09 Write per-host GRUB default selection by MAC
+  ansible.builtin.template:
+    src: grub-host-default.j2
+    dest: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) }}/boot/grub/hosts/{{ item.mac | lower }}.cfg"
+    mode: "0644"
+  vars:
+    host_uefi_menuentry: "{{ dhcp_boot_menu_defaults[item.boot_profile].uefi_menuentry }}"
+  loop: "{{ dhcp_static_hosts | selectattr('boot_profile', 'defined') | list }}"
+  when:
+    - item.boot_profile in dhcp_boot_menu_defaults

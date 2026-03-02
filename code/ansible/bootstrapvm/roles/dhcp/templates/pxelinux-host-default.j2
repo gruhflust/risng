@@ -1,0 +1,5 @@
+# Auto-generated per-host PXELINUX override
+# Keeps the full shared menu, but preselects one label for this MAC.
+INCLUDE pxelinux.cfg/default
+DEFAULT {{ host_bios_label }}
+ONTIMEOUT {{ host_bios_label }}

@@ -1,0 +1,101 @@
+---
+# heal_internet_v18.yml – Robust DNS and DHCP recovery
+
+- name: Heal Internet connectivity
+  hosts: localhost
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - ../host_vars/localhost.yml
+
+  vars:
+    test_host: "deb.debian.org"
+    dns_backup_path: /etc/resolv.conf.orig
+    dns_restore_path: /etc/resolv.conf
+    dns_fallback: |
+      nameserver 1.1.1.1
+      nameserver 8.8.8.8
+
+  pre_tasks:
+    - import_tasks: detect_interfaces.yml
+
+  tasks:
+
+    - name: 01 Ensure resolv.conf from backup or fallback
+      block:
+        - stat:
+            path: "{{ dns_backup_path }}"
+          register: resolv_backup
+
+        - copy:
+            src: "{{ dns_backup_path }}"
+            dest: "{{ dns_restore_path }}"
+            remote_src: true
+            mode: "0644"
+          when: resolv_backup.stat.exists
+
+        - copy:
+            content: "{{ dns_fallback }}"
+            dest: "{{ dns_restore_path }}"
+            mode: "0644"
+          when: not resolv_backup.stat.exists
+
+    - name: 02 Stop interfering DNS services
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: null
+      loop:
+        - dnsmasq
+        - bind9
+        - unbound
+      failed_when: false
+      changed_when: false
+
+    - name: 03 Ensure DHCP client is installed (Debian)
+      ansible.builtin.apt:
+        name: isc-dhcp-client
+        state: present
+        update_cache: true
+
+    - name: 04 Kill existing dhclient processes
+      shell: pkill -f "dhclient.*{{ internetinterface }}" || true
+      changed_when: false
+      failed_when: false
+
+    - name: 05 Flush and restart interface
+      shell: |
+        ip addr flush dev {{ internetinterface }}
+        ip link set {{ internetinterface }} down
+        sleep 1
+        ip link set {{ internetinterface }} up
+      changed_when: true
+
+    - name: 06 Request fresh DHCP lease
+      shell: dhclient -v {{ internetinterface }}
+      register: dhcp_renew
+      changed_when: "'bound to' in dhcp_renew.stdout"
+
+    - name: 07 Test DNS resolution
+      shell: getent hosts {{ test_host }}
+      register: dns_test
+      retries: 5
+      delay: 2
+      changed_when: false
+      until: dns_test.rc == 0
+
+    - name: 08 Show final network state
+      shell: |
+        echo "--- IP ADDRESSES ---"
+        ip -brief addr show {{ internetinterface }}
+        echo "--- ROUTES ---"
+        ip route
+        echo "--- /etc/resolv.conf ---"
+        cat /etc/resolv.conf
+      register: final_net
+      changed_when: false
+
+    - name: 09 Print final state
+      debug:
+        msg: "{{ final_net.stdout_lines }}"

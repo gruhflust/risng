@@ -1,0 +1,101 @@
+
+[1;34m=== Redfish System Health Check ===[0m
+
+[1;33m>>> Host: 192.168.100.6[0m
+ Modell:        [1mPowerEdge R740xd[0m
+ Seriennummer:  CNFCP00833003L
+ Systemstatus:  OK
+ Rollup:        OK
+ CPUs:          2 Stück
+  → CPU 2 – Status: OK
+  → CPU 1 – Status: OK
+
+ Netzwerk-Interfaces: 8 gefunden
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9D:97 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9D:96 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:A4:9A | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:A4:98 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:A4:B8 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:A4:B9 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9D:D7 | Link: LinkUp | Speed: 25000Mbps
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9D:D6 | Link: LinkUp | Speed: 25000Mbps
+
+ Temperatur-Sensoren:
+  → CPU1 Temp: 51 °C (Status: OK)
+  → CPU2 Temp: 51 °C (Status: OK)
+  → System Board Inlet Temp: 25 °C (Status: OK)
+  → System Board Exhaust Temp: 36 °C (Status: OK)
+
+ Lüfterstatus:
+  → System Board Fan1: 8760 RPM (Status: OK)
+  → System Board Fan2: 8880 RPM (Status: OK)
+  → System Board Fan3: 9000 RPM (Status: OK)
+  → System Board Fan4: 8520 RPM (Status: OK)
+  → System Board Fan5: 8880 RPM (Status: OK)
+  → System Board Fan6: 8880 RPM (Status: OK)
+
+[1;33m>>> Host: 192.168.100.8[0m
+ Modell:        [1mPowerEdge R740xd[0m
+ Seriennummer:  CNFCP0083300R2
+ Systemstatus:  OK
+ Rollup:        OK
+ CPUs:          2 Stück
+  → CPU 1 – Status: OK
+  → CPU 2 – Status: OK
+
+ Netzwerk-Interfaces: 8 gefunden
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9D:EF | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9D:EE | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:A5:44 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:A5:42 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:A5:63 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:A5:62 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9E:5F | Link: LinkUp | Speed: 25000Mbps
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9E:5E | Link: LinkUp | Speed: 25000Mbps
+
+ Temperatur-Sensoren:
+  → CPU1 Temp: 53 °C (Status: OK)
+  → CPU2 Temp: 39 °C (Status: OK)
+  → System Board Inlet Temp: 25 °C (Status: OK)
+  → System Board Exhaust Temp: 34 °C (Status: OK)
+
+ Lüfterstatus:
+  → System Board Fan1: 9000 RPM (Status: OK)
+  → System Board Fan2: 8880 RPM (Status: OK)
+  → System Board Fan3: 8640 RPM (Status: OK)
+  → System Board Fan4: 8880 RPM (Status: OK)
+  → System Board Fan5: 8880 RPM (Status: OK)
+  → System Board Fan6: 8880 RPM (Status: OK)
+
+[1;33m>>> Host: 192.168.100.9[0m
+ Modell:        [1mPowerEdge R740xd[0m
+ Seriennummer:  CNFCP00833000I
+ Systemstatus:  OK
+ Rollup:        OK
+ CPUs:          2 Stück
+  → CPU 1 – Status: OK
+  → CPU 2 – Status: OK
+
+ Netzwerk-Interfaces: 8 gefunden
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9E:07 | Link: LinkUp | Speed: 25000Mbps
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9E:06 | Link: LinkUp | Speed: 25000Mbps
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9D:E7 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 50:6B:4B:13:9D:E6 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:DF:D2 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:DF:B4 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:DF:B2 | Link: LinkDown | Speed: 0Mbps
+  → System Ethernet Interface | MAC: 24:6E:96:A9:DF:D3 | Link: LinkDown | Speed: 0Mbps
+
+ Temperatur-Sensoren:
+  → CPU1 Temp: 58 °C (Status: OK)
+  → CPU2 Temp: 48 °C (Status: OK)
+  → System Board Inlet Temp: 24 °C (Status: OK)
+  → System Board Exhaust Temp: 35 °C (Status: OK)
+
+ Lüfterstatus:
+  → System Board Fan1: 9000 RPM (Status: OK)
+  → System Board Fan2: 8880 RPM (Status: OK)
+  → System Board Fan3: 8880 RPM (Status: OK)
+  → System Board Fan4: 8880 RPM (Status: OK)
+  → System Board Fan5: 8880 RPM (Status: OK)
+  → System Board Fan6: 8880 RPM (Status: OK)

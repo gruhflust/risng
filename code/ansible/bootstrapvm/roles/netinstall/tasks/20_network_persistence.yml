@@ -1,0 +1,33 @@
+# ensures static IP config survives reboot
+- name: 04 02 07 Ensure /etc/network/interfaces.d exists
+  file:
+    path: "{{ netinstall_workdir }}/etc/network/interfaces.d"
+    state: directory
+    mode: "0755"
+
+- name: 04 02 08 Write /etc/network/interfaces.d/{{ risng_lan_interface }}
+  copy:
+    dest: "{{ netinstall_workdir }}/etc/network/interfaces.d/{{ risng_lan_interface }}"
+    content: |
+      auto {{ risng_lan_interface }}
+      iface {{ risng_lan_interface }} inet static
+        address {{ dhcp_gateway }}
+        netmask {{ dhcp_netmask }}
+    mode: "0644"
+
+- name: 04 02 09 Ensure /etc/network/interfaces includes interfaces.d
+  lineinfile:
+    path: "{{ netinstall_workdir }}/etc/network/interfaces"
+    line: "source /etc/network/interfaces.d/*"
+    create: yes
+
+- name: 04 02 10 Enable networking.service
+  file:
+    path: "{{ netinstall_workdir }}/etc/systemd/system/networking.service.wants"
+    state: directory
+
+- name: 04 02 11 Symlink networking service
+  file:
+    src: "/lib/systemd/system/networking.service"
+    dest: "{{ netinstall_workdir }}/etc/systemd/system/networking.service.wants/networking.service"
+    state: link

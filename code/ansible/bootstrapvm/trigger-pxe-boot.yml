@@ -1,0 +1,35 @@
+---
+- name: Trigger PXE rollout and connect to server
+  hosts: localhost
+  vars:
+    target_server_name: "pnt-baremetal1"
+    target_server_ip: "10.228.229.21"
+    target_server_mac: "00:50:56:ba:48:08"
+    ssh_user: "root"
+    ssh_private_key: "/.ssh/ansible_key_rsa"
+
+  tasks:
+    - name: Ensure pyghmi is installed for IPMI
+      ansible.builtin.apt:
+        name: python3-pyghmi
+        state: present
+
+    - name: Power cycle the target server using IPMI
+      community.general.ipmi_power:
+        name: "{{ target_server_name }}"
+        user: "{{ ipmi_user }}"
+        password: "{{ ipmi_password }}"
+        state: "reset"
+
+    - name: Wait for server to start responding to SSH
+      ansible.builtin.wait_for:
+        host: "{{ target_server_ip }}"
+        port: 22
+        state: started
+        delay: 30
+        timeout: 600
+
+    - name: Test SSH connection
+      ansible.builtin.command:
+        ssh -i {{ ssh_private_key }} -o StrictHostKeyChecking=no {{ ssh_user }}@{{ target_server_ip }} echo "PXE rollout successful"
+      changed_when: false

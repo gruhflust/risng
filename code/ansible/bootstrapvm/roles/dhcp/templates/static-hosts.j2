@@ -1,0 +1,23 @@
+# Static Hosts Configuration
+{% for h in dhcp_static_hosts if h.mac | default('') | length > 0 and h.mac != '00:00:00:00:00:00' %}
+host {{ h.name }} {
+  hardware ethernet {{ h.mac }};
+  fixed-address {{ h.ip }};
+  option host-name "{{ h.name }}";
+{%   if h.boot_filename is defined and h.boot_filename | length > 0 %}
+  filename "{{ h.boot_filename }}";
+{%   elif h.boot_profile is defined and (dhcp_boot_profiles[h.boot_profile] is defined) %}
+  if option arch = 00:07 or option arch = 00:08 or option arch = 00:09 {
+    filename "{{ dhcp_boot_profiles[h.boot_profile].uefi }}";
+  } else {
+    filename "{{ dhcp_boot_profiles[h.boot_profile].bios }}";
+  }
+{%   endif %}
+}
+{%   if h.extra_nics is defined and h.extra_nics %}
+# Additional NIC metadata for {{ h.name }} used by follow-on playbooks
+{%     for nic in h.extra_nics %}
+#   mac: {{ nic.mac }}, vlan_id: {{ nic.vlan_id }}, vlan_ip: {{ nic.vlan_ip }}
+{%     endfor %}
+{%   endif %}
+{% endfor %}

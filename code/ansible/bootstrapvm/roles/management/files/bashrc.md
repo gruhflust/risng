@@ -1,0 +1,408 @@
+# ~/.bashrc: executed by bash(1) for non-login shells.
+
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+HISTCONTROL=ignoreboth
+shopt -s histappend
+HISTSIZE=1000
+HISTFILESIZE=2000
+shopt -s checkwinsize
+
+if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
+    debian_chroot=$(cat /etc/debian_chroot)
+fi
+
+case "$TERM" in
+    xterm-color|*-256color) color_prompt=yes;;
+esac
+
+if [ -n "$force_color_prompt" ]; then
+    if [ -x /usr/bin/tput ] && tput setaf 1 >&/dev/null; then
+        color_prompt=yes
+    else
+        color_prompt=
+    fi
+fi
+
+if [ "$color_prompt" = yes ]; then
+    PS1='${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]\$ '
+else
+    PS1='${debian_chroot:+($debian_chroot)}\u@\h:\w\$ '
+fi
+unset color_prompt force_color_prompt
+
+case "$TERM" in
+xterm*|rxvt*)
+    PS1="\[\e]0;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\]$PS1"
+    ;;
+*)
+    ;;
+esac
+
+RISNG_DIR="$HOME/risng"
+RISNG_CODE_DIR="$RISNG_DIR/code"
+RISNG_ANSIBLE_DIR="$RISNG_CODE_DIR/ansible"
+RISNG_ANSIBLE_CFG="$RISNG_ANSIBLE_DIR/ansible.cfg"
+RISNG_INVENTORY_DEFAULT="$RISNG_ANSIBLE_DIR/inventory/hosts.yml"
+RISNG_SETUP_PLAYBOOK="$RISNG_ANSIBLE_DIR/bootstrapvm/risng-setup.yml"
+RISNG_ADMIN_DIR="$RISNG_CODE_DIR/Administration"
+RISNG_PYTHON_DIR="$RISNG_CODE_DIR/python"
+
+run_risng_playbook() {
+    local extra_opts="$1"
+    local playbook="$2"
+    local logfile="$3"
+    local inventory="${4:-$RISNG_INVENTORY_DEFAULT}"
+
+    local resolved_inventory=""
+    case "$inventory" in
+        /*) resolved_inventory="$inventory" ;;
+        "") resolved_inventory="$RISNG_INVENTORY_DEFAULT" ;;
+        *) resolved_inventory="$RISNG_ANSIBLE_DIR/$inventory" ;;
+    esac
+
+    local resolved_playbook="$playbook"
+    case "$playbook" in
+        /*|"") ;;
+        *) resolved_playbook="$RISNG_ANSIBLE_DIR/$playbook" ;;
+    esac
+
+    local cmd=(ansible-playbook)
+
+    if [ -n "$resolved_inventory" ]; then
+        cmd+=("-i" "$resolved_inventory")
+    fi
+
+    if [ -n "$extra_opts" ]; then
+        cmd+=($extra_opts)
+    fi
+
+    cmd+=("$resolved_playbook")
+
+    ANSIBLE_CONFIG="$RISNG_ANSIBLE_CFG" \
+    ANSIBLE_FORCE_COLOR=true \
+    ANSIBLE_STDOUT_CALLBACK=yaml \
+    ANSIBLE_CALLBACKS_ENABLED=profile_tasks \
+    "${cmd[@]}" 2>&1 | tee "$logfile"
+}
+
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+
+    alias ls='ls --color=auto'
+
+    alias ginit="$RISNG_ADMIN_DIR/gitinit.sh"
+    alias watcher="sudo $RISNG_ADMIN_DIR/watcher.sh"
+    alias terror="sudo $RISNG_ADMIN_DIR/terrorize.sh"
+
+    # 01 Full PXE setup (management, debian-live, dns, dhcp etc.)
+    alias feuer='run_risng_playbook "-vv" "$RISNG_SETUP_PLAYBOOK" "$HOME/feuer.log"'
+
+    # 01a Nur ISO-Downloads vorziehen (identische Tasks wie im Setup)
+    alias getisos='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/getisos.yml" "$HOME/getisos.log"'
+
+    alias repair-dhcp='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/repair-dhcp.yml" "$HOME/repair-dhcp.log"'
+
+    # 02 Re-enable PXE NIC and restart TFTP/DHCP services
+    alias iron='git -C "$RISNG_DIR" pull'
+
+    # 03 PXE stack neu aufbauen (stop + Rollen + restart PXE)
+    alias restage='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/network-reset.yml" "$HOME/restage-network-reset.log" && git -C "$RISNG_DIR" pull && run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/risng-setup.yml" "$HOME/restage-risng-setup.log"'
+
+    # 04 Wechsel zurück ins Internet (disable PXE, enable WAN NIC)
+    alias internet='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/network-reset.yml" "$HOME/internet.log"'
+
+    # 05 Nur DHCP-Start debuggen (isoliert)
+    alias pxe='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/network-restart.yml" "$HOME/pxe.log"'
+
+    # 05b Heilung der Internetverbindung - doppelte Adressen weg, neu dhclient
+    alias heal='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/heal_internet.yml" "$HOME/heal.log"'
+
+    # 06 IPMI-gestütztes Triggern eines PXE-Boots auf Remote-Server
+    alias trigger='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/trigger-pxe-boot.yml" "$HOME/trigger.log"'
+
+    # 07 Nur statische DHCP-Host-Zuweisungen neu anwenden
+    alias dhcpstatic='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/update-dhcp-hosts.yml" "$HOME/dhcpstatic.log"'
+
+    # 08 Client Report playbook
+    alias report_snapshot='run_risng_playbook "-v" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/enrichtest.yml" "$HOME/enrichtest.log" && run_risng_playbook "-v" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/slavelantest.yml" "$HOME/slavelantest.log" && run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/pingpartner-pytest.yml" "$HOME/pingpartner-pytest.log" && run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/report_clients.yml" "$HOME/report.log" && cat "$HOME/report.json" && echo "PDF report: $HOME/report.pdf"'
+    alias report_increment='mkdir -p "$HOME/testresults" && run_risng_playbook "-v" "$RISNG_ANSIBLE_DIR/runtime/report_increment/enrichtest_increment.yml" "$HOME/testresults/enrichtest_increment.log" && run_risng_playbook "-v" "$RISNG_ANSIBLE_DIR/runtime/report_increment/slavelantest_increment.yml" "$HOME/testresults/slavelantest_increment.log" && run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_increment/pingpartner-pytest_increment.yml" "$HOME/testresults/pingpartner-pytest_increment.log" && run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_increment/report_clients_increment.yml" "$HOME/testresults/report_increment.log" && cat "$HOME/testresults/report_increment.json" && echo "PDF report: $HOME/testresults/report_increment.pdf"'
+
+    # 08b Entwicklertool: VLAN-IPs auf PXE-Clients setzen
+    alias slavelantest='run_risng_playbook "-vv" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/slavelantest.yml" "$HOME/slavelantest.log"'
+    alias slavelantest_snapshot='run_risng_playbook "-vv" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/slavelantest.yml" "$HOME/slavelantest.log"'
+    alias slavelantest_increment='mkdir -p "$HOME/testresults" && run_risng_playbook "-vv" "$RISNG_ANSIBLE_DIR/runtime/report_increment/slavelantest_increment.yml" "$HOME/testresults/slavelantest_increment.log"'
+    alias enrichtest='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/enrichtest.yml" "$HOME/enrichtest.log"'
+    alias enrichtest_snapshot='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/enrichtest.yml" "$HOME/enrichtest.log"'
+    alias enrichtest_increment='mkdir -p "$HOME/testresults" && run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_increment/enrichtest_increment.yml" "$HOME/testresults/enrichtest_increment.log"'
+    # 08c Manuelle Ausführung der pingpartner-Pytests mit Logfile
+    alias pingpartnertest='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/pingpartner-pytest.yml" "$HOME/pingpartner-pytest.log"'
+    alias pingpartnertest_snapshot='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/pingpartner-pytest.yml" "$HOME/pingpartner-pytest.log"'
+    alias pingpartnertest_increment='mkdir -p "$HOME/testresults" && run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_increment/pingpartner-pytest_increment.yml" "$HOME/testresults/pingpartner-pytest_increment.log"'
+
+    # Qperf / iMIX Tests
+    alias cheaplantest='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplantest.yml" "$HOME/cheaplantest.log"'
+    alias cheaplanwatch='/usr/bin/env bash /var/lib/tftpboot/runtime/qperf/cheaplanwatch-client.sh'
+    alias cheaplanwatch_eantc='/usr/bin/env bash /var/lib/tftpboot/runtime/qperf/cheaplanwatch-client_eantc.sh'
+    alias cheaplanwatchserver='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatchserver.yml" "$HOME/cheaplanwatchserver.log"'
+    alias cheaplanwatchdeploy='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatchdeploy.yml" "$HOME/cheaplanwatchdeploy.log"'
+    alias cheapwatch='bash "$RISNG_ANSIBLE_DIR/runtime/qperf/files/cheapwatch.sh"'
+
+    # EANTC mix variants (keep legacy flows untouched)
+    alias cheaplantest_eantc='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplantest_eantc.yml" "$HOME/cheaplantest_eantc.log"'
+    alias cheaplanwatch_eantc='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatch_eantc.yml" "$HOME/cheaplanwatch_eantc.log"'
+    alias cheaplanwatchserver_eantc='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatchserver_eantc.yml" "$HOME/cheaplanwatchserver_eantc.log"'
+    alias cheaplanwatchdeploy_eantc='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatchdeploy_eantc.yml" "$HOME/cheaplanwatchdeploy_eantc.log"'
+
+    # EANTC randomized variants
+    alias cheaplantest_eantcrand='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplantest_eantcrand.yml" "$HOME/cheaplantest_eantcrand.log"'
+    alias cheaplanwatch_eantcrand='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/qperf/cheaplanwatch_eantcrand.yml" "$HOME/cheaplanwatch_eantcrand.log"'
+
+    # 08a NetBox rack overview
+    alias importnetboxinfo='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/playbooks/import_netbox_info.yml" "$HOME/importnetboxinfo.log"'
+    alias dc-vLAN-test='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/playbooks/dc_vlan_test.yml" "$HOME/dc-vLAN-test.log"'
+
+    alias unreport='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/playbooks/unreport.yml" "$HOME/unreport.log"'
+    
+    alias ironscrub='run_risng_playbook "--ask-become-pass" "$RISNG_ANSIBLE_DIR/bootstrapvm/ironscrub.yml" "$HOME/ironscrub.log" "$HOME/Playbooks/ansible/inventory.yml"'
+
+    # 09 gitgud - holt sich nur mal kurz die letzten änderungen ohne feuer
+    alias gitgud='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/network-reset.yml" "$HOME/gitgud-network-reset.log" && git -C "$RISNG_DIR" pull && run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/network-restart.yml" "$HOME/gitgud-network-restart.log"'
+    function status {
+      echo "=== risng PXE status ==="
+      echo
+      echo "[services]"
+      for s in bind9 isc-dhcp-server tftpd-hpa nginx; do
+        printf "%-18s %s\n" "$s" "$(systemctl is-active "$s" 2>/dev/null || echo missing)"
+      done
+      echo
+      echo "[pxe interface + addresses]"
+      ip -brief addr | grep -E "{{ risng_lan_interface | default('ens36') }}|{{ internetinterface | default('ens33') }}|^lo" || ip -brief addr
+      echo
+      echo "[critical listeners]"
+      ss -luntp | grep -E '(:53\s|:67\s|:69\s|:80\s)' || echo "no matching listeners"
+      echo
+      echo "[dhcp leases]"
+      test -f /var/lib/dhcp/dhcpd.leases && tail -n 12 /var/lib/dhcp/dhcpd.leases || echo "no lease file"
+      echo
+      echo "[tftp quick check]"
+      ls -lh /var/lib/tftpboot/{pxelinux.0,bootx64.efi} 2>/dev/null || echo "missing pxelinux.0 or bootx64.efi"
+      echo
+      echo "[config validation]"
+      named-checkconf >/dev/null 2>&1 && echo "bind9 config: ok" || echo "bind9 config: FAILED"
+      dhcpd -t -cf /etc/dhcp/dhcpd.conf >/dev/null 2>&1 && echo "dhcpd config: ok" || echo "dhcpd config: FAILED"
+    }
+    alias pnt='git -C '"$RISNG_DIR"' pull'
+    alias guck="watch 'ls -l /var/lib/tftpboot/debian-live/live/'"
+    
+    # 11 Rufe ein Teil-Rollen-Playbook aus
+    alias teil='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/run_parts.yml" "$HOME/teil.log"'
+
+    # 10 Netbox klonen und starten
+    netbox() {
+        local repo_dir=~/cmdb/code/netbox-dfs
+        local repo_url=https://gitlab.dcc.dfs.de/data-center/components/cmdb.git
+        local repo_parent
+        repo_parent=$(dirname "$repo_dir")
+        local user_file=~/netbox.user.md
+        local token_file=~/netbox.token.md
+
+        if [ ! -s "$user_file" ] || [ ! -s "$token_file" ]; then
+            echo "[netbox] → Required credential files not found or empty." >&2
+            echo "[netbox] → Please create '$user_file' and '$token_file' with your username and token." >&2
+            return 1
+        fi
+
+        local git_user
+        git_user=$(head -n1 "$user_file")
+        local git_token
+        git_token=$(head -n1 "$token_file")
+
+        if [ -z "$git_user" ] || [ -z "$git_token" ]; then
+            echo "[netbox] → Credential files must not be empty." >&2
+            return 1
+        fi
+
+        local askpass
+        askpass=$(mktemp)
+        cat >"$askpass" <<'EOF'
+#!/bin/sh
+case "$1" in
+    *Username*) printf '%s' "$NETBOX_GIT_USERNAME" ;;
+    *Password*) printf '%s' "$NETBOX_GIT_TOKEN" ;;
+esac
+EOF
+        chmod +x "$askpass"
+
+        local git_env=("NETBOX_GIT_USERNAME=$git_user" "NETBOX_GIT_TOKEN=$git_token" "GIT_ASKPASS=$askpass" "GIT_TERMINAL_PROMPT=0")
+
+        if [ -d "$repo_dir/.git" ]; then
+            if ! env "${git_env[@]}" git -C "$repo_dir" pull --ff-only; then
+                echo "[netbox] → Git pull failed." >&2
+                rm -f "$askpass"
+                return 1
+            fi
+        else
+            mkdir -p "$repo_parent"
+            if ! env "${git_env[@]}" git clone "$repo_url" "$repo_dir"; then
+                echo "[netbox] → Git clone failed." >&2
+                rm -f "$askpass"
+                return 1
+            fi
+        fi
+
+        rm -f "$askpass"
+
+        cd "$repo_dir" || return 1
+        sudo docker-compose up -d --build && firefox http://10.228.229.7:8000
+    }
+
+    alias netboxuser="docker-compose exec netbox-dfs_netbox_1 /opt/netbox/netbox/manage.py createsuperuser"
+
+    # Stoppt die NetBox-Instanz, ohne Container oder Daten zu löschen
+
+    # Alias: NetBox-AVS-Informationen abrufen
+    alias boxinfo='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/playbooks/boxinfo.yml" "$HOME/boxinfo.log"'
+
+    # Alias: NetBox-Daten abrufen und anzeigen
+    alias populate="python3 $RISNG_PYTHON_DIR/extract_netbox_infos.py"
+
+    # Alias: NetBox-Daten direkt in DHCP defaults injizieren
+    alias populaterisng='python3 '"$RISNG_PYTHON_DIR"'/extract_netbox_infos.py > '"$RISNG_ANSIBLE_DIR"'/bootstrapvm/roles/dhcp/defaults/main.yml'
+
+    alias irontest='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/playbooks/irontest.yml" "$HOME/irontest.log"'
+
+
+
+nonetbox() {
+  local DIR=~/cmdb/code/netbox-dfs
+
+  if [ ! -d "$DIR" ]; then
+    echo " NetBox directory not found: $DIR"
+    return 1
+  fi
+
+  cd "$DIR" || return 1
+
+  # Step 1: Stop and remove NetBox containers and orphaned containers
+  echo "[nonetbox] → Stopping NetBox and cleaning up orphan containers..."
+  sudo docker-compose down --remove-orphans
+
+  # Step 2: Remove unused Docker networks
+  echo "[nonetbox] → Removing unused Docker networks..."
+  sudo docker network prune -f
+
+  # Step 3: Stop and disable Docker service
+  echo "[nonetbox] → Stopping and disabling Docker service..."
+  sudo systemctl stop docker
+  sudo systemctl disable docker
+
+  # Step 4: Delete docker0 interface if it exists
+  if ip link show docker0 &>/dev/null; then
+    echo "[nonetbox] → Removing docker0 interface..."
+    sudo ip link delete docker0
+  else
+    echo "[nonetbox] → docker0 already absent."
+  fi
+
+  echo "[nonetbox] → Done. Docker is disabled and docker0 removed."
+}
+
+
+    # 11 Populate Test data
+    alias populate='(cd "$RISNG_PYTHON_DIR" && python3 populate_test_data.py)'
+
+    alias guckma='sudo watch -n 1 '\''for dir in /tmp/pxe-build/* /var/lib/tftpboot/* ; do
+  [ -d "$dir" ] && echo "--- $dir ---" && du -sh "$dir" && ls -lhS --color=always "$dir"
+done'\'''
+
+
+
+    alias codedump='for i in $(find . -type f | grep -vE '\''Docker|wall'\'' | grep -E '\''py$|yml$|j2$|md$|hosts|sh$|cfg$'\''); do echo $i >> ~/code.md; cat $i >> ~/code.md; done'
+
+codefromLABtoHUB() {
+  local dto_admin_dir="$HOME/dto_admin"
+  local mirror_dir="$dto_admin_dir/risng_code"
+  local commit_msg
+
+  commit_msg=$(git -C "$RISNG_DIR" log -1 --pretty=%s) || return 1
+
+  (
+    cd "$dto_admin_dir" || return 1
+    git fetch origin &&
+      git reset --hard origin/main &&
+      rm -rf "$mirror_dir/code" &&
+      mkdir -p "$mirror_dir" &&
+      cp -r "$RISNG_CODE_DIR" "$mirror_dir/code" &&
+      git add . &&
+      git commit -m "$commit_msg" &&
+      git push --force
+  )
+}
+
+codefromHUBtoLAB() {
+  local dto_admin_dir="$HOME/dto_admin"
+  local commit_msg
+
+  git -C "$dto_admin_dir" pull || return 1
+  commit_msg=$(git -C "$dto_admin_dir" log -1 --pretty=%s) || return 1
+
+  (
+    cd "$RISNG_DIR" || return 1
+    rm -rf code &&
+      cp -r "$dto_admin_dir/risng_code/code" ./code &&
+      git add . &&
+      git commit -m "$commit_msg" &&
+      git push
+  )
+}
+
+
+
+
+    alias onedrive="rclone mount onedrive: ~/onedrive --daemon"
+fi
+
+zeigma() {
+  local REPO="$RISNG_DIR"
+  local OUT=~/code.md
+  local ODIR=~/onedrive/Transfer
+
+  echo -n > "$OUT"                             # Datei leeren/neu anlegen
+
+  # ---------- Code-Dump ----------
+  find "$REPO" -type f \
+       ! -path '*Docker*' ! -path '*wall*' \
+       -regex '.*\.\(py\|yml\|j2\|md\|hosts\|sh\|cfg\)$' |
+  while IFS= read -r f; do
+    echo -e "\n### $f" >> "$OUT"
+    cat "$f"        >> "$OUT"
+  done
+
+  # ---------- Boot-Konfiguration ----------
+  "$REPO/code/Administration/collect_bootconfig.sh"
+
+  # ---------- Kopieren nach OneDrive ----------
+  mkdir -p "$ODIR"
+  cp "$OUT"          "$ODIR/aktuellercode.md"
+  cp ~/bootconfig.md "$ODIR/tftp-resultat.md"
+
+  echo "Zeigma fertig – Dateien liegen unter $ODIR"
+}
+
+
+
+if [ -f ~/.bash_aliases ]; then
+    . ~/.bash_aliases
+fi
+
+if ! shopt -oq posix; then
+    if [ -f /usr/share/bash-completion/bash_completion ]; then
+        . /usr/share/bash-completion/bash_completion
+    elif [ -f /etc/bash_completion ]; then
+        . /etc/bash_completion
+    fi
+fi

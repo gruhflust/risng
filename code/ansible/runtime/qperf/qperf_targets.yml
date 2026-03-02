@@ -1,0 +1,23 @@
+---
+# qperf_targets mirrors dhcp_static_hosts so cheaplantest can reuse the same
+# PXE/DHCP client inventory used by pingpartner/slavelantest/report_snapshot.
+# Keep this file aligned with:
+#   risng_code/code/ansible/bootstrapvm/roles/dhcp/defaults/main.yml
+qperf_targets:
+  - name: dhcp-uefi2
+    ip: "10.228.229.98"
+
+  - name: uefi-freak
+    ip: "10.228.229.78"
+
+  - name: legacy
+    ip: "10.228.229.23"
+
+  - name: auf99
+    ip: "10.228.229.99"
+
+  - name: vlan-test-1
+    ip: "10.228.229.60"
+
+  - name: vlan-test-2
+    ip: "10.228.229.61"

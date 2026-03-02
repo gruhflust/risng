@@ -1,0 +1,15 @@
+# roles/dhcp/templates/isc-dhcp-server.service.j2  (neu v2)
+[Unit]
+Description=ISC DHCP Server
+After=network.target
+BindsTo=sys-subsystem-net-devices-{{ dhcp_interface }}.device
+Requires=sys-subsystem-net-devices-{{ dhcp_interface }}.device
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/dhcpd -4 -f -cf /etc/dhcp/dhcpd.conf \
+         -lf /var/lib/dhcp/dhcpd.leases {{ dhcp_interface }}
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

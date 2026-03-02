@@ -1,0 +1,29 @@
+# netinstall_v6
+# -------------------------------------------------------------------
+# Defaults for the netinstall role using live initrd and kernel
+# -------------------------------------------------------------------
+
+# Kernel and initrd copied from Debian Live ISO (not netboot.tar.gz)
+netinstall_kernel: "vmlinuz"
+netinstall_initrd: "initrd.img"
+
+# PXE-relative export path under TFTP root
+netinstall_target_relative: "images/netinstall"
+
+# PXE boot menu filenames
+netinstall_grub_filename: "10-netinstall.cfg"
+netinstall_pxelinux_filename: "10-netinstall.cfg"
+
+# PXE boot menu labels
+netinstall_label:       "Netinstall (BIOS)"
+netinstall_grub_label:  "Netinstall (UEFI)"
+
+# Default hostname used until DHCP supplies a specific value
+netinstall_default_hostname: netinstall-client
+
+# Fallback values from earlier versions (not used anymore)
+netinstall_url: "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/current/images/netboot/netboot.tar.gz"
+netinstall_extract_dir: "{{ pxe_tmp_dir }}/netinstall"
+
+# host_vars/bootstrapvm.yml
+netinstall_autologin_user: root

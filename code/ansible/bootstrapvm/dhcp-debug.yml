@@ -1,0 +1,18 @@
+---
+# dhcp_debug_v01
+# This playbook isolates DHCP startup issues by re-running only the relevant part of the PNT setup.
+
+- name: Debug isc-dhcp-server startup
+  hosts: bootstrapvm
+  become: true
+  vars:
+    dhcp_interface: "ens36"
+    dhcp_subnet:  "10.228.229.0"
+    dhcp_netmask: "255.255.255.0"
+    dhcp_range_start: "10.228.229.101"
+    dhcp_range_end:   "10.228.229.200"
+    dhcp_gateway:     "10.228.229.7"
+    dhcp_dns_server:  "10.228.229.7"
+
+  roles:
+    - dhcp

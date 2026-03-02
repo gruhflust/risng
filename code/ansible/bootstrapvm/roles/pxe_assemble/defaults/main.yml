@@ -1,0 +1,16 @@
+---
+# v1.0.0 – Standardeinstellungen
+
+# Root des TFTP-Baums
+pxe_tftp_dir: "/var/lib/tftpboot"
+
+# Timeout-Werte
+#   BIOS  : direkt (100 = 10 s)
+#   GRUB  : timeout/10  (hier also 5 s)
+pxe_timeout: 50
+
+# Fallback-LABEL, falls kein LABEL ermittelbar ist
+pxe_default_label: "debian-live"
+
+# Service-Name des eingesetzten TFTP-Servers
+pxe_tftp_service: "tftpd-hpa"

@@ -1,0 +1,41 @@
+---
+- name: Inventory CUE Import
+  hosts: localhost
+  gather_facts: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    inventory_repo: "{{ lookup('env', 'HOME') }}/inventory"
+    inventory_output: "{{ lookup('env', 'HOME') }}/inventory-readout.json"
+    dhcp_enriched_output: "{{ lookup('env', 'HOME') }}/dhcp_enriched.yml"
+  tasks:
+    - name: Update inventory repository
+      ansible.builtin.command:
+        cmd: git -C {{ inventory_repo }} pull --ff-only
+      environment:
+        # Prevent Git from prompting for credentials so that we can surface a controlled
+        # warning instead of a hard failure when non-interactive authentication is needed.
+        GIT_TERMINAL_PROMPT: "0"
+        GIT_ASKPASS: "/bin/true"
+      register: git_pull
+      failed_when: false
+      changed_when: git_pull.rc == 0 and 'Already up to date' not in git_pull.stdout
+
+    - name: Warn if inventory repository update failed
+      ansible.builtin.debug:
+        msg: >-
+          inventory pull failed (using cached checkout): {{ git_pull.stderr | default('') }}
+      when: git_pull.rc != 0
+
+    - name: Parse CUE files and export JSON
+      ansible.builtin.command:
+        cmd: >-
+          python3 {{ playbook_dir }}/files/inventory_import.py
+          {{ inventory_repo }}
+          {{ inventory_output }}
+          {{ dhcp_enriched_output }}
+      register: inventory_import
+      changed_when: false
+
+    - name: Show import summary
+      ansible.builtin.debug:
+        msg: "{{ inventory_import.stdout }} (DHCP export: {{ dhcp_enriched_output }})"

@@ -1,0 +1,46 @@
+# roles/management/tasks/20_persist_network.yml
+# Version: management_networkpersist_v03
+# Purpose: Make PXE NIC (Internet Interface) configuration persistent without touching ens33
+
+- name: 02 30 Write persistent config for PXE NIC + keep internet NIC
+  copy:
+    dest: /etc/network/interfaces.new
+    content: |
+      auto lo
+      iface lo inet loopback
+
+      auto {{ internetinterface }}
+      iface {{ internetinterface }} inet dhcp
+
+      auto {{ risng_lan_interface }}
+      iface {{ risng_lan_interface }} inet static
+          address {{ dhcp_gateway }}
+          netmask {{ dhcp_netmask }}
+    mode: "0644"
+
+
+
+
+- name: 02 32 Remove predictable interface override (optional)
+  ansible.builtin.file:
+    path: /etc/systemd/network/99-default.link
+    state: absent
+
+- name: 02 33 Enable ifupdown networking service at boot
+  ansible.builtin.systemd:
+    name: networking
+    enabled: true
+
+- name: 02 34 Validate PXE config written correctly
+  ansible.builtin.shell: grep -E "^auto {{ risng_lan_interface }}" /etc/network/interfaces.new
+  register: persist_check
+  changed_when: false
+  failed_when: persist_check.rc != 0
+
+- name: 02 35 Activate persistent network config at next boot
+  copy:
+    src: /etc/network/interfaces.new
+    dest: /etc/network/interfaces
+    remote_src: true
+    mode: "0644"
+

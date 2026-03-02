@@ -1,0 +1,6 @@
+# dhcp_role_handlers_v05
+
+- name: Restart DHCP server
+  ansible.builtin.systemd:
+    name: isc-dhcp-server
+    state: restarted

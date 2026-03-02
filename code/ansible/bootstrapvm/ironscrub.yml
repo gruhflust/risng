@@ -1,0 +1,11 @@
+---
+- name: Clean temporary files
+  hosts: all
+  become: true
+  tasks:
+    - name: Remove contents of /tmp
+      ansible.builtin.shell: |
+        find /tmp -mindepth 1 -delete
+      args:
+        warn: false
+      changed_when: false

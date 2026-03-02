@@ -1,0 +1,85 @@
+---
+- name: Discover online PXE clients eligible for cheaplanwatch deploy
+  hosts: localhost
+  gather_facts: false
+  become: true
+  become_user: risng
+  vars:
+    dhcp_defaults_file: "{{ playbook_dir }}/../../bootstrapvm/roles/dhcp/defaults/main.yml"
+    cheaplanwatch_payload: "/var/lib/tftpboot/runtime/qperf/cheaplanwatch-client.sh"
+  tasks:
+    - name: Load DHCP static host definitions
+      ansible.builtin.include_vars:
+        file: "{{ dhcp_defaults_file }}"
+
+    - name: Ensure cheaplanwatch payload exists on server
+      ansible.builtin.stat:
+        path: "{{ cheaplanwatch_payload }}"
+      register: cheaplanwatch_payload_stat
+
+    - name: Abort if payload missing
+      ansible.builtin.fail:
+        msg: "Missing payload: {{ cheaplanwatch_payload }}. Run staging first."
+      when: not cheaplanwatch_payload_stat.stat.exists
+
+    - name: Probe SSH reachability for DHCP hosts
+      ansible.builtin.wait_for:
+        host: "{{ item.ip }}"
+        port: 22
+        timeout: 2
+      loop: "{{ dhcp_static_hosts | default([]) }}"
+      register: ssh_probe
+      ignore_errors: true
+
+    - name: Register reachable hosts as deploy targets
+      ansible.builtin.add_host:
+        name: "{{ item.item.hostname | default(item.item.ip) }}"
+        groups: cheaplanwatch_clients_online
+        ansible_host: "{{ item.item.ip }}"
+        ansible_user: "{{ item.item.ssh_user | default('root') }}"
+        ansible_python_interpreter: auto_silent
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+      loop: "{{ ssh_probe.results | default([]) }}"
+      when: item.failed is not defined or not item.failed
+
+    - name: Show online deploy targets
+      ansible.builtin.debug:
+        msg: "cheaplanwatchdeploy targets: {{ groups['cheaplanwatch_clients_online'] | default([]) }}"
+
+- name: Deploy cheaplanwatch runtime script to online clients
+  hosts: cheaplanwatch_clients_online
+  gather_facts: false
+  become: true
+  become_user: root
+  vars:
+    cheaplanwatch_payload: "/var/lib/tftpboot/runtime/qperf/cheaplanwatch-client.sh"
+  tasks:
+    - name: Ensure cache dir exists on client
+      ansible.builtin.file:
+        path: /var/cache/cheaplanwatch
+        state: directory
+        mode: "0755"
+
+    - name: Copy latest runtime payload into client cache
+      ansible.builtin.copy:
+        src: "{{ cheaplanwatch_payload }}"
+        dest: /var/cache/cheaplanwatch/cheaplanwatch-client.sh
+        mode: "0755"
+
+    - name: Optional direct script location on client
+      ansible.builtin.copy:
+        src: "{{ cheaplanwatch_payload }}"
+        dest: /usr/local/sbin/cheaplanwatch-client-runtime.sh
+        mode: "0755"
+
+    - name: Verify deployed script version marker (first line)
+      ansible.builtin.command:
+        cmd: head -n 1 /var/cache/cheaplanwatch/cheaplanwatch-client.sh
+      register: cheaplanwatch_head
+      changed_when: false
+
+    - name: Show deploy status per host
+      ansible.builtin.debug:
+        msg:
+          - "Deployed to {{ inventory_hostname }} ({{ ansible_host }})"
+          - "Header: {{ cheaplanwatch_head.stdout | default('n/a') }}"

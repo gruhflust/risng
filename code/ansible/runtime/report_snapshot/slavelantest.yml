@@ -1,0 +1,241 @@
+---
+# slavelantest_v1 – Apply extra_nics VLAN addresses from DHCP defaults
+
+- name: Update DHCP defaults with pingpartner IPs from VLAN inventory
+  hosts: localhost
+  gather_facts: false
+  vars:
+    slavelan_dhcp_defaults_path: "{{ playbook_dir | realpath }}/../../bootstrapvm/roles/dhcp/defaults/main.yml"
+    slavelan_vlan_inventory_path: "{{ playbook_dir | realpath }}/../../inventory/vlans.yml"
+  tasks:
+    - name: 00 Load VLAN inventory
+      ansible.builtin.include_vars:
+        file: "{{ slavelan_vlan_inventory_path }}"
+        name: slavelan_vlan_inventory
+
+    - name: 01 Load DHCP defaults without templating
+      ansible.builtin.set_fact:
+        slavelan_dhcp_defaults: "{{ lookup('file', slavelan_dhcp_defaults_path) | from_yaml }}"
+
+    - name: 02 Build VLAN ID -> highest host lookup
+      ansible.builtin.set_fact:
+        slavelan_vlan_ping_lookup: "{{ dict((slavelan_vlan_inventory.vlans | default([])) | map(attribute='id') | map('int') | list | zip((slavelan_vlan_inventory.vlans | default([])) | map(attribute='highest_host') | list)) }}"
+
+    - name: 03 Enrich dhcp_static_hosts with pingpartner_ip where possible
+      ansible.builtin.set_fact:
+        slavelan_corrected_hosts: |
+          {% set result = [] %}
+          {% for host in slavelan_dhcp_defaults.dhcp_static_hosts | default([]) %}
+            {% set new_host = host.copy() %}
+            {% set host_ip = host.ip | default(None) %}
+            {% if host_ip and (new_host.pingpartner_ip is not defined or not new_host.pingpartner_ip) %}
+              {% set _ = new_host.update({'pingpartner_ip': host_ip | ipmath(1)}) %}
+            {% endif %}
+            {% if host.extra_nics is defined and host.extra_nics %}
+              {% set updated_nics = [] %}
+              {% for nic in host.extra_nics %}
+                {% set nic_copy = nic.copy() %}
+                {% set vlan_id = nic.vlan_id | int %}
+                {% set desired_ping = slavelan_vlan_ping_lookup.get(vlan_id) %}
+                {% set fallback_ping = nic.vlan_ip | default(None) %}
+                {% if fallback_ping %}
+                  {% set fallback_ping = fallback_ping | ipmath(1) %}
+                {% endif %}
+                {% set selected_ping = desired_ping | default(fallback_ping) %}
+                {% if selected_ping %}
+                  {% if nic_copy.pingpartner_ip is not defined or nic_copy.pingpartner_ip != selected_ping %}
+                    {% set _ = nic_copy.update({'pingpartner_ip': selected_ping}) %}
+                  {% endif %}
+                {% endif %}
+                {% set _ = updated_nics.append(nic_copy) %}
+              {% endfor %}
+              {% set _ = new_host.update({'extra_nics': updated_nics}) %}
+            {% endif %}
+            {% set _ = result.append(new_host) %}
+          {% endfor %}
+          {{ result }}
+
+    - name: 03a Normalize corrected hosts to data structure
+      ansible.builtin.set_fact:
+        slavelan_corrected_hosts: "{{ slavelan_corrected_hosts | from_yaml }}"
+      when: slavelan_corrected_hosts is string
+
+    - name: 04 Combine corrected DHCP defaults
+      ansible.builtin.set_fact:
+        slavelan_corrected_defaults: "{{ slavelan_dhcp_defaults | combine({'dhcp_static_hosts': slavelan_corrected_hosts}) }}"
+
+    - name: 05 Share corrected DHCP defaults for later plays
+      ansible.builtin.set_fact:
+        slavelan_effective_dhcp_defaults: "{{ slavelan_corrected_defaults }}"
+
+- name: Build target list from DHCP defaults
+  hosts: localhost
+  gather_facts: false
+  vars:
+    slavelantest_group: slavelantest_targets
+  tasks:
+    - name: 00a Load DHCP defaults when correction was skipped
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/../bootstrapvm/roles/dhcp/defaults/main.yml"
+        name: slavelan_fallback_defaults
+      when: slavelan_effective_dhcp_defaults is not defined
+
+    - name: 00b Select corrected DHCP defaults
+      ansible.builtin.set_fact:
+        slavelan_active_dhcp_defaults: "{{ slavelan_effective_dhcp_defaults | default(slavelan_fallback_defaults) }}"
+
+    - name: 00 Select hosts with reachable IP definitions
+      set_fact:
+        slavelantest_hosts: "{{ slavelan_active_dhcp_defaults.dhcp_static_hosts | default([]) | selectattr('ip', 'defined') | selectattr('extra_nics', 'defined') | selectattr('extra_nics', 'truthy') | list }}"
+
+    - name: 01 Warn when no matching hosts are present
+      ansible.builtin.debug:
+        msg: "Keine Einträge mit extra_nics in dhcp_static_hosts gefunden."
+      when: slavelantest_hosts | length == 0
+      changed_when: false
+
+    - name: 02 Register targets with connection details
+      ansible.builtin.add_host:
+        name: "{{ item.name | default(item.ip) }}"
+        ansible_host: "{{ item.ip }}"
+        groups: "{{ slavelantest_group }}"
+        slavelan_extra_nics: "{{ item.extra_nics | default([]) }}"
+        slavelan_prefix: "{{ slavelan_active_dhcp_defaults.dhcp_prefix | default('24') }}"
+      loop: "{{ slavelantest_hosts }}"
+      when: item.ip is defined
+
+- name: Configure VLAN interfaces on PXE clients
+  hosts: "{{ slavelantest_group | default('slavelantest_targets') }}"
+  gather_facts: false
+  vars:
+    slavelantest_group: slavelantest_targets
+    ansible_user: root
+    ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o ConnectTimeout=5"
+  tasks:
+    - name: 10 Verify SSH reachability
+      ansible.builtin.ping:
+      register: slavelan_ping
+      ignore_unreachable: true
+      ignore_errors: true
+
+    - name: 11 Warn and skip unreachable hosts
+      block:
+        - name: 11a Warn about unreachable host
+          ansible.builtin.debug:
+            msg: "WARN: {{ inventory_hostname }} ({{ ansible_host }}) nicht erreichbar – überspringe."
+          changed_when: false
+
+        - name: 11b Stop further tasks for unreachable host
+          meta: end_host
+      when: slavelan_ping is failed or (((slavelan_ping.unreachable | default(0)) | int) > 0)
+
+    - name: 12 Gather minimal and network facts for interface mapping
+      ansible.builtin.setup:
+        gather_subset:
+          - min
+          - network
+
+    - name: 13a Check for kernel module metadata directory
+      ansible.builtin.stat:
+        path: "/lib/modules/{{ ansible_kernel }}/modules.builtin"
+      register: slavelan_modules_builtin
+      become: true
+
+    - name: 13b Try to load VLAN kernel module unconditionally
+      ansible.builtin.command: modprobe 8021q
+      register: slavelan_modprobe
+      become: true
+      changed_when: slavelan_modprobe.rc == 0
+      failed_when: false
+
+    - name: 13c Warn when kernel module metadata is missing
+      ansible.builtin.debug:
+        msg: "WARN: /lib/modules/{{ ansible_kernel }}/modules.builtin fehlt – 8021q wird als builtin vorausgesetzt."
+      changed_when: false
+      when: not slavelan_modules_builtin.stat.exists
+
+    - name: 13d Warn when VLAN kernel module could not be loaded
+      ansible.builtin.debug:
+        msg: >-
+          WARN: Konnte VLAN-Modul 8021q nicht laden (rc={{ slavelan_modprobe.rc }}):
+          {{ slavelan_modprobe.stderr | default(slavelan_modprobe.stdout) | default('keine Ausgabe') }}
+          Ohne Kernel-VLAN-Unterstützung schlägt 'ip link add ... type vlan' fehl.
+      changed_when: false
+      when: slavelan_modprobe.rc != 0
+
+    - name: 13e Check for active VLAN kernel support
+      ansible.builtin.stat:
+        path: /sys/module/8021q
+      register: slavelan_8021q_module
+      become: true
+
+    - name: 13f Fail when VLAN kernel support is unavailable
+      ansible.builtin.fail:
+        msg: >-
+          VLAN-Kernelunterstützung fehlt (/sys/module/8021q nicht vorhanden, modprobe rc={{ slavelan_modprobe.rc }}).
+          risng-Images laden 8021q während des Builds automatisch (siehe bootstrapvm/roles/risng/tasks/vlan_support.yml
+          und 04 04a). Bitte das risng-Setup prüfen, bevor das Play erneut ausgeführt wird.
+      when: not slavelan_8021q_module.stat.exists
+
+    - name: 14 Detect ip command and version
+      ansible.builtin.command: ip -V
+      register: slavelan_ip_version
+      changed_when: false
+      ignore_errors: true
+
+    - name: 15 Fail when ip command is missing
+      ansible.builtin.fail:
+        msg: "Das 'ip'-Tool ist nicht vorhanden. Bitte iproute2 vor der Ausführung bereitstellen (kein Paket-Download während des Plays möglich)."
+      when: slavelan_ip_version is failed
+
+    - name: 16 Verify ip command is provided by iproute2
+      ansible.builtin.command: ip -V
+      register: slavelan_ip_version
+      changed_when: false
+
+    - name: 17 Fail when ip command lacks VLAN support
+      ansible.builtin.fail:
+        msg: "Das 'ip'-Tool scheint kein iproute2 zu sein (Ausgabe: {{ slavelan_ip_version.stdout | default('') }}). VLAN-Interfaces können so nicht erzeugt werden."
+      when: "'iproute2' not in (slavelan_ip_version.stdout | default('') | lower)"
+
+    - name: 17a Inspect ip link help for VLAN support
+      ansible.builtin.command: ip link help
+      register: slavelan_ip_link_help
+      changed_when: false
+      failed_when: false
+
+    - name: 17b Fail when ip link lacks VLAN subcommands
+      ansible.builtin.fail:
+        msg: >-
+          Das 'ip'-Tool bietet keine VLAN-Unterstützung (kein 'vlan' in der Ausgabe von 'ip link help').
+          Bitte stelle sicher, dass das PXE-Image bereits ein iproute2-Paket mit VLAN-Funktionalität enthält;
+          ein Nachladen aus dem Internet ist im risng-Umfeld nicht möglich.
+      when: >-
+        slavelan_ip_link_help is failed
+        or 'vlan' not in (
+          (
+            slavelan_ip_link_help.stdout | default('')
+          ) +
+          (
+            slavelan_ip_link_help.stderr | default('')
+          )
+        ) | lower
+
+    - name: 18 Build MAC -> interface lookup
+      ansible.builtin.set_fact:
+        slavelan_mac_lookup: "{{ slavelan_mac_lookup | default({}) | combine({ (hostvars[inventory_hostname]['ansible_' + item]['macaddress'] | lower): item }) }}"
+      loop: "{{ ansible_interfaces | default([]) }}"
+      when:
+        - hostvars[inventory_hostname]['ansible_' + item] is defined
+        - hostvars[inventory_hostname]['ansible_' + item].macaddress is defined
+
+    - name: 19 Configure extra NIC VLANs and IPs
+      ansible.builtin.include_tasks: slavelantest_configure_nic.yml
+      vars:
+        slavelan_base_iface: "{{ slavelan_mac_lookup[slavelan_nic.mac | lower] | default('') }}"
+        slavelan_vlan_iface: "{{ slavelan_base_iface }}.{{ slavelan_nic.vlan_id }}"
+        slavelan_prefix_len: "{{ slavelan_prefix | default('24') }}"
+      loop: "{{ slavelan_extra_nics | default([]) }}"
+      loop_control:
+        label: "{{ slavelan_nic.mac }} (VLAN {{ slavelan_nic.vlan_id }})"
+        loop_var: slavelan_nic

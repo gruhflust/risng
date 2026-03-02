@@ -1,0 +1,39 @@
+# bootloader_generation.yml
+# Version 2.2 – PXELINUX bootloader and kernel/initrd from system and ISO (system layout identical to multibootworking)
+
+- name: 01 Copy PXELINUX BIOS bootloader files from system
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ item }}"
+    dest: "{{ pxe_tftp_dir }}/"
+    mode: "0644"
+  loop:
+    - /usr/lib/PXELINUX/pxelinux.0
+    - /usr/lib/syslinux/modules/bios/ldlinux.c32
+    - /usr/lib/syslinux/modules/bios/vesamenu.c32
+
+- name: 02 Copy kernel from ISO /live/ directory
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ debian_live_iso_mount }}/live/{{ debian_live_kernel }}"
+    dest: "{{ debian_live_target }}/{{ debian_live_kernel }}"
+    mode: "0644"
+
+- name: 03 Copy initrd from ISO /live/ directory
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ debian_live_iso_mount }}/live/{{ debian_live_initrd }}"
+    dest: "{{ debian_live_target }}/{{ debian_live_initrd }}"
+    mode: "0644"
+
+- name: 04 Deploy PXELINUX menu snippet (BIOS)
+  ansible.builtin.template:
+    src: pxelinux.cfg.j2
+    dest: "{{ pxe_tftp_dir }}/pxelinux.cfg/10-debian-live.cfg"
+    mode: "0644"
+
+- name: 05 Deploy GRUB menu snippet (UEFI)
+  ansible.builtin.template:
+    src: grub.cfg.j2
+    dest: "{{ pxe_tftp_dir }}/boot/grub/10-debian-live.cfg"
+    mode: "0644"

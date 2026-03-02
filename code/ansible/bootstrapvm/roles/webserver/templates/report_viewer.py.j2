@@ -1,0 +1,46 @@
+from flask import Flask, render_template_string, request
+import json
+import subprocess
+
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    with open("/home/risng/report.json") as f:
+        data = json.load(f)
+    return render_template_string(TEMPLATE, clients=data)
+
+@app.route("/run", methods=["POST"])
+def run_report():
+    subprocess.Popen(["ansible-playbook", "/home/risng/risng/code/ansible/runtime/report_snapshot/report_clients.yml"])
+    return "Report gestartet"
+
+TEMPLATE = """{% raw %}
+<html><body>
+<h1>PXE Report</h1>
+<form action="/run" method="post">
+  <button type="submit">Report erneut ausführen</button>
+</form>
+{% for c in clients %}
+  <h3>{{ c.hostname }} ({{ c.ip }})</h3>
+  <ul>
+    <li>MAC: {{ c.mac }}</li>
+    <li>RAM: {{ c.memory_gb }} GiB</li>
+    <li>Disks:
+      <ul>
+        {% for d in c.disks %}
+        <li>{{ d.name }} – {{ d.size_gb }} GB</li>
+        {% endfor %}
+      </ul>
+    </li>
+    <li>Interfaces:
+      <ul>
+        {% for i in c.interfaces %}
+        <li>{{ i }}</li>
+        {% endfor %}
+      </ul>
+    </li>
+  </ul>
+{% endfor %}
+</body></html>
+{% endraw %}"""

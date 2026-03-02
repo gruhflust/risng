@@ -1,0 +1,103 @@
+# dhcp_role_tasks_v14
+# Starts isc-dhcp-server even when the PXE cable is not plugged in
+
+- name: Ensure bootstrap_ip is defined
+  ansible.builtin.set_fact:
+    bootstrap_ip: "{{ ansible_default_ipv4.address }}"
+  when: bootstrap_ip is not defined
+
+- name: 00 include preparation tasks
+  import_tasks: 10_prepare_dhcp.yml
+
+# ---------- Interface handling ------------------------------------------------
+- name: 01 bring PXE NIC up
+  ansible.builtin.command: ip link set {{ dhcp_interface }} up
+  changed_when: false
+  failed_when: false
+
+- name: 02 ensure static IP present
+  ansible.builtin.shell: |
+    ip -4 addr show {{ dhcp_interface }} | grep -q '\b{{ dhcp_gateway }}/' || \
+    ip addr add {{ dhcp_gateway }}/{{ dhcp_prefix }} dev {{ dhcp_interface }}
+  changed_when: true
+  failed_when: false
+
+- name: 03 wait until static IP visible
+  ansible.builtin.shell: |
+    for i in $(seq 1 10); do
+      ip -4 addr show {{ dhcp_interface }} | grep -q '{{ dhcp_gateway }}/{{ dhcp_prefix }}' && exit 0
+      sleep 1
+    done
+    echo "PXE interface {{ dhcp_interface }} has no static IP"
+    exit 1
+  register: ip_wait
+  changed_when: false
+  failed_when: ip_wait.rc != 0
+
+# ---------- DHCP configuration -------------------------------------------------
+- name: 04 validate dhcpd configuration
+  ansible.builtin.command: /usr/sbin/dhcpd -t -cf /etc/dhcp/dhcpd.conf
+  changed_when: false
+
+- name: 05 ensure lease directory exists
+  ansible.builtin.file:
+    path: /var/lib/dhcp
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: 06 ensure lease file exists
+  ansible.builtin.file:
+    path: /var/lib/dhcp/dhcpd.leases
+    state: touch
+    owner: root
+    group: root
+    mode: "0644"
+
+# ---------- systemd override ---------------------------------------------------
+- name: 07 ensure override directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/isc-dhcp-server.service.d
+    state: directory
+    mode: "0755"
+
+- name: 08 deploy device bind override
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/isc-dhcp-server.service.d/10-bind-dev.conf
+    mode: "0644"
+    content: |
+      [Unit]
+      # wait only until the NIC appears in sysfs – carrier is irrelevant
+      BindsTo=sys-subsystem-net-devices-{{ dhcp_interface }}.device
+      Requires=sys-subsystem-net-devices-{{ dhcp_interface }}.device
+
+- name: 09 reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+# ---------- service start ------------------------------------------------------
+- name: 10 enable and start isc dhcp server
+  ansible.builtin.systemd:
+    name: isc-dhcp-server
+    enabled: true
+    state: started
+
+# ---------- diagnostics --------------------------------------------------------
+- name: 11 show interface state
+  ansible.builtin.shell: ip -brief addr
+  register: iface_state
+  changed_when: false
+
+- name: 12 debug interface state
+  ansible.builtin.debug:
+    var: iface_state.stdout_lines
+
+- name: 13 tail isc dhcp journal
+  ansible.builtin.shell: journalctl -xeu isc-dhcp-server --no-pager -n 20 || true
+  register: dhcp_log
+  changed_when: false
+
+- name: 14 debug dhcp journal
+  ansible.builtin.debug:
+    var: dhcp_log.stdout_lines

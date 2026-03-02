@@ -1,0 +1,23 @@
+// 01 basic named.conf.options for bind9
+
+options {
+  directory "/var/cache/bind";
+
+  listen-on port 53 { any; };
+  listen-on-v6 { any; };
+
+  recursion yes;
+  allow-query { any; };
+
+{% if dns_forwarders | default([]) | length > 0 %}
+  forwarders {
+{% for fwd in dns_forwarders %}
+    {{ fwd }};
+{% endfor %}
+  };
+{% endif %}
+
+  dnssec-validation auto;
+
+  auth-nxdomain no;
+};

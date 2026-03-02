@@ -1,0 +1,65 @@
+# network_restart_v03
+# Version 03 – ensures PXE NIC receives static IP after returning from internet mode
+
+- name: 00 Re-Enable PXE Boot Environment
+  hosts: bootstrapvm
+  become: true
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+  pre_tasks:
+    - import_tasks: detect_interfaces.yml
+
+  tasks:
+
+    #- name: 00-01 Bring internet NIC {{ internetinterface }} down
+    #  ansible.builtin.shell: ip link set {{ internetinterface }} down
+    #  args:
+    #    executable: /bin/bash
+    #  changed_when: false
+
+    - name: 00-02 Bring PXE NIC {{ risng_lan_interface }} up
+      ansible.builtin.shell: ip link set {{ risng_lan_interface }} up
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: 00-03 Assign static IP to PXE NIC
+      ansible.builtin.shell: |
+        ip addr flush dev {{ risng_lan_interface }} || true
+        ip addr add {{ dhcp_gateway }}/{{ dhcp_prefix }} dev {{ risng_lan_interface }}
+      args:
+        executable: /bin/bash
+      changed_when: true
+
+    - name: 00-04 Wait until PXE NIC has IP address
+      ansible.builtin.shell: |
+        timeout=10
+        while [ $timeout -gt 0 ]; do
+          ip addr show {{ risng_lan_interface }} | grep -q "inet " && break
+          sleep 1
+          timeout=$((timeout - 1))
+        done
+        ip addr show {{ risng_lan_interface }}
+      register: lan_iface_check
+      changed_when: false
+
+    - name: 00-05 Start DHCP server
+      ansible.builtin.service:
+        name: isc-dhcp-server
+        state: started
+        enabled: true
+
+    - name: 00-06 Show current interface state
+      ansible.builtin.shell: ip -brief addr
+      register: iface_status
+      changed_when: false
+
+    - name: 00-07 Debug show active interfaces
+      ansible.builtin.debug:
+        msg: "{{ iface_status.stdout_lines }}"
+
+    - name: 00-08 Start TFTP server
+      ansible.builtin.service:
+        name: tftpd-hpa
+        state: started
+        enabled: true

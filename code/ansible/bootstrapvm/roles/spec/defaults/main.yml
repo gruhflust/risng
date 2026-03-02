@@ -1,0 +1,15 @@
+---
+# spec role defaults for AlmaLinux 9 PXE boot
+spec_iso_mount: "{{ pxe_tmp_dir }}/mnt-spec"
+spec_target: "{{ pxe_tftp_dir }}/images/spec"
+spec_target_relative: "images/spec"
+spec_kernel: "vmlinuz"
+spec_initrd: "initrd.img"
+spec_grub_filename: "10-spec.cfg"
+spec_pxelinux_filename: "10-spec.cfg"
+spec_label: "AlmaLinux 9 (BIOS)"
+spec_grub_label: "AlmaLinux 9 (UEFI)"
+
+# HTTP-exposed Alma installer tree (served from pxe_tftp_dir)
+spec_repo_relative: "almalinux/9/BaseOS/x86_64/os"
+spec_repo_root: "{{ pxe_tftp_dir }}/{{ spec_repo_relative }}"

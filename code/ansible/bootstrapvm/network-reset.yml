@@ -1,0 +1,62 @@
+# network_reset_v03_debug
+# Umschalten auf Internet-Zugang mit frischer DHCP-IP auf Internet-NIC
+
+- name: Reset NICs and stop PXE services (return to Internet mode)
+  hosts: bootstrapvm
+  become: true
+
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+  pre_tasks:
+    - import_tasks: detect_interfaces.yml
+
+  tasks:
+
+    - name: 00 Ensure DHCP client is installed (Debian)
+      ansible.builtin.apt:
+        name: isc-dhcp-client
+        state: present
+        update_cache: true
+
+    - name: 01 Stop PXE services (if active)
+      ansible.builtin.shell: |
+        for svc in isc-dhcp-server tftpd-hpa; do
+          systemctl is-active --quiet "$svc" && systemctl stop "$svc"
+        done
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: 02 Disable PXE NIC and flush IPs
+      ansible.builtin.shell: |
+        ip addr flush dev {{ risng_lan_interface }} || true
+        ip link set {{ risng_lan_interface }} down
+      changed_when: false
+
+    - name: 03 Bring up Internet NIC (clean)
+      ansible.builtin.shell: |
+        ip addr flush dev {{ internetinterface }} || true
+        ip link set {{ internetinterface }} up
+      changed_when: false
+
+    - name: 04 Request fresh DHCP IP (Internet NIC)
+      ansible.builtin.shell: dhclient -v -r {{ internetinterface }} || true
+      changed_when: false
+
+    - name: 05 Renew IP on Internet NIC
+      ansible.builtin.shell: dhclient -v {{ internetinterface }}
+      register: dhcp_renew
+      changed_when: false
+
+    - name: 06 Show new IP on {{ internetinterface }}
+      ansible.builtin.shell: ip -brief addr show {{ internetinterface }}
+      register: iface_state
+      changed_when: false
+
+    - name: 07 Debug IP address on Internet NIC
+      ansible.builtin.debug:
+        var: iface_state.stdout_lines
+
+    - name: 08 Debug dhclient output
+      ansible.builtin.debug:
+        var: dhcp_renew.stdout_lines

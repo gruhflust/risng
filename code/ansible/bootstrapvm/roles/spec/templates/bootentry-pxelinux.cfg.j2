@@ -1,0 +1,6 @@
+# bootentry-pxelinux.cfg.j2 (corrected PXELINUX template for BIOS clients)
+LABEL {{ filename_prefix }}
+  MENU LABEL {{ menu_title }}
+  KERNEL ::{{ kernel_path | regex_replace('^/', '') }}
+  INITRD ::{{ initrd_path | regex_replace('^/', '') }}
+  APPEND {{ kernel_cmdline }}

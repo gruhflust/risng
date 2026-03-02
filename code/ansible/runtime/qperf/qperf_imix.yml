@@ -1,0 +1,29 @@
+---
+qperf_imix_profile:
+  name: "default-mix"
+  description: >
+    Simple baseline IMIX profile using qperf's msg_size option. The value
+    follows the qperf format "min:max:step:*repeat", which produces a weighted
+    mix of sizes over a range (repeat controls how often each size appears).
+    Adjust msg_size to emulate realistic traffic mixes for your environment.
+  msg_sizes:
+    - "1:64K:*2"
+    - "1:128K:*4"
+
+qperf_imix_tests:
+  - name: "tcp_bandwidth_imix"
+    args: "tcp_bw -oo msg_size:{msg_size}"
+    command: "tcp_bw"
+    description: "TCP throughput using the IMIX msg_size profile for realistic packet mix."
+  - name: "udp_bandwidth_imix"
+    args: "udp_bw -oo msg_size:{msg_size}"
+    command: "udp_bw"
+    description: "UDP throughput using the IMIX msg_size profile for realistic packet mix."
+  - name: "tcp_latency_imix"
+    args: "tcp_lat -oo msg_size:{msg_size}"
+    command: "tcp_lat"
+    description: "TCP one-way latency under the same IMIX msg_size profile."
+  - name: "udp_latency_imix"
+    args: "udp_lat -oo msg_size:{msg_size}"
+    command: "udp_lat"
+    description: "UDP one-way latency under the same IMIX msg_size profile."
