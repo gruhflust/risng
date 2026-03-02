@@ -97,6 +97,7 @@ dhcp_static_hosts:
   - name: dhcp-uefi2
     mac: "00:50:56:ba:f8:4a"
     ip:  "10.228.229.98"
+    boot_profile: iCMD
     pingpartner_ip: "10.228.229.23"
     
   - name: uefi-freak
