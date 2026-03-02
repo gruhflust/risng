@@ -6,13 +6,13 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    with open("/home/risng/report.json") as f:
+    with open("{{ ssh_user_home }}/report.json") as f:
         data = json.load(f)
     return render_template_string(TEMPLATE, clients=data)
 
 @app.route("/run", methods=["POST"])
 def run_report():
-    subprocess.Popen(["ansible-playbook", "/home/risng/risng/ansible/runtime/report_snapshot/report_clients.yml"])
+    subprocess.Popen(["ansible-playbook", "{{ ssh_user_home }}/botrepo/risng_code/ansible/runtime/report_snapshot/report_clients.yml"])
     return "Report gestartet"
 
 TEMPLATE = """{% raw %}

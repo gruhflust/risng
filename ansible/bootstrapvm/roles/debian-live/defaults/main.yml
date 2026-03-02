@@ -14,4 +14,4 @@ debian_live_initrd: "initrd.img"
 
 # 04 User inserted into the squashfs
 ssh_user:       "risng"
-ssh_user_home:  "/home/risng"
+ssh_user_home:  "{{ '/home/' ~ (lookup('env', 'USER') | default(ansible_user_id, true)) }}"

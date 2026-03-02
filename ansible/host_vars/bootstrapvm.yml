@@ -54,8 +54,8 @@ dhcp_range_end:   "{{ dhcp_network_prefix }}.200"
 # ------------------------------------------------------------
 # SSH user to be injected into PXE systems
 # ------------------------------------------------------------
-ssh_user: "risng"
-ssh_user_home: "/home/risng"
+ssh_user: "{{ lookup('env', 'USER') | default(ansible_user_id, true) }}"
+ssh_user_home: "{{ '/home/' ~ (lookup('env', 'USER') | default(ansible_user_id, true)) }}"
 
 # ------------------------------------------------------------
 # Alpine ISO (optional fallback)

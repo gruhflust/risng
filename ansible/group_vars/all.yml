@@ -37,8 +37,8 @@ tftp_server_ip: "{{ bootstrap_ip }}"
 
 
 # SSH settings for rootfs (user+key injection)
-ssh_user: "risng"
-ssh_user_home: "/home/risng"
+ssh_user: "{{ lookup('env', 'USER') | default(ansible_user_id, true) }}"
+ssh_user_home: "{{ '/home/' ~ (lookup('env', 'USER') | default(ansible_user_id, true)) }}"
 ssh_pubkey_path: "{{ pxe_tftp_dir }}/ssh/id_rsa.pub"
 
 # Optional: Static MAC-based DHCP leases

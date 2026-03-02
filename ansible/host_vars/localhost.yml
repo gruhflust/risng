@@ -26,8 +26,8 @@ pxe_default_label:  debian-live
 pxe_menu_prefixes:  [10,20]     # weitere Präfixe hier ergänzen
 
 # SSH-Benutzer und Home
-ssh_user: "risng"
-ssh_user_home: "/home/risng"
+ssh_user: "{{ lookup('env', 'USER') | default(ansible_user_id, true) }}"
+ssh_user_home: "{{ '/home/' ~ (lookup('env', 'USER') | default(ansible_user_id, true)) }}"
 ssh_pubkey_path: "{{ pxe_tftp_dir }}/ssh/id_rsa.pub"
 
 # TFTP-Server-IP (für GRUB/Preseed Templates)
