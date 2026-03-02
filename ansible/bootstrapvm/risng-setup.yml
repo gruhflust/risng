@@ -171,7 +171,7 @@
         argv:
           - git
           - -C
-          - "{{ ssh_user_home | default(ansible_env.HOME | default('~')) }}/risng"
+          - "{{ ssh_user_home | default(ansible_env.HOME | default('~')) }}/botrepo"
           - log
           - -1
           - --pretty=format:%h
@@ -184,7 +184,7 @@
         argv:
           - git
           - -C
-          - "{{ ssh_user_home | default(ansible_env.HOME | default('~')) }}/risng"
+          - "{{ ssh_user_home | default(ansible_env.HOME | default('~')) }}/botrepo"
           - rev-parse
           - --abbrev-ref
           - HEAD
@@ -204,9 +204,8 @@
     - name: 02.98 Compose risng wallpaper annotation label
       ansible.builtin.set_fact:
         risng_wallpaper_label: >-
-          {{ ansible_host | default(ansible_ssh_host | default(inventory_hostname)) }} for risng
-          on {{ risng_wallpaper_timestamp.stdout | default('timestamp unavailable', true) }}
-          (git-commit: {{ risng_git_commit.stdout | default('unknown', true) | trim | default('unknown') }}[branch {{ risng_git_branch.stdout | default('unknown', true) | trim | default('unknown') }}])
+          Controlhost RISng - staged on {{ risng_wallpaper_timestamp.stdout | default('timestamp unavailable', true) }}
+          (git-commit: {{ risng_git_commit.stdout | default('unknown', true) | trim | default('unknown') }} [branch {{ risng_git_branch.stdout | default('unknown', true) | trim | default('unknown') }}])
       changed_when: false
 
     - name: 02.98 Annotate risng wallpaper with timestamp
