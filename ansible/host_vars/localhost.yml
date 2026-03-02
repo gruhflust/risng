@@ -22,7 +22,7 @@ pxelinux_dir: "/var/lib/tftpboot/pxelinux.cfg"
 tftp_root: /var/lib/tftpboot
 
 pxe_timeout:        100
-pxe_default_label:  debian-live
+pxe_default_label:  live-ris
 pxe_menu_prefixes:  [10,20]     # weitere Präfixe hier ergänzen
 
 # SSH-Benutzer und Home
@@ -39,3 +39,5 @@ ansible_hostname: "risng"
 # alpine_iso_defaults_v1
 alpine_iso_url: "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-standard-3.19.1-x86_64.iso"
 alpine_iso_path: "{{ iso_download_dir }}/alpine.iso"
+
+pxe_default_grub_entry: "Live-RIS (UEFI)"

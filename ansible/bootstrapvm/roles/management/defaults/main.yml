@@ -13,7 +13,7 @@ pxe_tmp_mode:       "0775"
 
 
 pxe_timeout:        100
-pxe_default_label:  debian-live
+pxe_default_label:  live-ris
 pxe_menu_prefixes:  [10,20]     # weitere Präfixe hier ergänzen
 
 # Debian release to track (Debian 13 «trixie» by default)
@@ -80,3 +80,5 @@ tftp_server_ip: "{{ dns_bootstrap_ip | default(bootstrap_ip) }}"
 tftp_blocksize: "1024"
 
 
+
+pxe_default_grub_entry: "Live-RIS (UEFI)"

@@ -92,7 +92,7 @@
     initrd_path: "/{{ spec_target_relative }}/{{ spec_initrd }}"
     kernel_cmdline: >-
       inst.stage2=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
-      inst.ks=http://{{ tftp_server_ip }}/kickstart/{{ item | lower }}.cfg
+      ks=http://{{ tftp_server_ip }}/kickstart/{{ item | lower }}.cfg
       ip=dhcp
   loop: "{{ risng_client_roles }}"
 
@@ -108,7 +108,7 @@
     initrd_path: "/{{ spec_target_relative }}/{{ spec_initrd }}"
     append_args: >-
       inst.stage2=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
-      inst.ks=http://{{ tftp_server_ip }}/kickstart/{{ item | lower }}.cfg
+      ks=http://{{ tftp_server_ip }}/kickstart/{{ item | lower }}.cfg
       ip=dhcp
   loop: "{{ risng_client_roles }}"
 

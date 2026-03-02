@@ -32,7 +32,7 @@ grub_dir:     "{{ pxe_tftp_dir }}/boot/grub"
 tftp_root:    "{{ pxe_tftp_dir }}"
 
 pxe_timeout:        100
-pxe_default_label:  debian-live
+pxe_default_label:  live-ris
 pxe_menu_prefixes:  [10, 20]
 
 # PXE menu templates
@@ -115,3 +115,4 @@ spec_target: "{{ pxe_tftp_dir }}/images/spec"
 spec_target_relative: "images/spec"
 spec_label: "CentOS 7.8 AutoInstall (BIOS)"
 spec_grub_label: "CentOS 7.8 AutoInstall (UEFI)"
+pxe_default_grub_entry: "Live-RIS (UEFI)"

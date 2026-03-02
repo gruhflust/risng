@@ -10,7 +10,9 @@ pxe_tftp_dir: "/var/lib/tftpboot"
 pxe_timeout: 50
 
 # Fallback-LABEL, falls kein LABEL ermittelbar ist
-pxe_default_label: "debian-live"
+pxe_default_label: "live-ris"
 
 # Service-Name des eingesetzten TFTP-Servers
 pxe_tftp_service: "tftpd-hpa"
+
+pxe_default_grub_entry: "Live-RIS (UEFI)"
