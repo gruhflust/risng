@@ -16,15 +16,47 @@ bootloader --location=mbr
 zerombr
 clearpart --all --initlabel
 autopart --type=lvm
+services --enabled=sshd
 skipx
 firstboot --disable
 reboot
 
 %packages --ignoremissing
 @core
+openssh-server
+openssh-clients
+python
+python-pip
+ansible
 %end
 
 %post --log=/root/ks-post.log
+set -euxo pipefail
+
 echo "RISNG_ROLE={{ item }}" > /etc/risng-role
 hostnamectl set-hostname {{ item | lower }}-centos78
+
+# Ensure SSH service is active after first boot
+systemctl enable sshd || true
+
+# Passwordless access from control host (same model as live clients)
+install -d -m 0700 /root/.ssh
+curl -fsSL "http://{{ tftp_server_ip }}/bootstrap/controlhost_id_ed25519.pub" >> /root/.ssh/authorized_keys || true
+chmod 0600 /root/.ssh/authorized_keys || true
+
+install -d -m 0700 /home/nor/.ssh
+curl -fsSL "http://{{ tftp_server_ip }}/bootstrap/controlhost_id_ed25519.pub" >> /home/nor/.ssh/authorized_keys || true
+chown -R nor:nor /home/nor/.ssh || true
+chmod 0600 /home/nor/.ssh/authorized_keys || true
+
+# Explicitly avoid internet repos in first phase (all payload must come from control host)
+cat >/etc/yum.repos.d/risng-local.repo <<REPO
+[base]
+name=RISng local base
+baseurl=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+enabled=1
+gpgcheck=0
+REPO
+
+yum clean all || true
 %end
