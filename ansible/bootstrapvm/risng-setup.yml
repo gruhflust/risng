@@ -143,7 +143,7 @@
         tasks_from: 20_persist_network.yml   # ensures NIC config survives reboot
     - name: 02.97 Replace risng .bashrc with symlink to management template
       ansible.builtin.file:
-        src: "/home/risng/risng/code/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
+        src: "/home/risng/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
         dest: "/home/risng/.bashrc"
         owner: risng
         group: risng

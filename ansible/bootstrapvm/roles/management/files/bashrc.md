@@ -19,7 +19,7 @@ fi
 shopt -s promptvars
 
 # Resolve a single host IP for the prompt in a portable way.
-risng_prompt_ip() {
+dto_prompt_ip() {
     local ip
 
     ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
@@ -34,7 +34,7 @@ risng_prompt_ip() {
 }
 
 # Colourful prompt with username, host IP, and current directory
-PS1='${debian_chroot:+($debian_chroot)}\[\e[32m\]\u\[\e[0m\]@\[\e[38;5;217m\]$(risng_prompt_ip)\[\e[0m\]:\[\e[92m\]${PWD}\[\e[0m\]\$ '
+PS1='\[\e[32m\]\u\[\e[0m\]@\[\e[38;5;217m\]$(dto_prompt_ip)\[\e[0m\]:\[\e[92m\]${PWD}\[\e[0m\]\$ '
 
 case "$TERM" in
 xterm*|rxvt*)
@@ -45,7 +45,7 @@ xterm*|rxvt*)
 esac
 
 RISNG_DIR="$HOME/risng"
-RISNG_CODE_DIR="$RISNG_DIR/code"
+RISNG_CODE_DIR="$RISNG_DIR"
 RISNG_ANSIBLE_DIR="$RISNG_CODE_DIR/ansible"
 RISNG_ANSIBLE_CFG="$RISNG_ANSIBLE_DIR/ansible.cfg"
 RISNG_INVENTORY_DEFAULT="$RISNG_ANSIBLE_DIR/inventory/hosts.yml"
@@ -355,7 +355,7 @@ codefromHUBtoLAB() {
   (
     cd "$RISNG_DIR" || return 1
     rm -rf code &&
-      cp -r "$dto_admin_dir/risng_code/code" ./code &&
+      cp -r "$dto_admin_dir/risng_code" ./code &&
       git add . &&
       git commit -m "$commit_msg" &&
       git push

@@ -12,7 +12,7 @@ def index():
 
 @app.route("/run", methods=["POST"])
 def run_report():
-    subprocess.Popen(["ansible-playbook", "/home/risng/risng/code/ansible/runtime/report_snapshot/report_clients.yml"])
+    subprocess.Popen(["ansible-playbook", "/home/risng/risng/ansible/runtime/report_snapshot/report_clients.yml"])
     return "Report gestartet"
 
 TEMPLATE = """{% raw %}

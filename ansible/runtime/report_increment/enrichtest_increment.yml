@@ -39,8 +39,8 @@
   gather_facts: false
   vars:
     enrichtest_repo_root: "{{ playbook_dir | realpath | dirname | dirname | dirname | dirname }}"
-    enrichtest_dhcp_defaults_path: "{{ enrichtest_repo_root }}/code/ansible/bootstrapvm/roles/dhcp/defaults/main.yml"
-    enrichtest_vlan_inventory_path: "{{ enrichtest_repo_root }}/code/ansible/inventory/vlans.yml"
+    enrichtest_dhcp_defaults_path: "{{ enrichtest_repo_root }}/ansible/bootstrapvm/roles/dhcp/defaults/main.yml"
+    enrichtest_vlan_inventory_path: "{{ enrichtest_repo_root }}/ansible/inventory/vlans.yml"
   tasks:
     - name: 00 Initialize pingpartner caches
       ansible.builtin.set_fact:

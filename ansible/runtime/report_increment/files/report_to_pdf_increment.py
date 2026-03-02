@@ -69,8 +69,8 @@ def _find_defaults_path() -> Optional[Path]:
 
     rel_paths = [
         Path("../bootstrapvm/roles/dhcp/defaults/main.yml"),
-        Path("../code/ansible/bootstrapvm/roles/dhcp/defaults/main.yml"),
-        Path("risng_code/code/ansible/bootstrapvm/roles/dhcp/defaults/main.yml"),
+        Path("../ansible/bootstrapvm/roles/dhcp/defaults/main.yml"),
+        Path("risng_code/ansible/bootstrapvm/roles/dhcp/defaults/main.yml"),
         Path("code/ansible/bootstrapvm/roles/dhcp/defaults/main.yml"),
         Path("bootstrapvm/roles/dhcp/defaults/main.yml"),
     ]

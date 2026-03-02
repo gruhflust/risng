@@ -3,7 +3,7 @@
   hosts: localhost
   gather_facts: false
   vars:
-    boxinfo_script: "{{ lookup('env', 'HOME') }}/risng/code/python/boxinfo.py"
+    boxinfo_script: "{{ lookup('env', 'HOME') }}/risng/python/boxinfo.py"
     credential_suffixes:
       - address
       - user
