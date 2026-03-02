@@ -178,3 +178,5 @@ dhcp_static_hosts:
         pingpartner_ip: ""
 
        
+# Optional role mapping written by RISng web UI
+dhcp_mac_role_map_file: "/etc/risng/mac_role_map.json"

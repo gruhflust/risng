@@ -15,10 +15,56 @@
     mode: "0644"
   notify: Restart DHCP server
 
+
+- name: 02a Ensure RISng state directory exists
+  ansible.builtin.file:
+    path: /etc/risng
+    state: directory
+    mode: "0755"
+
+- name: 02b Check if MAC role map file exists
+  ansible.builtin.stat:
+    path: "{{ dhcp_mac_role_map_file }}"
+  register: dhcp_map_file
+
+- name: 02c Load MAC role map JSON
+  ansible.builtin.slurp:
+    src: "{{ dhcp_mac_role_map_file }}"
+  register: dhcp_map_raw
+  when: dhcp_map_file.stat.exists
+
+- name: 02d Parse MAC role map JSON
+  ansible.builtin.set_fact:
+    dhcp_mac_role_map: "{{ (dhcp_map_raw.content | b64decode | from_json) if dhcp_map_file.stat.exists else {} }}"
+
+- name: 02e Build effective static host list from defaults + MAC role map
+  ansible.builtin.set_fact:
+    dhcp_static_hosts_effective: "{{ _from_defaults + _from_map_only }}"
+  vars:
+    _from_defaults: >-
+      {%- set out=[] -%}
+      {%- for h in dhcp_static_hosts | default([]) -%}
+      {%- set m=(h.mac | lower) -%}
+      {%- set mm=dhcp_mac_role_map.get(m, {}) if dhcp_mac_role_map is mapping else {} -%}
+      {%- set _=out.append(h | combine({'boot_profile': mm.role}, recursive=True) if (mm.role is defined and mm.role|length>0) else h) -%}
+      {%- endfor -%}
+      {{ out }}
+    _from_map_only: >-
+      {%- set out=[] -%}
+      {%- set known=(dhcp_static_hosts | default([]) | map(attribute='mac') | map('lower') | list) -%}
+      {%- for m,meta in (dhcp_mac_role_map.items() if dhcp_mac_role_map is mapping else []) -%}
+      {%- if m not in known and (meta.ip is defined) and (meta.role is defined) -%}
+      {%- set _=out.append({'name': (meta.name | default('auto-' ~ (m|replace(':','-')))), 'mac': m, 'ip': meta.ip, 'boot_profile': meta.role}) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ out }}
+
 - name: 03 Deploy static-hosts.conf
   ansible.builtin.template:
     src: static-hosts.j2
     dest: /etc/dhcp/static-hosts.conf
+  vars:
+    dhcp_hosts_for_template: "{{ dhcp_static_hosts_effective | default(dhcp_static_hosts) }}"
     mode: "0644"
   notify: Restart DHCP server
   

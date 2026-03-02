@@ -1,46 +1,137 @@
-from flask import Flask, render_template_string, request
+from flask import Flask, render_template_string, request, redirect
 import json
+import re
 import subprocess
+from pathlib import Path
 
 app = Flask(__name__)
 
-@app.route("/")
-def index():
-    with open("{{ ssh_user_home }}/report.json") as f:
-        data = json.load(f)
-    return render_template_string(TEMPLATE, clients=data)
+LEASES_FILE = Path('/var/lib/dhcp/dhcpd.leases')
+MAP_FILE = Path('/etc/risng/mac_role_map.json')
+DISCOVERY_DIR = Path('/var/lib/tftpboot/runtime/discovery')
+UPDATE_PLAYBOOK = "{{ ssh_user_home }}/botrepo/risng_code/ansible/bootstrapvm/update-dhcp-hosts.yml"
 
-@app.route("/run", methods=["POST"])
-def run_report():
-    subprocess.Popen(["ansible-playbook", "{{ ssh_user_home }}/botrepo/risng_code/ansible/runtime/report_snapshot/report_clients.yml"])
-    return "Report gestartet"
+ROLES = ["iCWP", "iFDO", "iCMD", "FDPS", "CORRP", "live-ris"]
+
+
+def load_map():
+    if MAP_FILE.exists():
+        try:
+            return json.loads(MAP_FILE.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
+def save_map(data):
+    MAP_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MAP_FILE.write_text(json.dumps(data, indent=2, sort_keys=True))
+
+
+def parse_leases():
+    items = {}
+    if not LEASES_FILE.exists():
+        return []
+    current = {}
+    for line in LEASES_FILE.read_text(errors='ignore').splitlines():
+        line = line.strip()
+        if line.startswith('lease '):
+            current = {'ip': line.split()[1]}
+        elif line.startswith('hardware ethernet '):
+            current['mac'] = line.split()[2].rstrip(';').lower()
+        elif line.startswith('client-hostname '):
+            current['hostname'] = line.split(' ', 1)[1].strip().strip(';').strip('"')
+        elif line == '}':
+            mac = current.get('mac')
+            if mac:
+                items[mac] = {'mac': mac, 'ip': current.get('ip', ''), 'hostname': current.get('hostname', '')}
+            current = {}
+    return sorted(items.values(), key=lambda x: x.get('mac', ''))
+
+
+def load_discovery(mac):
+    p = DISCOVERY_DIR / f"{mac}.json"
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except Exception:
+        return {}
+
+
+@app.route('/')
+def index():
+    role_map = load_map()
+    leases = parse_leases()
+    rows = []
+    for l in leases:
+        mac = l['mac']
+        meta = role_map.get(mac, {})
+        hw = load_discovery(mac)
+        rows.append({
+            'mac': mac,
+            'ip': meta.get('ip') or l.get('ip', ''),
+            'hostname': meta.get('name') or l.get('hostname', ''),
+            'role': meta.get('role', ''),
+            'hw': hw,
+        })
+    return render_template_string(TEMPLATE, rows=rows, roles=ROLES)
+
+
+@app.route('/assign', methods=['POST'])
+def assign():
+    mac = request.form.get('mac', '').strip().lower()
+    role = request.form.get('role', '').strip()
+    ip = request.form.get('ip', '').strip()
+    name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
+
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return 'invalid mac', 400
+    if role not in ROLES:
+        return 'invalid role', 400
+
+    data = load_map()
+    data[mac] = {'role': role, 'ip': ip, 'name': name}
+    save_map(data)
+
+    subprocess.Popen(['ansible-playbook', UPDATE_PLAYBOOK])
+    return redirect('/')
+
 
 TEMPLATE = """{% raw %}
-<html><body>
-<h1>PXE Report</h1>
-<form action="/run" method="post">
-  <button type="submit">Report erneut ausführen</button>
-</form>
-{% for c in clients %}
-  <h3>{{ c.hostname }} ({{ c.ip }})</h3>
-  <ul>
-    <li>MAC: {{ c.mac }}</li>
-    <li>RAM: {{ c.memory_gb }} GiB</li>
-    <li>Disks:
-      <ul>
-        {% for d in c.disks %}
-        <li>{{ d.name }} – {{ d.size_gb }} GB</li>
+<html><body style="font-family: sans-serif;">
+<h1>RISng Control UI (Prototype)</h1>
+<p>Booted MACs + role mapping. Saving triggers DHCP refresh.</p>
+<table border="1" cellpadding="6" cellspacing="0">
+<tr><th>MAC</th><th>IP</th><th>Hostname</th><th>HW Info</th><th>Role Mapping</th></tr>
+{% for r in rows %}
+<tr>
+  <td>{{ r.mac }}</td>
+  <td>{{ r.ip }}</td>
+  <td>{{ r.hostname }}</td>
+  <td>
+    CPU: {{ r.hw.get('cpu','n/a') }}<br>
+    RAM: {{ r.hw.get('ram','n/a') }}<br>
+    Disk: {{ r.hw.get('disk','n/a') }}
+  </td>
+  <td>
+    <form action="/assign" method="post">
+      <input type="hidden" name="mac" value="{{ r.mac }}"/>
+      <input type="text" name="ip" value="{{ r.ip }}" size="13"/>
+      <input type="text" name="name" value="{{ r.hostname }}" size="14"/>
+      <select name="role">
+        {% for role in roles %}
+        <option value="{{ role }}" {% if r.role == role %}selected{% endif %}>{{ role }}</option>
         {% endfor %}
-      </ul>
-    </li>
-    <li>Interfaces:
-      <ul>
-        {% for i in c.interfaces %}
-        <li>{{ i }}</li>
-        {% endfor %}
-      </ul>
-    </li>
-  </ul>
+      </select>
+      <button type="submit">Assign + Apply</button>
+    </form>
+  </td>
+</tr>
 {% endfor %}
+</table>
 </body></html>
 {% endraw %}"""
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8089)

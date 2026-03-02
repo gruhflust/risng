@@ -1,5 +1,5 @@
 # Static Hosts Configuration
-{% for h in dhcp_static_hosts if h.mac | default('') | length > 0 and h.mac != '00:00:00:00:00:00' %}
+{% for h in (dhcp_hosts_for_template | default(dhcp_static_hosts)) if h.mac | default('') | length > 0 and h.mac != '00:00:00:00:00:00' %}
 host {{ h.name }} {
   hardware ethernet {{ h.mac }};
   fixed-address {{ h.ip }};
