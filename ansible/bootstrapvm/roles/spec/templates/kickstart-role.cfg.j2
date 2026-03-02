@@ -1,8 +1,8 @@
 # RISng CentOS 7.8 Kickstart (role: {{ item }})
-# Minimal baseline, role-specific marker only.
 install
 text
 url --url="http://{{ tftp_server_ip }}/{{ spec_repo_relative }}"
+repo --name="base" --baseurl="http://{{ tftp_server_ip }}/{{ spec_repo_relative }}"
 lang en_US.UTF-8
 keyboard --vckeymap=de --xlayouts='de'
 timezone Europe/Berlin --isUtc
@@ -16,12 +16,12 @@ bootloader --location=mbr
 zerombr
 clearpart --all --initlabel
 autopart --type=lvm
+skipx
+firstboot --disable
 reboot
 
-%packages
+%packages --ignoremissing
 @core
-chrony
-kexec-tools
 %end
 
 %post --log=/root/ks-post.log
