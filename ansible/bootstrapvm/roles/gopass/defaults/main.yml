@@ -7,9 +7,14 @@ gopass_user: "{{ ssh_user | default('ironscope') }}"
 gopass_home: "/home/{{ gopass_user }}"
 
 gopass_packages:
-  - gopass
   - gnupg2
   - qrencode
+
+# gopass is installed via upstream release binary by default
+# (Debian 13/trixie may not ship a gopass apt package).
+gopass_install_method: github
+gopass_install_force: false
+gopass_github_repo: "gopasspw/gopass"
 
 # Dedicated controlhost key identity for RISng secret material.
 gopass_gpg_name: "RISng Controlhost"

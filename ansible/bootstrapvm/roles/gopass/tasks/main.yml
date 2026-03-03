@@ -3,11 +3,77 @@
   ansible.builtin.meta: end_host
   when: not (gopass_enabled | bool)
 
-- name: GP-02 | install gopass + gpg tooling on controlhost
+- name: GP-02 | install gpg tooling on controlhost
   ansible.builtin.apt:
     name: "{{ gopass_packages }}"
     state: present
     update_cache: true
+
+- name: GP-02a | check whether gopass CLI is already available
+  ansible.builtin.command: command -v gopass
+  register: gopass_cli_check
+  changed_when: false
+  failed_when: false
+
+- name: GP-02b | install gopass from GitHub release binary
+  ansible.builtin.shell: |
+    set -euo pipefail
+
+    ARCH_RAW="$(uname -m)"
+    case "$ARCH_RAW" in
+      x86_64|amd64) GOPASS_ARCH="amd64" ;;
+      aarch64|arm64) GOPASS_ARCH="arm64" ;;
+      armv7l|armv6l) GOPASS_ARCH="armv6" ;;
+      *) echo "Unsupported architecture for gopass binary fallback: $ARCH_RAW" >&2; exit 1 ;;
+    esac
+
+    TMP_DIR="$(mktemp -d)"
+    trap 'rm -rf "$TMP_DIR"' EXIT
+
+    python3 - "$TMP_DIR" "$GOPASS_ARCH" "{{ gopass_github_repo }}" <<'PY'
+    import json
+    import os
+    import re
+    import sys
+    import tarfile
+    import urllib.request
+
+    out_dir, arch, repo = sys.argv[1:4]
+    api = f"https://api.github.com/repos/{repo}/releases/latest"
+    req = urllib.request.Request(api, headers={"Accept": "application/vnd.github+json", "User-Agent": "ansible-gopass-installer"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        data = json.load(r)
+
+    assets = data.get("assets", [])
+    urls = [a.get("browser_download_url", "") for a in assets]
+    pat = re.compile(rf"gopass-.*-linux-{re.escape(arch)}\.tar\.gz$")
+    match = next((u for u in urls if pat.search(u)), None)
+    if not match:
+        raise SystemExit(f"No matching gopass release asset found for arch={arch}")
+
+    archive = os.path.join(out_dir, "gopass.tar.gz")
+    urllib.request.urlretrieve(match, archive)
+
+    with tarfile.open(archive, "r:gz") as tf:
+        member = next((m for m in tf.getmembers() if m.name.endswith('/gopass') or m.name == 'gopass'), None)
+        if member is None:
+            raise SystemExit("gopass binary not found in release archive")
+        tf.extract(member, out_dir)
+        src = os.path.join(out_dir, member.name)
+        os.rename(src, os.path.join(out_dir, "gopass"))
+    PY
+
+    install -m 0755 "$TMP_DIR/gopass" /usr/local/bin/gopass
+  args:
+    executable: /bin/bash
+  when: >-
+    (gopass_install_method == 'github') and
+    ((gopass_install_force | bool) or ((gopass_cli_check.rc | default(1)) != 0))
+
+- name: GP-02c | assert gopass CLI is available
+  ansible.builtin.command: gopass version
+  register: gopass_version_check
+  changed_when: false
 
 - name: GP-03 | ensure risng gopass state directories exist
   ansible.builtin.file:
