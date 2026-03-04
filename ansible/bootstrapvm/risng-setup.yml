@@ -67,6 +67,12 @@
       ansible.builtin.debug:
         var: timedatectl_status.stdout_lines
 
+    - name: 00.00i Ensure setup user risng exists
+      ansible.builtin.user:
+        name: risng
+        shell: /bin/bash
+        create_home: true
+
     - import_tasks: "{{ playbook_dir }}/detect_interfaces.yml"
 
 
