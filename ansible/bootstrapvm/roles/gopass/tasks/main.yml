@@ -3,11 +3,46 @@
   ansible.builtin.meta: end_host
   when: not (gopass_enabled | bool)
 
-- name: GP-02 | install gopass + gpg tooling on controlhost
+- name: GP-02 | install gpg/base tooling on controlhost
   ansible.builtin.apt:
-    name: "{{ gopass_packages }}"
+    name: "{{ gopass_base_packages }}"
     state: present
     update_cache: true
+
+- name: GP-02a | try apt install for gopass package
+  ansible.builtin.apt:
+    name: gopass
+    state: present
+  register: gopass_apt_install
+  failed_when: false
+  when: gopass_try_apt_package | bool
+
+- name: GP-02b | detect controlhost arch for fallback binary
+  ansible.builtin.set_fact:
+    gopass_arch_effective: "{{ gopass_arch_map.get(ansible_architecture | default('x86_64'), 'amd64') }}"
+  when:
+    - gopass_fallback_binary_install | bool
+    - (gopass_apt_install is not defined) or (gopass_apt_install is failed)
+
+- name: GP-02c | fallback install gopass binary from official release
+  ansible.builtin.get_url:
+    url: "https://github.com/gopasspw/gopass/releases/download/v{{ gopass_version }}/gopass-{{ gopass_version }}-linux-{{ gopass_arch_effective }}"
+    dest: /usr/local/bin/gopass
+    mode: "0755"
+  when:
+    - gopass_fallback_binary_install | bool
+    - (gopass_apt_install is not defined) or (gopass_apt_install is failed)
+
+- name: GP-02d | verify gopass command exists
+  ansible.builtin.command: bash -lc "command -v gopass"
+  register: gopass_cmd_check
+  changed_when: false
+  failed_when: false
+
+- name: GP-02e | warn when gopass is still unavailable (continue with GPG-only scaffold)
+  ansible.builtin.debug:
+    msg: "WARNING: gopass command not found after install attempts; continuing with GPG scaffold only."
+  when: (gopass_cmd_check.rc | default(1)) != 0
 
 - name: GP-03 | ensure risng gopass state directories exist
   ansible.builtin.file:
