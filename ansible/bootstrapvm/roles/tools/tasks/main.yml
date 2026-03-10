@@ -36,6 +36,8 @@
       - iproute2
       - vlan
       - vim
+      - doxygen
+      - graphviz
     state: present
   register: tool_install
   retries: 3

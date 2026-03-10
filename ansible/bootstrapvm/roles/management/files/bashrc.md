@@ -161,6 +161,9 @@ if [ -x /usr/bin/dircolors ]; then
 
     # EANTC randomized variants
 
+    # Doxygen code documentation (branch/source tree)
+    alias doxyris='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/doxygen/doxygen.yml" "$HOME/doxyris.log"'
+
     # 08a NetBox rack overview
     alias importnetboxinfo='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/playbooks/import_netbox_info.yml" "$HOME/importnetboxinfo.log"'
 

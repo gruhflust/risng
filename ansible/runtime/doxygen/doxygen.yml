@@ -1,0 +1,89 @@
+---
+- name: Generate doxygen documentation for source tree/branch
+  hosts: localhost
+  gather_facts: false
+  become: true
+  become_user: "{{ ssh_user | default('ironscope') }}"
+  vars:
+    run_as_user: "{{ ssh_user | default('ironscope') }}"
+    user_home: "/home/{{ run_as_user }}"
+    source_dir: "{{ lookup('env', 'DOXYGEN_SOURCE_DIR') | default(user_home ~ '/botrepo/risng_code', true) }}"
+    output_root: "{{ lookup('env', 'DOXYGEN_OUTPUT_ROOT') | default(user_home ~ '/docdeliver', true) }}"
+    run_id: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
+    output_dir: "{{ output_root }}/{{ run_id }}-doxygen"
+    doxyfile_path: "{{ output_dir }}/Doxyfile"
+  tasks:
+    - name: Ensure output directory exists
+      ansible.builtin.file:
+        path: "{{ output_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Ensure doxygen tooling is present
+      ansible.builtin.apt:
+        name:
+          - doxygen
+          - graphviz
+        state: present
+        update_cache: true
+      become: true
+      become_user: root
+
+    - name: Resolve git branch and commit for source dir
+      ansible.builtin.shell: |
+        set -euo pipefail
+        b="$(git -C "{{ source_dir }}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached)"
+        c="$(git -C "{{ source_dir }}" log -1 --pretty=%h 2>/dev/null || echo unknown)"
+        printf '%s\n%s\n' "$b" "$c"
+      args:
+        executable: /bin/bash
+      register: dox_git
+      changed_when: false
+
+    - name: Write generated Doxyfile
+      ansible.builtin.copy:
+        dest: "{{ doxyfile_path }}"
+        mode: "0644"
+        content: |
+          PROJECT_NAME           = "RISng"
+          PROJECT_BRIEF          = "RISng API/Code documentation"
+          OUTPUT_DIRECTORY       = {{ output_dir }}
+          GENERATE_HTML          = YES
+          GENERATE_LATEX         = NO
+          GENERATE_TREEVIEW      = YES
+          INPUT                  = {{ source_dir }}
+          RECURSIVE              = YES
+          EXTRACT_ALL            = YES
+          EXTRACT_PRIVATE        = NO
+          EXTRACT_STATIC         = YES
+          HAVE_DOT               = YES
+          DOT_IMAGE_FORMAT       = svg
+          QUIET                  = YES
+          WARN_IF_UNDOCUMENTED   = NO
+          FILE_VERSION_FILTER    =
+          HTML_EXTRA_STYLESHEET  =
+
+    - name: Run doxygen
+      ansible.builtin.command:
+        cmd: "doxygen {{ doxyfile_path }}"
+      register: dox_run
+      changed_when: true
+
+    - name: Write run metadata
+      ansible.builtin.copy:
+        dest: "{{ output_dir }}/RUNINFO.txt"
+        mode: "0644"
+        content: |
+          run_id={{ run_id }}
+          source_dir={{ source_dir }}
+          git_branch={{ dox_git.stdout_lines[0] | default('unknown') }}
+          git_commit={{ dox_git.stdout_lines[1] | default('unknown') }}
+          html_index={{ output_dir }}/html/index.html
+
+    - name: Show output hints
+      ansible.builtin.debug:
+        msg:
+          - "Doxygen run complete"
+          - "Source: {{ source_dir }}"
+          - "Branch: {{ dox_git.stdout_lines[0] | default('unknown') }} @ {{ dox_git.stdout_lines[1] | default('unknown') }}"
+          - "HTML index: {{ output_dir }}/html/index.html"
