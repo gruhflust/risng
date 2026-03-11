@@ -19,9 +19,9 @@ pxe_menu_prefixes:  [10,20]     # weitere Präfixe hier ergänzen
 # Debian release to track (Debian 13 «trixie» by default)
 debian_release:     "{{ lookup('vars', 'debian_release_pin', default='trixie') }}"
 
-# ISO channels: default to testing-weekly builds for trixie to keep getisos aligned
-debian_live_iso_base_url: "{{ 'https://cdimage.debian.org/cdimage/weekly-live-builds/amd64/iso-hybrid' if debian_release == 'trixie' else 'https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid' }}"
-netinstall_iso_base_url: "{{ 'https://cdimage.debian.org/cdimage/weekly-builds/amd64/iso-cd' if debian_release == 'trixie' else 'https://cdimage.debian.org/debian-cd/current/amd64/iso-cd' }}"
+# ISO channels: use stable current paths (weekly paths are volatile and may 404)
+debian_live_iso_base_url: "https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid"
+netinstall_iso_base_url: "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd"
 
 # -------------------- Live ISO ------------------------------------------------
 debian_live_iso_flavors:

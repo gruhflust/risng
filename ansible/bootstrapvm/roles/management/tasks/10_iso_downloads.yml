@@ -3,17 +3,34 @@
 # Download required ISO images / tarballs exactly once.
 # -------------------------------------------------------------
 ---
-- name: 02 19 00 Fetch Debian Live ISO checksums
+- name: 02 19 00 Define Debian Live ISO base URL candidates
+  ansible.builtin.set_fact:
+    debian_live_iso_base_url_candidates:
+      - "{{ debian_live_iso_base_url }}"
+      - "https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid"
+
+- name: 02 19 00a Probe Debian Live ISO checksum endpoints
   ansible.builtin.uri:
-    url: "{{ debian_live_iso_base_url }}/SHA256SUMS"
+    url: "{{ item }}/SHA256SUMS"
     return_content: true
-  register: debian_live_iso_checksums
+  register: debian_live_iso_probe_results
+  failed_when: false
+  loop: "{{ debian_live_iso_base_url_candidates | unique }}"
+
+- name: 02 19 00b Select first working Debian Live ISO source
+  ansible.builtin.set_fact:
+    debian_live_iso_base_url: "{{ item.item }}"
+    debian_live_iso_checksums: "{{ item }}"
+  loop: "{{ debian_live_iso_probe_results.results | default([]) }}"
+  when:
+    - (debian_live_iso_checksums is not defined) or ((debian_live_iso_checksums.status | default(0)) != 200)
+    - (item.status | default(0)) == 200
 
 - name: 02 19 00a Reset Debian Live ISO detection facts
   ansible.builtin.set_fact:
     debian_live_iso_filename: "{{ debian_live_iso_filename | default('') }}"
     debian_live_iso_checksum: "{{ debian_live_iso_checksum | default('') }}"
-  when: debian_live_iso_checksums.status == 200
+  when: (debian_live_iso_checksums.status | default(0)) == 200
 
 - name: 02 19 00a1 Determine Debian Live ISO filename and checksum (flavor fallback)
   vars:
@@ -25,7 +42,7 @@
   loop: "{{ debian_live_iso_flavors }}"
   loop_control:
     label: "{{ item }}"
-  when: debian_live_iso_checksums.status == 200 and debian_live_iso_filename | length == 0 and candidate_filename | length > 0 and candidate_checksum | length > 0
+  when: (debian_live_iso_checksums.status | default(0)) == 200 and debian_live_iso_filename | length == 0 and candidate_filename | length > 0 and candidate_checksum | length > 0
 
 - name: 02 19 00a2 Set Debian Live ISO download URL and canonical local path
   ansible.builtin.set_fact:
@@ -84,11 +101,28 @@
 # Remaining tasks unchanged
 
 # --- Resolve Debian Net-install ISO dynamically ---
-- name: 02 19 03a Fetch Debian net-install ISO checksums
+- name: 02 19 03a Define Debian net-install ISO base URL candidates
+  ansible.builtin.set_fact:
+    netinstall_iso_base_url_candidates:
+      - "{{ netinstall_iso_base_url }}"
+      - "https://cdimage.debian.org/debian-cd/current/amd64/iso-cd"
+
+- name: 02 19 03b Probe Debian net-install ISO checksum endpoints
   ansible.builtin.uri:
-    url: "{{ netinstall_iso_base_url }}/SHA256SUMS"
+    url: "{{ item }}/SHA256SUMS"
     return_content: true
-  register: netinstall_iso_checksums
+  register: netinstall_iso_probe_results
+  failed_when: false
+  loop: "{{ netinstall_iso_base_url_candidates | unique }}"
+
+- name: 02 19 03c Select first working Debian net-install ISO source
+  ansible.builtin.set_fact:
+    netinstall_iso_base_url: "{{ item.item }}"
+    netinstall_iso_checksums: "{{ item }}"
+  loop: "{{ netinstall_iso_probe_results.results | default([]) }}"
+  when:
+    - (netinstall_iso_checksums is not defined) or ((netinstall_iso_checksums.status | default(0)) != 200)
+    - (item.status | default(0)) == 200
 
 - name: 02 19 03b Determine Debian net-install ISO filename and checksum
   vars:
@@ -96,7 +130,7 @@
   ansible.builtin.set_fact:
     netinstall_iso_filename: "{{ (netinstall_iso_matches | first | last) | default('') }}"
     netinstall_iso_checksum: "{{ (netinstall_iso_matches | first | first) | default('') }}"
-  when: netinstall_iso_checksums.status == 200 and netinstall_iso_matches | length > 0
+  when: (netinstall_iso_checksums.status | default(0)) == 200 and netinstall_iso_matches | length > 0
 
 - name: 02 19 03b1 Set Debian net-install ISO download URL and canonical local path
   ansible.builtin.set_fact:
