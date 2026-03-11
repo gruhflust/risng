@@ -1,0 +1,13 @@
+---
+- name: Fast rebuild of RISng CentOS PXE/autoinstall artifacts
+  hosts: bootstrapvm
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+
+  tasks:
+    - name: Rebuild CentOS repo + kickstarts + PXE entries (spec role)
+      ansible.builtin.import_role:
+        name: spec

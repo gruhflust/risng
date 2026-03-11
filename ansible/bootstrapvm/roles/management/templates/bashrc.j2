@@ -209,6 +209,9 @@ if [ -x /usr/bin/dircolors ]; then
     # optional tooling installer (modular)
     alias doxygeninstall='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/doxygen-install.yml" "$HOME/doxygeninstall.log"'
 
+    # quick rebuild: CentOS repo + kickstarts + PXE role entries
+    alias risrebuild='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/risrebuild.yml" "$HOME/risrebuild.log"'
+
     # 10 Netbox klonen und starten
     netbox() {
         local repo_dir=~/cmdb/code/netbox-dfs
