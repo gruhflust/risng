@@ -60,6 +60,35 @@
       (repodata={{ spec_repo_repodata.stat.exists }}, packages={{ spec_repo_packages.stat.exists }}).
   when: not spec_repo_repodata.stat.exists or not spec_repo_packages.stat.exists
 
+- name: 04 02f1 Validate repo metadata package references resolve to existing files
+  ansible.builtin.shell: |
+    set -euo pipefail
+    python3 - <<'PY'
+    import gzip, re, pathlib, sys
+    root = pathlib.Path("{{ spec_repo_root }}")
+    primary = sorted((root / "repodata").glob("*primary.xml.gz"))
+    if not primary:
+      print("missing primary.xml.gz in repodata", file=sys.stderr)
+      sys.exit(2)
+    missing = []
+    with gzip.open(primary[0], "rt", encoding="utf-8", errors="ignore") as f:
+      data = f.read()
+    for href in re.findall(r'location href="([^"]+)"', data):
+      p = root / href
+      if not p.exists():
+        missing.append(href)
+        if len(missing) >= 20:
+          break
+    if missing:
+      print("repo metadata references missing files:", file=sys.stderr)
+      for m in missing:
+        print(m, file=sys.stderr)
+      sys.exit(3)
+    PY
+  args:
+    executable: /bin/bash
+  changed_when: false
+
 - name: 04 02b Ensure lightweight HTTP server unit exists for PXE repo
   ansible.builtin.copy:
     dest: /etc/systemd/system/pxe-http.service
