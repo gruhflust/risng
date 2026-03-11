@@ -9,7 +9,17 @@ app = Flask(__name__)
 LEASES_FILE = Path('/var/lib/dhcp/dhcpd.leases')
 MAP_FILE = Path('/etc/risng/mac_role_map.json')
 DISCOVERY_DIR = Path('/var/lib/tftpboot/runtime/discovery')
-UPDATE_PLAYBOOK = "{{ ssh_user_home }}/botrepo/risng_code/ansible/bootstrapvm/update-dhcp-hosts.yml"
+UPDATE_PLAYBOOK_CANDIDATES = [
+    "{{ ssh_user_home }}/risng_code/ansible/bootstrapvm/update-dhcp-hosts.yml",
+    "{{ ssh_user_home }}/risng/ansible/bootstrapvm/update-dhcp-hosts.yml",
+    "{{ ssh_user_home }}/botrepo/risng_code/ansible/bootstrapvm/update-dhcp-hosts.yml",
+]
+
+def resolve_update_playbook():
+    for p in UPDATE_PLAYBOOK_CANDIDATES:
+        if Path(p).exists():
+            return p
+    return UPDATE_PLAYBOOK_CANDIDATES[0]
 
 ROLES = ["iCWP", "iFDO", "iCMD", "FDPS", "CORRP", "live-ris"]
 
@@ -94,7 +104,15 @@ def assign():
     data[mac] = {'role': role, 'ip': ip, 'name': name}
     save_map(data)
 
-    subprocess.Popen(['ansible-playbook', UPDATE_PLAYBOOK])
+    update_playbook = resolve_update_playbook()
+    inventory_candidates = [
+        "{{ ssh_user_home }}/risng_code/ansible/inventory/hosts.yml",
+        "{{ ssh_user_home }}/risng/ansible/inventory/hosts.yml",
+        "{{ ssh_user_home }}/botrepo/risng_code/ansible/inventory/hosts.yml",
+    ]
+    inventory_path = next((p for p in inventory_candidates if Path(p).exists()), inventory_candidates[0])
+
+    subprocess.Popen(['ansible-playbook', '-i', inventory_path, update_playbook])
     return redirect('/')
 
 

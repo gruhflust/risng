@@ -44,15 +44,17 @@ xterm*|rxvt*)
     ;;
 esac
 
-# Auto-detect RISng checkout path
-if [ -d "$HOME/risng" ]; then
+# Auto-detect RISng checkout path (preferred: ~/risng_code)
+if [ -d "$HOME/risng_code" ]; then
+    RISNG_DIR="$HOME/risng_code"
+elif [ -d "$HOME/risng" ]; then
     RISNG_DIR="$HOME/risng"
 elif [ -d "$HOME/botrepo/risng_code" ]; then
     RISNG_DIR="$HOME/botrepo/risng_code"
 elif [ -d "$HOME/botrepo/risng" ]; then
     RISNG_DIR="$HOME/botrepo/risng"
 else
-    RISNG_DIR="$HOME/risng"
+    RISNG_DIR="$HOME/risng_code"
 fi
 
 RISNG_CODE_DIR="$RISNG_DIR"
