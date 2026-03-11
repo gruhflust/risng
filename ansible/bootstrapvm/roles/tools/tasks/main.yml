@@ -36,7 +36,6 @@
       - iproute2
       - vlan
       - vim
-      - doxygen
     state: present
   register: tool_install
   retries: 3

@@ -1,0 +1,16 @@
+---
+- name: Install doxygen tooling on RISng controlhost
+  hosts: bootstrapvm
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+
+  tasks:
+    - name: Install doxygen + graphviz
+      ansible.builtin.apt:
+        name:
+          - doxygen
+          - graphviz
+        state: present
+        update_cache: true
