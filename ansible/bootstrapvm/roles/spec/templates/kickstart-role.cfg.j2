@@ -19,6 +19,13 @@ skipx
 firstboot --disable
 reboot
 
+# Force installer payload source to local RISng controlhost only
+url --url=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+repo --name=risng-local --baseurl=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+
+%packages
+@core
+%end
 
 %post --log=/root/ks-post.log
 set -euxo pipefail
