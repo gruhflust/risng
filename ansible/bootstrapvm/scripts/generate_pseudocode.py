@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+import argparse
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+
+def read_text(node, default=''):
+    if node is None:
+        return default
+    return ''.join(node.itertext()).strip()
+
+
+def parse_compound(xml_path: Path):
+    try:
+        tree = ET.parse(xml_path)
+    except Exception:
+        return None
+    root = tree.getroot()
+    compound = root.find('compounddef')
+    if compound is None:
+        return None
+
+    cname = read_text(compound.find('compoundname'), xml_path.stem)
+    kind = compound.get('kind', 'unknown')
+
+    funcs = []
+    for section in compound.findall('sectiondef'):
+        for member in section.findall('memberdef'):
+            mkind = member.get('kind')
+            if mkind not in {'function', 'slot', 'signal'}:
+                continue
+            name = read_text(member.find('name'), 'unknown')
+            args = read_text(member.find('argsstring'), '()')
+            brief = read_text(member.find('briefdescription'))
+            detail = read_text(member.find('detaileddescription'))
+            doc = brief or detail or 'No description available.'
+            funcs.append((name, args, doc))
+
+    return kind, cname, funcs
+
+
+def write_summary(xml_dir: Path, out_file: Path):
+    lines = ["# Pseudocode Overview", ""]
+
+    xml_files = sorted(xml_dir.glob('*.xml'))
+    for xf in xml_files:
+        parsed = parse_compound(xf)
+        if not parsed:
+            continue
+        kind, cname, funcs = parsed
+        if not funcs:
+            continue
+
+        lines.append(f"## {cname} ({kind})")
+        lines.append("")
+        lines.append("```text")
+        lines.append(f"MODULE {cname}")
+        for name, args, doc in funcs:
+            lines.append(f"  FUNCTION {name}{args}")
+            lines.append(f"    // {doc}")
+            lines.append("    STEP 1: read/validate input")
+            lines.append("    STEP 2: perform core logic")
+            lines.append("    STEP 3: return/update state")
+        lines.append("END MODULE")
+        lines.append("```")
+        lines.append("")
+
+    if len(lines) <= 2:
+        lines.append("No function metadata found in Doxygen XML.")
+
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--xml-dir', required=True)
+    parser.add_argument('--out', required=True)
+    args = parser.parse_args()
+
+    xml_dir = Path(args.xml_dir).expanduser().resolve()
+    out_file = Path(args.out).expanduser().resolve()
+    write_summary(xml_dir, out_file)
+    print(f"pseudocode={out_file}")
+
+
+if __name__ == '__main__':
+    main()

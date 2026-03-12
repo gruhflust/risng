@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+import argparse
+from pathlib import Path
+
+COMMENT_STYLES = {
+    '.py': ('#', '#'),
+    '.sh': ('#', '#'),
+    '.rb': ('#', '#'),
+    '.yml': ('#', '#'),
+    '.yaml': ('#', '#'),
+    '.ini': ('#', '#'),
+    '.toml': ('#', '#'),
+    '.c': ('/*', ' */'),
+    '.h': ('/*', ' */'),
+    '.cc': ('/*', ' */'),
+    '.cpp': ('/*', ' */'),
+    '.cxx': ('/*', ' */'),
+    '.hpp': ('/*', ' */'),
+    '.hxx': ('/*', ' */'),
+    '.java': ('/*', ' */'),
+    '.js': ('/*', ' */'),
+    '.ts': ('/*', ' */'),
+    '.go': ('/*', ' */'),
+    '.rs': ('/*', ' */'),
+    '.php': ('/*', ' */'),
+    '.cs': ('/*', ' */'),
+    '.swift': ('/*', ' */'),
+}
+
+TARGET_EXTS = set(COMMENT_STYLES.keys())
+
+
+def make_header(path: Path, style):
+    start, end = style
+    rel = str(path)
+    lines = [
+        "AUTO-DOC: generated enrichment header",
+        "Purpose: TODO (define by module owner)",
+        "Inputs : TODO",
+        "Outputs: TODO",
+        "Notes  : Review and replace placeholders.",
+    ]
+
+    if start == '#':
+        return '\n'.join([f"# {line}" for line in lines]) + "\n\n"
+
+    body = '\n'.join([f" * {line}" for line in lines])
+    return f"{start}\n{body}\n{end}\n\n"
+
+
+def already_has_header(text: str) -> bool:
+    first = text[:1200].lower()
+    return ('auto-doc:' in first) or ('@file' in first) or ('purpose:' in first)
+
+
+def process_file(fp: Path):
+    ext = fp.suffix.lower()
+    if ext not in TARGET_EXTS:
+        return False
+    try:
+        original = fp.read_text(encoding='utf-8')
+    except UnicodeDecodeError:
+        return False
+
+    if already_has_header(original):
+        return False
+
+    header = make_header(fp, COMMENT_STYLES[ext])
+    fp.write_text(header + original, encoding='utf-8')
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--root', required=True)
+    args = parser.parse_args()
+
+    root = Path(args.root).expanduser().resolve()
+    changed = 0
+    for fp in root.rglob('*'):
+        if fp.is_file() and process_file(fp):
+            changed += 1
+
+    print(f"enriched_files={changed}")
+
+
+if __name__ == '__main__':
+    main()

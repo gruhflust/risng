@@ -1,25 +1,33 @@
 ---
 - name: Run deep Doxygen analysis on ~/doxygen and write results to ~/doxygen_result
   hosts: bootstrapvm
-  become: true
+  become: false
   gather_facts: false
   vars_files:
     - ../host_vars/bootstrapvm.yml
 
   vars:
-    doxygen_input_dir: "{{ lookup('env', 'HOME') }}/doxygen"
-    doxygen_output_dir: "{{ lookup('env', 'HOME') }}/doxygen_result"
-    doxygen_config_file: "{{ lookup('env', 'HOME') }}/doxygen_result/Doxyfile"
-    doxygen_warnings_log: "{{ lookup('env', 'HOME') }}/doxygen_result/doxygen-warnings.log"
+    run_user: "{{ lookup('env', 'USER') }}"
+    run_home: "{{ lookup('env', 'HOME') }}"
+    doxygen_input_dir: "{{ run_home }}/doxygen"
+    doxygen_output_dir: "{{ run_home }}/doxygen_result"
+    doxygen_mirror_dir: "{{ doxygen_output_dir }}/enriched_src"
+    doxygen_config_file: "{{ doxygen_output_dir }}/Doxyfile"
+    doxygen_warnings_log: "{{ doxygen_output_dir }}/doxygen-warnings.log"
+    doxygen_xml_dir: "{{ doxygen_output_dir }}/xml"
+    doxygen_pseudocode_file: "{{ doxygen_output_dir }}/pseudocode-overview.md"
 
   tasks:
-    - name: Ensure doxygen + graphviz are installed
+    - name: Ensure doxygen + graphviz + rsync are installed
       ansible.builtin.apt:
         name:
           - doxygen
           - graphviz
+          - rsync
+          - python3
         state: present
         update_cache: true
+      become: true
 
     - name: Ensure input directory exists
       ansible.builtin.stat:
@@ -35,14 +43,27 @@
           Input directory '{{ doxygen_input_dir }}' not found. Create/populate it first,
           then re-run alias 'doxygen'.
 
-    - name: Ensure output directory exists
+    - name: Ensure output directories exist (owned by run user)
       ansible.builtin.file:
-        path: "{{ doxygen_output_dir }}"
+        path: "{{ item }}"
         state: directory
-        owner: "{{ lookup('env', 'USER') }}"
         mode: '0755'
+      loop:
+        - "{{ doxygen_output_dir }}"
+        - "{{ doxygen_mirror_dir }}"
 
-    - name: Write Doxygen config for deep analysis
+    - name: Mirror input sources to result workspace (1:1)
+      ansible.builtin.command: >-
+        rsync -a --delete {{ doxygen_input_dir }}/ {{ doxygen_mirror_dir }}/
+      changed_when: true
+
+    - name: Enrich mirrored sources with auto-comment headers
+      ansible.builtin.command: >-
+        python3 {{ playbook_dir }}/scripts/enrich_sources.py --root {{ doxygen_mirror_dir }}
+      register: doxygen_enrich
+      changed_when: "'enriched_files=' in doxygen_enrich.stdout"
+
+    - name: Write Doxygen config for deep analysis (on enriched mirror)
       ansible.builtin.copy:
         dest: "{{ doxygen_config_file }}"
         mode: '0644'
@@ -53,7 +74,7 @@
           CREATE_SUBDIRS         = NO
           ALLOW_UNICODE_NAMES    = YES
 
-          INPUT                  = "{{ doxygen_input_dir }}"
+          INPUT                  = "{{ doxygen_mirror_dir }}"
           FILE_PATTERNS          = *.c *.cc *.cxx *.cpp *.c++ *.h *.hh *.hxx *.hpp *.h++ *.java *.py *.cs *.js *.ts *.php *.go *.rs *.swift *.m *.mm *.md
           RECURSIVE              = YES
           EXCLUDE_SYMLINKS       = NO
@@ -101,12 +122,20 @@
 
     - name: Run doxygen
       ansible.builtin.command: "doxygen {{ doxygen_config_file }}"
-      register: doxygen_run
+      changed_when: true
+
+    - name: Generate pseudocode summary from Doxygen XML
+      ansible.builtin.command: >-
+        python3 {{ playbook_dir }}/scripts/generate_pseudocode.py
+        --xml-dir {{ doxygen_xml_dir }}
+        --out {{ doxygen_pseudocode_file }}
       changed_when: true
 
     - name: Print result hint
       ansible.builtin.debug:
         msg:
           - "Doxygen analysis complete."
+          - "Mirrored+enriched sources: {{ doxygen_mirror_dir }}"
           - "HTML report: {{ doxygen_output_dir }}/html/index.html"
+          - "Pseudocode overview: {{ doxygen_pseudocode_file }}"
           - "Warnings log: {{ doxygen_warnings_log }}"
