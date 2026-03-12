@@ -1,0 +1,112 @@
+---
+- name: Run deep Doxygen analysis on ~/doxygen and write results to ~/doxygen_result
+  hosts: bootstrapvm
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+
+  vars:
+    doxygen_input_dir: "{{ lookup('env', 'HOME') }}/doxygen"
+    doxygen_output_dir: "{{ lookup('env', 'HOME') }}/doxygen_result"
+    doxygen_config_file: "{{ lookup('env', 'HOME') }}/doxygen_result/Doxyfile"
+    doxygen_warnings_log: "{{ lookup('env', 'HOME') }}/doxygen_result/doxygen-warnings.log"
+
+  tasks:
+    - name: Ensure doxygen + graphviz are installed
+      ansible.builtin.apt:
+        name:
+          - doxygen
+          - graphviz
+        state: present
+        update_cache: true
+
+    - name: Ensure input directory exists
+      ansible.builtin.stat:
+        path: "{{ doxygen_input_dir }}"
+      register: doxygen_input_stat
+
+    - name: Fail if input directory is missing
+      ansible.builtin.assert:
+        that:
+          - doxygen_input_stat.stat.exists
+          - doxygen_input_stat.stat.isdir
+        fail_msg: >-
+          Input directory '{{ doxygen_input_dir }}' not found. Create/populate it first,
+          then re-run alias 'doxygen'.
+
+    - name: Ensure output directory exists
+      ansible.builtin.file:
+        path: "{{ doxygen_output_dir }}"
+        state: directory
+        owner: "{{ lookup('env', 'USER') }}"
+        mode: '0755'
+
+    - name: Write Doxygen config for deep analysis
+      ansible.builtin.copy:
+        dest: "{{ doxygen_config_file }}"
+        mode: '0644'
+        content: |
+          PROJECT_NAME           = "doxygen-deep-analysis"
+          PROJECT_BRIEF          = "Auto-generated deep analysis"
+          OUTPUT_DIRECTORY       = "{{ doxygen_output_dir }}"
+          CREATE_SUBDIRS         = NO
+          ALLOW_UNICODE_NAMES    = YES
+
+          INPUT                  = "{{ doxygen_input_dir }}"
+          FILE_PATTERNS          = *.c *.cc *.cxx *.cpp *.c++ *.h *.hh *.hxx *.hpp *.h++ *.java *.py *.cs *.js *.ts *.php *.go *.rs *.swift *.m *.mm *.md
+          RECURSIVE              = YES
+          EXCLUDE_SYMLINKS       = NO
+
+          EXTRACT_ALL            = YES
+          EXTRACT_PRIVATE        = YES
+          EXTRACT_STATIC         = YES
+          EXTRACT_LOCAL_CLASSES  = YES
+          EXTRACT_ANON_NSPACES   = YES
+          HIDE_UNDOC_MEMBERS     = NO
+          HIDE_UNDOC_CLASSES     = NO
+
+          SOURCE_BROWSER         = YES
+          INLINE_SOURCES         = YES
+          REFERENCED_BY_RELATION = YES
+          REFERENCES_RELATION    = YES
+          VERBATIM_HEADERS       = YES
+
+          WARNINGS               = YES
+          WARN_IF_UNDOCUMENTED   = YES
+          WARN_IF_DOC_ERROR      = YES
+          WARN_NO_PARAMDOC       = NO
+          WARN_LOGFILE           = "{{ doxygen_warnings_log }}"
+
+          GENERATE_HTML          = YES
+          HTML_OUTPUT            = html
+          GENERATE_TREEVIEW      = YES
+          FULL_SIDEBAR           = YES
+
+          GENERATE_LATEX         = NO
+          GENERATE_XML           = YES
+          XML_OUTPUT             = xml
+
+          HAVE_DOT               = YES
+          DOT_IMAGE_FORMAT       = svg
+          CALL_GRAPH             = YES
+          CALLER_GRAPH           = YES
+          CLASS_DIAGRAMS         = YES
+          COLLABORATION_GRAPH    = YES
+          UML_LOOK               = YES
+          DOT_MULTI_TARGETS      = YES
+          DOT_NUM_THREADS        = 0
+
+          QUIET                  = NO
+
+    - name: Run doxygen
+      ansible.builtin.command: "doxygen {{ doxygen_config_file }}"
+      register: doxygen_run
+      changed_when: true
+
+    - name: Print result hint
+      ansible.builtin.debug:
+        msg:
+          - "Doxygen analysis complete."
+          - "HTML report: {{ doxygen_output_dir }}/html/index.html"
+          - "Warnings log: {{ doxygen_warnings_log }}"

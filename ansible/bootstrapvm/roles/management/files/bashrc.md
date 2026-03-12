@@ -205,6 +205,9 @@ if [ -x /usr/bin/dircolors ]; then
     # optional tooling installer (modular)
     alias doxygeninstall='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/doxygen-install.yml" "$HOME/doxygeninstall.log"'
 
+    # deep analysis run for ~/doxygen -> ~/doxygen_result
+    alias doxygen='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/doxygen.yml" "$HOME/doxygen.log"'
+
     # quick rebuild: CentOS repo + kickstarts + PXE role entries
     alias risrebuild='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/risrebuild.yml" "$HOME/risrebuild.log"'
 
