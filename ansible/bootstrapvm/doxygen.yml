@@ -51,17 +51,29 @@
       loop:
         - "{{ doxygen_output_dir }}"
         - "{{ doxygen_mirror_dir }}"
+      become: false
+
+    - name: Ensure output root ownership before run
+      ansible.builtin.file:
+        path: "{{ doxygen_output_dir }}"
+        state: directory
+        recurse: true
+        owner: "{{ run_user }}"
+        group: "{{ run_user }}"
+      become: true
 
     - name: Mirror input sources to result workspace (1:1)
       ansible.builtin.command: >-
         rsync -a --delete {{ doxygen_input_dir }}/ {{ doxygen_mirror_dir }}/
       changed_when: true
+      become: false
 
     - name: Enrich mirrored sources with auto-comment headers
       ansible.builtin.command: >-
         python3 {{ playbook_dir }}/scripts/enrich_sources.py --root {{ doxygen_mirror_dir }}
       register: doxygen_enrich
       changed_when: "'enriched_files=' in doxygen_enrich.stdout"
+      become: false
 
     - name: Write Doxygen config for deep analysis (on enriched mirror)
       ansible.builtin.copy:
@@ -119,10 +131,12 @@
           DOT_NUM_THREADS        = 0
 
           QUIET                  = NO
+      become: false
 
     - name: Run doxygen
       ansible.builtin.command: "doxygen {{ doxygen_config_file }}"
       changed_when: true
+      become: false
 
     - name: Generate pseudocode summary from Doxygen XML
       ansible.builtin.command: >-
@@ -130,6 +144,16 @@
         --xml-dir {{ doxygen_xml_dir }}
         --out {{ doxygen_pseudocode_file }}
       changed_when: true
+      become: false
+
+    - name: Ensure final result ownership for run user
+      ansible.builtin.file:
+        path: "{{ doxygen_output_dir }}"
+        state: directory
+        recurse: true
+        owner: "{{ run_user }}"
+        group: "{{ run_user }}"
+      become: true
 
     - name: Print result hint
       ansible.builtin.debug:
