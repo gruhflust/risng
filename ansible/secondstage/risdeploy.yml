@@ -39,29 +39,40 @@
   pre_tasks:
     - name: Bootstrap local RISng repositories on second-stage client without Python
       ansible.builtin.raw: |
+        mkdir -p /etc/yum.repos.d/disabled
+        for f in /etc/yum.repos.d/*.repo; do
+          [ -e "$f" ] || continue
+          case "$(basename "$f")" in
+            risng-secondstage.repo) continue ;;
+          esac
+          mv -f "$f" /etc/yum.repos.d/disabled/ 2>/dev/null || true
+        done
         cat > /etc/yum.repos.d/risng-secondstage.repo <<'EOF'
-        [risng-base]
+        [risng-ss-base]
         name=RISng CentOS 7.8 Base
         baseurl=http://{{ risdeploy_repo_host }}/centos/7/os/x86_64/
         enabled=1
         gpgcheck=0
 
-        [risng-updates]
+        [risng-ss-updates]
         name=RISng CentOS 7.8 Updates
         baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_updates_path }}
         enabled=1
         gpgcheck=0
 
-        [risng-extras]
+        [risng-ss-extras]
         name=RISng CentOS 7.8 Extras
         baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_extras_path }}
         enabled=1
         gpgcheck=0
         EOF
+        yum clean all >/dev/null 2>&1 || true
       changed_when: false
 
     - name: Bootstrap Python 3 for Ansible on second-stage client
-      ansible.builtin.raw: yum -y install python3 libselinux-python
+      ansible.builtin.raw: >-
+        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras
+        -y install python3 libselinux-python
       changed_when: false
 
     - name: Gather facts after Python bootstrap
@@ -73,26 +84,26 @@
         dest: /etc/yum.repos.d/risng-secondstage.repo
         mode: "0644"
         content: |
-          [risng-base]
+          [risng-ss-base]
           name=RISng CentOS 7.8 Base
           baseurl=http://{{ risdeploy_repo_host }}/centos/7/os/x86_64/
           enabled=1
           gpgcheck=0
 
-          [risng-updates]
+          [risng-ss-updates]
           name=RISng CentOS 7.8 Updates
           baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_updates_path }}
           enabled=1
           gpgcheck=0
 
-          [risng-extras]
+          [risng-ss-extras]
           name=RISng CentOS 7.8 Extras
           baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_extras_path }}
           enabled=1
           gpgcheck=0
 
     - name: Clean yum metadata before second-stage install
-      ansible.builtin.command: yum clean all
+      ansible.builtin.command: yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras clean all
       changed_when: false
 
     - name: Build effective component list
@@ -106,7 +117,7 @@
 
     - name: Install yum groups required by selected components
       ansible.builtin.command:
-        cmd: "yum -y groupinstall {{ item }}"
+        cmd: "yum --disablerepo=* --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras -y groupinstall {{ item }}"
       loop: >-
         {{
           risdeploy_component_defs
@@ -128,17 +139,17 @@
         ) > 0
 
     - name: Install RPM packages required by selected components
-      ansible.builtin.yum:
-        name: >-
-          {{
-            risdeploy_component_defs
-            | map(attribute='packages')
-            | select('defined')
-            | list
-            | flatten
-            | unique
-          }}
-        state: present
+      ansible.builtin.command: >-
+        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras -y install
+        {{
+          risdeploy_component_defs
+          | map(attribute='packages')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+          | join(' ')
+        }}
       when: >-
         (
           risdeploy_component_defs
