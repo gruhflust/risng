@@ -178,6 +178,10 @@ dhcp_static_hosts:
         vlan_ip: "10.228.226.192"
         pingpartner_ip: ""
 
-       
+  - name: icocmd01
+    mac: "c0:7c:d1:31:53:95"
+    ip: "10.228.229.200"
+    boot_profile: iCMD
+
 # Optional role mapping written by RISng web UI
 dhcp_mac_role_map_file: "/etc/risng/mac_role_map.json"
