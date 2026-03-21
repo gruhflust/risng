@@ -39,11 +39,12 @@ risdeploy_component_catalog:
       - centos7-base
       - centos7-updates
       - centos7-extras
-    yum_groups:
-      - "GNOME Desktop"
     packages:
       - gdm
+      - gnome-shell
+      - gnome-session
       - gnome-terminal
+      - xorg-x11-server-Xorg
       - xorg-x11-xauth
       - dbus-x11
     services:
