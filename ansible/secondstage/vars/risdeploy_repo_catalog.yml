@@ -24,6 +24,13 @@ risdeploy_repo_sets:
     purpose: "Additional platform packages required by selected SecondStage components."
     mode: "http-mirror"
 
+  epel7:
+    source: "EPEL 7 x86_64"
+    source_url: "https://dl.fedoraproject.org/pub/epel/7/x86_64/"
+    local_path: "{{ pxe_tftp_dir }}/kickstart/repos/epel/7/x86_64"
+    purpose: "Additional community packages for SecondStage features such as NTFS tooling."
+    mode: "http-mirror"
+
 risdeploy_component_catalog:
   graphics-gnome:
     description: "Install local graphical CentOS 7 desktop stack from RISng only."
@@ -32,6 +39,7 @@ risdeploy_component_catalog:
       - centos7-base
       - centos7-updates
       - centos7-extras
+      - epel7
     yum_groups:
       - "GNOME Desktop"
     packages:

@@ -48,7 +48,26 @@
   when:
     - risdeploy_repo_sets[item].mode == 'http-mirror'
 
-- name: 16_05 Write SecondStage package source manifest
+- name: 16_05 Validate bootstrap packages required for SecondStage exist locally
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop:
+    - { name: 'python3', path: '{{ spec_repo_root }}/Packages/python3-3.6.8-18.el7.x86_64.rpm' }
+    - { name: 'libselinux-python', path: '{{ spec_repo_root }}/Packages/libselinux-python-2.5-15.el7.x86_64.rpm' }
+    - { name: 'epel-release', path: '{{ pxe_tftp_dir }}/kickstart/repos/epel/7/x86_64/Packages/e/epel-release-7-14.noarch.rpm' }
+  register: risdeploy_bootstrap_rpms
+  when: risdeploy_enabled_components | default([]) | length > 0
+
+- name: 16_05a Fail early when SecondStage bootstrap packages are missing locally
+  ansible.builtin.fail:
+    msg: >-
+      SecondStage package provisioning on RISng is incomplete. Missing bootstrap RPMs:
+      {{ risdeploy_bootstrap_rpms.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}
+  when:
+    - risdeploy_enabled_components | default([]) | length > 0
+    - (risdeploy_bootstrap_rpms.results | rejectattr('stat.exists') | list | length) > 0
+
+- name: 16_06 Write SecondStage package source manifest
   ansible.builtin.copy:
     dest: "{{ pxe_tftp_dir }}/kickstart/secondstage-package-sources.yml"
     mode: "0644"
