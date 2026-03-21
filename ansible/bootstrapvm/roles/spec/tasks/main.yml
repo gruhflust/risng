@@ -12,36 +12,41 @@
     - "{{ spec_target }}"
     - "{{ spec_repo_root }}"
     - "{{ pxe_tftp_dir }}/kickstart"
+    - "{{ pxe_tftp_dir }}/bootstrap"
     - "{{ pxelinux_dir }}"
     - "{{ grub_dir }}"
 
-- name: 04 01a Download CentOS 7.8 ISO when absent
+- name: 04 01a Download CentOS 7.8 ISO when ISO mode is selected
   ansible.builtin.get_url:
     url: "{{ centos78_iso_url }}"
     dest: "{{ centos78_iso_path }}"
     mode: "0644"
     force: false
     timeout: 1200
+  when: spec_repo_source_mode == 'iso'
 
-- name: 04 02 Reset extracted ISO workspace to avoid stale trees from previous runs
+- name: 04 02 Reset extracted ISO workspace when ISO mode is selected
   ansible.builtin.file:
     path: "{{ spec_iso_mount }}"
     state: absent
+  when: spec_repo_source_mode == 'iso'
 
-- name: 04 02a Recreate extracted ISO workspace
+- name: 04 02a Recreate extracted ISO workspace when ISO mode is selected
   ansible.builtin.file:
     path: "{{ spec_iso_mount }}"
     state: directory
     mode: "0755"
+  when: spec_repo_source_mode == 'iso'
 
-- name: 04 02b Extract CentOS 7.8 ISO (always fresh)
+- name: 04 02b Extract CentOS 7.8 ISO when ISO mode is selected
   ansible.builtin.command: >
     bsdtar -C {{ spec_iso_mount }} -xf {{ centos78_iso_path }}
+  when: spec_repo_source_mode == 'iso'
 
-- name: 04 02c Sync extracted CentOS tree into HTTP repo root
+- name: 04 02c Sync extracted CentOS tree into HTTP repo root when ISO mode is selected
   ansible.builtin.command: >
     rsync -a --delete {{ spec_iso_mount }}/ {{ spec_repo_root }}/
-
+  when: spec_repo_source_mode == 'iso'
 
 - name: 04 02d Validate synced CentOS repo metadata exists
   ansible.builtin.stat:
@@ -60,7 +65,7 @@
       (repodata={{ spec_repo_repodata.stat.exists }}, packages={{ spec_repo_packages.stat.exists }}).
   when: not spec_repo_repodata.stat.exists or not spec_repo_packages.stat.exists
 
-- name: 04 02b Ensure lightweight HTTP server unit exists for PXE repo
+- name: 04 02g Ensure lightweight HTTP server unit exists for PXE repo
   ansible.builtin.copy:
     dest: /etc/systemd/system/pxe-http.service
     mode: "0644"
@@ -79,42 +84,53 @@
       [Install]
       WantedBy=multi-user.target
 
-- name: 04 02c Enable and start PXE HTTP file server
+- name: 04 02h Enable and start PXE HTTP file server
   ansible.builtin.systemd:
     name: pxe-http
     enabled: true
     state: started
     daemon_reload: true
 
-- name: 04 03 Copy kernel
+- name: 04 03 Copy kernel from extracted ISO in ISO mode
   ansible.builtin.copy:
     remote_src: true
     src: "{{ spec_iso_mount }}/images/pxeboot/{{ spec_kernel }}"
     dest: "{{ spec_target }}/{{ spec_kernel }}"
     mode: "0644"
+  when: spec_repo_source_mode == 'iso'
 
-- name: 04 04 Copy initrd
+- name: 04 03a Copy initrd from extracted ISO in ISO mode
   ansible.builtin.copy:
     remote_src: true
     src: "{{ spec_iso_mount }}/images/pxeboot/{{ spec_initrd }}"
     dest: "{{ spec_target }}/{{ spec_initrd }}"
     mode: "0644"
+  when: spec_repo_source_mode == 'iso'
 
-- name: 04 04a Render role-specific kickstart files
+- name: 04 03b Copy kernel from mirrored repo in mirror mode
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ spec_repo_root }}/images/pxeboot/{{ spec_kernel }}"
+    dest: "{{ spec_target }}/{{ spec_kernel }}"
+    mode: "0644"
+  when: spec_repo_source_mode == 'mirror'
+
+- name: 04 03c Copy initrd from mirrored repo in mirror mode
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ spec_repo_root }}/images/pxeboot/{{ spec_initrd }}"
+    dest: "{{ spec_target }}/{{ spec_initrd }}"
+    mode: "0644"
+  when: spec_repo_source_mode == 'mirror'
+
+- name: 04 04 Render role-specific kickstart files
   ansible.builtin.template:
     src: kickstart-role.cfg.j2
     dest: "{{ pxe_tftp_dir }}/kickstart/{{ item | lower }}.cfg"
     mode: "0644"
   loop: "{{ risng_client_roles }}"
 
-
-- name: 04 04b Ensure bootstrap metadata directory exists
-  ansible.builtin.file:
-    path: "{{ pxe_tftp_dir }}/bootstrap"
-    state: directory
-    mode: "0755"
-
-- name: 04 04c Publish control-host SSH public key for client bootstrap
+- name: 04 04b Publish control-host SSH public key for client bootstrap
   ansible.builtin.copy:
     src: "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
     dest: "{{ pxe_tftp_dir }}/bootstrap/controlhost_id_ed25519.pub"

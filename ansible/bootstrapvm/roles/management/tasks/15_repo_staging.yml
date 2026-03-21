@@ -1,0 +1,101 @@
+---
+# Local repository staging for RISng.
+# Keeps package sources on the staging host and publishes them over the PXE LAN.
+
+- name: 15_00 Ensure RISng repository staging directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ risng_repo_root }}"
+    - "{{ risng_repo_root }}/scripts"
+    - "{{ risng_repo_root }}/sync"
+    - "{{ risng_repo_root }}/sync/log"
+    - "{{ risng_repo_root }}/kickstart"
+    - "{{ pxe_tftp_dir }}/kickstart/repos"
+    - "{{ pxe_tftp_dir }}/kickstart/repos/{{ risng_repo_centos_updates_path }}"
+    - "{{ pxe_tftp_dir }}/kickstart/repos/{{ risng_repo_centos_extras_path }}"
+    - "{{ spec_repo_root }}"
+
+- name: 15_01 Install repository staging prerequisites
+  ansible.builtin.apt:
+    name:
+      - curl
+      - rsync
+      - wget
+      - createrepo-c
+      - nginx
+    state: present
+    update_cache: true
+
+- name: 15_02 Render RISng repository sync helper
+  ansible.builtin.template:
+    src: risng-repo-sync.sh.j2
+    dest: "{{ risng_repo_root }}/scripts/risng-repo-sync.sh"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: 15_03 Install systemd service for RISng repo sync
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/risng-repo-sync.service
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Synchronise RISng offline repositories
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart={{ risng_repo_root }}/scripts/risng-repo-sync.sh
+      WorkingDirectory={{ risng_repo_root }}
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: 15_04 Install systemd timer for RISng repo sync
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/risng-repo-sync.timer
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Periodic RISng repository synchronisation
+
+      [Timer]
+      OnBootSec=10min
+      OnUnitActiveSec={{ risng_repo_sync_interval }}
+      Persistent=true
+
+      [Install]
+      WantedBy=timers.target
+
+- name: 15_05 Reload systemd after RISng repo sync unit deployment
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: 15_06 Enable RISng repo sync timer
+  ansible.builtin.systemd:
+    name: risng-repo-sync.timer
+    enabled: true
+    state: started
+
+- name: 15_07 Render RISng local client repo file
+  ansible.builtin.template:
+    src: centos7-local.repo.j2
+    dest: "{{ pxe_tftp_dir }}/kickstart/centos7-local.repo"
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: 15_08 Optionally run initial repository sync during staging
+  ansible.builtin.command:
+    cmd: systemctl start risng-repo-sync.service
+  when: risng_repo_sync_on_stage | bool
