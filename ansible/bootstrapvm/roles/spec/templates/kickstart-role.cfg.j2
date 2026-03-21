@@ -4,7 +4,7 @@ text
 lang en_US.UTF-8
 keyboard --vckeymap=de --xlayouts='de'
 timezone Europe/Berlin --isUtc
-network --bootproto=dhcp --device=link --activate
+network --bootproto=dhcp --device=bootif --activate --onboot=on --noipv6
 rootpw --plaintext risng
 user --name=nor --groups=wheel --password=nor --plaintext
 firewall --disabled
@@ -19,6 +19,16 @@ skipx
 firstboot --disable
 reboot
 
+%packages --nocore
+@core
+curl
+%end
+
+%pre --log=/tmp/ks-pre.log
+set -x
+nmcli radio wifi off || true
+rfkill block wifi || true
+%end
 
 %post --log=/root/ks-post.log
 set -euxo pipefail
