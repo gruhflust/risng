@@ -80,6 +80,26 @@
     - risdeploy_enabled_components | default([]) | length > 0
     - (risdeploy_bootstrap_rpms.results | rejectattr('stat.exists') | list | length) > 0
 
+
+- name: 16_05b Validate published repodata for mirrored SecondStage repos
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop:
+    - { name: 'centos7-updates', path: '{{ pxe_tftp_dir }}/kickstart/repos/{{ risng_repo_centos_updates_path }}/repodata/repomd.xml' }
+    - { name: 'centos7-extras', path: '{{ pxe_tftp_dir }}/kickstart/repos/{{ risng_repo_centos_extras_path }}/repodata/repomd.xml' }
+    - { name: 'epel7', path: '{{ pxe_tftp_dir }}/kickstart/repos/epel/7/x86_64/repodata/repomd.xml' }
+  register: risdeploy_repodata_paths
+  when: risdeploy_enabled_components | default([]) | length > 0
+
+- name: 16_05c Fail early when mirrored SecondStage repodata is missing
+  ansible.builtin.fail:
+    msg: >-
+      SecondStage repo publishing on RISng is incomplete. Missing repodata for:
+      {{ risdeploy_repodata_paths.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}
+  when:
+    - risdeploy_enabled_components | default([]) | length > 0
+    - (risdeploy_repodata_paths.results | rejectattr('stat.exists') | list | length) > 0
+
 - name: 16_06 Write SecondStage package source manifest
   ansible.builtin.copy:
     dest: "{{ pxe_tftp_dir }}/kickstart/secondstage-package-sources.yml"

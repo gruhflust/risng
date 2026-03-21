@@ -76,19 +76,14 @@
         enabled=1
         gpgcheck=0
 
-        [risng-bootstrap-updates]
-        name=RISng Bootstrap Updates
-        baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_updates_path }}
-        enabled=1
-        gpgcheck=0
-        EOF
+                EOF
         yum clean all >/dev/null 2>&1 || true
       changed_when: false
 
     - name: Bootstrap Python 3 for Ansible on second-stage client
       ansible.builtin.raw: >-
         yum --setopt=reposdir=/etc/yum.repos.d/bootstrap-only --disablerepo='*'
-        --enablerepo=risng-bootstrap-base,risng-bootstrap-updates
+        --enablerepo=risng-bootstrap-base
         -y install python3 libselinux-python
       changed_when: false
 
