@@ -1,4 +1,4 @@
-# RISng CentOS 7.8 Kickstart (role: {{ item }})
+# RISng CentOS 7.8 Kickstart (role: {{ risng_kickstart_role | default(item | default('base')) }})
 install
 text
 lang en_US.UTF-8
