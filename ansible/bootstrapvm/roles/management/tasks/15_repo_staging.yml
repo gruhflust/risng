@@ -27,9 +27,22 @@
       - rsync
       - wget
       - createrepo-c
-      - nginx
     state: present
     update_cache: true
+
+- name: 15_01a Ensure nginx is absent to avoid port 80 conflicts with pxe-http
+  ansible.builtin.apt:
+    name: nginx
+    state: absent
+    purge: true
+    autoremove: true
+
+- name: 15_01b Ensure nginx service is stopped and disabled when present
+  ansible.builtin.systemd:
+    name: nginx
+    state: stopped
+    enabled: false
+  failed_when: false
 
 - name: 15_02 Render RISng repository sync helper
   ansible.builtin.template:

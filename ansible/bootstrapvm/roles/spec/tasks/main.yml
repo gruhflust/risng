@@ -84,7 +84,13 @@
       [Install]
       WantedBy=multi-user.target
 
-- name: 04 02h Enable and start PXE HTTP file server
+- name: 04 02h Reset pxe-http failed state before start
+  ansible.builtin.command:
+    cmd: systemctl reset-failed pxe-http
+  changed_when: false
+  failed_when: false
+
+- name: 04 02i Enable and start PXE HTTP file server
   ansible.builtin.systemd:
     name: pxe-http
     enabled: true
