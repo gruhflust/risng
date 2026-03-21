@@ -76,7 +76,7 @@
         enabled=1
         gpgcheck=0
 
-                EOF
+        EOF
         yum clean all >/dev/null 2>&1 || true
       changed_when: false
 
