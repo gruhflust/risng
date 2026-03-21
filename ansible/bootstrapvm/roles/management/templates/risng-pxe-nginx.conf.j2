@@ -1,0 +1,19 @@
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+
+    access_log /var/log/nginx/risng-pxe.access.log;
+    error_log  /var/log/nginx/risng-pxe.error.log;
+
+    root {{ pxe_tftp_dir }};
+    autoindex on;
+    autoindex_exact_size off;
+    autoindex_localtime on;
+    sendfile on;
+    tcp_nopush on;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}

@@ -82,37 +82,25 @@
   when: >-
     (spec_repo_critical_rpms.results | rejectattr('stat.exists') | list | length) > 0
 
-- name: 04 02g Ensure lightweight HTTP server unit exists for PXE repo
-  ansible.builtin.copy:
-    dest: /etc/systemd/system/pxe-http.service
-    mode: "0644"
-    content: |
-      [Unit]
-      Description=PXE HTTP file server ({{ pxe_tftp_dir }})
-      After=network-online.target
-      Wants=network-online.target
+- name: 04 02g Ensure legacy pxe-http service is stopped and disabled
+  ansible.builtin.systemd:
+    name: pxe-http
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  failed_when: false
 
-      [Service]
-      Type=simple
-      ExecStart=/usr/bin/python3 -m http.server 80 --directory {{ pxe_tftp_dir }}
-      Restart=always
-      RestartSec=2
-
-      [Install]
-      WantedBy=multi-user.target
-
-- name: 04 02h Reset pxe-http failed state before start
+- name: 04 02h Reset pxe-http failed state after disabling it
   ansible.builtin.command:
     cmd: systemctl reset-failed pxe-http
   changed_when: false
   failed_when: false
 
-- name: 04 02i Enable and start PXE HTTP file server
+- name: 04 02i Ensure nginx is enabled and serving PXE repo root
   ansible.builtin.systemd:
-    name: pxe-http
+    name: nginx
     enabled: true
     state: started
-    daemon_reload: true
 
 - name: 04 03 Copy kernel from extracted ISO in ISO mode
   ansible.builtin.copy:

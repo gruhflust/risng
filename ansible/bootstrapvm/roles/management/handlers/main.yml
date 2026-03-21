@@ -3,3 +3,9 @@
     name: tftpd-hpa
     state: restarted
     enabled: true
+
+- name: Reload nginx
+  ansible.builtin.systemd:
+    name: nginx
+    state: reloaded
+    enabled: true
