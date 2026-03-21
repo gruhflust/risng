@@ -121,15 +121,6 @@ if [ -x /usr/bin/dircolors ]; then
     # 02 Re-enable PXE NIC and restart TFTP/DHCP services
     alias iron='git -C "$RISNG_DIR" pull'
 
-    # 03 PXE stack neu aufbauen (stop + Rollen + restart PXE)
-    alias restage='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/network-reset.yml" "$HOME/restage-network-reset.log" && git -C "$RISNG_DIR" pull && run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/risng-setup.yml" "$HOME/restage-risng-setup.log"'
-
-    # 04 Wechsel zurück ins Internet (disable PXE, enable WAN NIC)
-    alias internet='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/network-reset.yml" "$HOME/internet.log"'
-
-    # 05 Nur DHCP-Start debuggen (isoliert)
-    alias pxe='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/network-restart.yml" "$HOME/pxe.log"'
-
     # 05b Heilung der Internetverbindung - doppelte Adressen weg, neu dhclient
     alias heal='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/heal_internet.yml" "$HOME/heal.log"'
 

@@ -50,7 +50,7 @@ Alle Tasks unterhalb der Rolle sind global eindeutig nummeriert und ohne Dopplun
 * Der Alias `getisos` ruft `bootstrapvm/getisos.yml` mit denselben Tasks auf, die auch im vollständigen Setup verwendet werden, lädt jedoch ausschließlich die ISO-Artefakte vor. Das ist hilfreich, wenn die Images vor dem eigentlichen Build aktualisiert werden sollen.
 * Der Alias `report_snapshot` startet `runtime/report_snapshot/report_clients.yml`, sammelt DHCP-Leases, fragt die Clients per SSH ab und schreibt JSON/PDF-Berichte ins Home-Verzeichnis. Über `unreport` (Playbook `playbooks/unreport.yml`) können diese Berichte sowie PXE-Logs wieder bereinigt werden.
 * Der Alias `slavelantest` führt `runtime/report_snapshot/slavelantest.yml` aus, um VLAN-Interfaces und IPs auf vorhandenen PXE-Clients anzulegen. Das Playbook nutzt die in `bootstrapvm/roles/dhcp` hinterlegten `dhcp_static_hosts` und protokolliert seinen Lauf in `~/slavelantest.log`.
-* Weitere Aliase wie `feuer`, `restage`, `internet` oder `pxe` binden die zentralen Bootstrap-Playbooks an (`bootstrapvm/risng-setup.yml`, `bootstrapvm/network-reset.yml`, `bootstrapvm/network-restart.yml`) und schreiben nachvollziehbare Logs im Home-Verzeichnis.
+* Relevante Arbeitsaliase sind aktuell vor allem `feuer`, `getisos` und `repair-dhcp`. `getisos` lädt die benötigten ISO-Artefakte vorab, `feuer` baut den RISng-Stagingpfad auf und `repair-dhcp` korrigiert DHCP-seitige Folgeschäden nach Interface- oder Netzwechseln.
 
 ## Technical architecture: bind9, DHCP, and PXE control plane
 

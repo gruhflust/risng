@@ -83,10 +83,8 @@ Danach ist die Maschine bereit für den ersten `feuer`-Lauf.
 | Alias | Aufgabe |
 |-------|---------|
 | `feuer` | baut RISng-Staging, PXE-Dienste und Installationspfad auf |
+| `getisos` | lädt die für den Build benötigten ISO-Artefakte vorab herunter |
 | `repair-dhcp` | repariert DHCP-Konfiguration nach Netzwerk-/Interface-Wechsel |
-| `internet` | wechselt zurück in den Internetmodus |
-| `pxe` | aktiviert den PXE-Betrieb erneut |
-| `restage` | setzt Netz und PXE-Stack neu auf |
 
 ## Detailliertere technische Dokumentation
 
