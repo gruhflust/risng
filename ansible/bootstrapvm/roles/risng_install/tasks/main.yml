@@ -65,6 +65,23 @@
       (repodata={{ spec_repo_repodata.stat.exists }}, packages={{ spec_repo_packages.stat.exists }}).
   when: not spec_repo_repodata.stat.exists or not spec_repo_packages.stat.exists
 
+- name: 04 02fa Validate critical RPMs exist in published CentOS repo
+  ansible.builtin.stat:
+    path: "{{ spec_repo_root }}/Packages/{{ item }}"
+  loop:
+    - fipscheck-lib-1.4.1-6.el7.x86_64.rpm
+    - centos-release-7-8.2003.0.el7.centos.x86_64.rpm
+    - kernel-3.10.0-1127.el7.x86_64.rpm
+  register: spec_repo_critical_rpms
+
+- name: 04 02fb Fail early when critical RPMs are missing from published repo
+  ansible.builtin.fail:
+    msg: >-
+      Published CentOS repo under {{ spec_repo_root }} is missing critical RPMs:
+      {{ spec_repo_critical_rpms.results | rejectattr('stat.exists') | map(attribute='item') | list | join(', ') }}
+  when: >-
+    (spec_repo_critical_rpms.results | rejectattr('stat.exists') | list | length) > 0
+
 - name: 04 02g Ensure lightweight HTTP server unit exists for PXE repo
   ansible.builtin.copy:
     dest: /etc/systemd/system/pxe-http.service
