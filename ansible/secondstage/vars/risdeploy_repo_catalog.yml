@@ -39,7 +39,6 @@ risdeploy_component_catalog:
       - centos7-base
       - centos7-updates
       - centos7-extras
-      - epel7
     yum_groups:
       - "GNOME Desktop"
     packages:
