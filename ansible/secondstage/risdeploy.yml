@@ -32,10 +32,41 @@
 
 - name: Apply RISng second-stage components to selected clients
   hosts: risdeploy_targets
-  gather_facts: true
+  gather_facts: false
   vars_files:
     - vars/risdeploy_components.yml
     - vars/risdeploy_repo_catalog.yml
+  pre_tasks:
+    - name: Bootstrap local RISng repositories on second-stage client without Python
+      ansible.builtin.raw: |
+        cat > /etc/yum.repos.d/risng-secondstage.repo <<'EOF'
+        [risng-base]
+        name=RISng CentOS 7.8 Base
+        baseurl=http://{{ risdeploy_repo_host }}/centos/7/os/x86_64/
+        enabled=1
+        gpgcheck=0
+
+        [risng-updates]
+        name=RISng CentOS 7.8 Updates
+        baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_updates_path }}
+        enabled=1
+        gpgcheck=0
+
+        [risng-extras]
+        name=RISng CentOS 7.8 Extras
+        baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_extras_path }}
+        enabled=1
+        gpgcheck=0
+        EOF
+      changed_when: false
+
+    - name: Bootstrap Python 3 for Ansible on second-stage client
+      ansible.builtin.raw: yum -y install python3 libselinux-python
+      changed_when: false
+
+    - name: Gather facts after Python bootstrap
+      ansible.builtin.setup:
+
   tasks:
     - name: Configure local RISng repositories on second-stage client
       ansible.builtin.copy:
