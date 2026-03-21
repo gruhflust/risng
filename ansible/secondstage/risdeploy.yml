@@ -75,56 +75,19 @@
         baseurl=http://{{ risdeploy_repo_host }}/centos/7/os/x86_64/
         enabled=1
         gpgcheck=0
-
         EOF
         yum clean all >/dev/null 2>&1 || true
       changed_when: false
 
-    - name: Bootstrap Python 3 for Ansible on second-stage client
+    - name: Bootstrap Python 3 for optional later use
       ansible.builtin.raw: >-
         yum --setopt=reposdir=/etc/yum.repos.d/bootstrap-only --disablerepo='*'
         --enablerepo=risng-bootstrap-base
         -y install python3 libselinux-python
       changed_when: false
+      failed_when: false
 
-    - name: Gather facts after Python bootstrap
-      ansible.builtin.setup:
-
-  tasks:
-    - name: Configure local RISng repositories on second-stage client
-      ansible.builtin.copy:
-        dest: /etc/yum.repos.d/risng-secondstage.repo
-        mode: "0644"
-        content: |
-          [risng-ss-base]
-          name=RISng CentOS 7.8 Base
-          baseurl=http://{{ risdeploy_repo_host }}/centos/7/os/x86_64/
-          enabled=1
-          gpgcheck=0
-
-          [risng-ss-updates]
-          name=RISng CentOS 7.8 Updates
-          baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_updates_path }}
-          enabled=1
-          gpgcheck=0
-
-          [risng-ss-extras]
-          name=RISng CentOS 7.8 Extras
-          baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_extras_path }}
-          enabled=1
-          gpgcheck=0
-
-          [risng-ss-epel]
-          name=RISng EPEL 7
-          baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/epel/7/x86_64/
-          enabled=1
-          gpgcheck=0
-
-    - name: Clean yum metadata before second-stage install
-      ansible.builtin.command: yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras,risng-ss-epel clean all
-      changed_when: false
-
-    - name: Build effective component list
+    - name: Build effective component definitions on control host
       ansible.builtin.set_fact:
         risdeploy_component_defs: >-
           {{
@@ -132,13 +95,20 @@
             | map('extract', risdeploy_component_catalog)
             | list
           }}
+      delegate_to: localhost
+      delegate_facts: true
 
-    - name: Install yum groups required by selected components
-      ansible.builtin.command:
-        cmd: "yum --disablerepo=* --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras,risng-ss-epel -y groupinstall {{ item }}"
+  tasks:
+    - name: Clean yum metadata before second-stage install
+      ansible.builtin.raw: yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras,risng-ss-epel clean all
+      changed_when: false
+
+    - name: Install yum groups required by selected components via raw yum
+      ansible.builtin.raw: >-
+        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras,risng-ss-epel -y groupinstall '{{ item }}'
       loop: >-
         {{
-          risdeploy_component_defs
+          hostvars['localhost'].risdeploy_component_defs
           | map(attribute='yum_groups')
           | select('defined')
           | list
@@ -147,7 +117,7 @@
         }}
       when: >-
         (
-          risdeploy_component_defs
+          hostvars['localhost'].risdeploy_component_defs
           | map(attribute='yum_groups')
           | select('defined')
           | list
@@ -156,11 +126,11 @@
           | length
         ) > 0
 
-    - name: Install RPM packages required by selected components
-      ansible.builtin.command: >-
+    - name: Install RPM packages required by selected components via raw yum
+      ansible.builtin.raw: >-
         yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras,risng-ss-epel -y install
         {{
-          risdeploy_component_defs
+          hostvars['localhost'].risdeploy_component_defs
           | map(attribute='packages')
           | select('defined')
           | list
@@ -170,7 +140,7 @@
         }}
       when: >-
         (
-          risdeploy_component_defs
+          hostvars['localhost'].risdeploy_component_defs
           | map(attribute='packages')
           | select('defined')
           | list
@@ -179,14 +149,11 @@
           | length
         ) > 0
 
-    - name: Enable services required by selected components
-      ansible.builtin.service:
-        name: "{{ item }}"
-        enabled: true
-        state: started
+    - name: Enable and start services required by selected components via systemctl
+      ansible.builtin.raw: systemctl enable {{ item }} && systemctl start {{ item }}
       loop: >-
         {{
-          risdeploy_component_defs
+          hostvars['localhost'].risdeploy_component_defs
           | map(attribute='services')
           | select('defined')
           | list
@@ -195,7 +162,7 @@
         }}
       when: >-
         (
-          risdeploy_component_defs
+          hostvars['localhost'].risdeploy_component_defs
           | map(attribute='services')
           | select('defined')
           | list
@@ -205,6 +172,7 @@
         ) > 0
 
     - name: Set graphical.target when graphical component is selected
-      ansible.builtin.command: systemctl set-default graphical.target
+      ansible.builtin.raw: systemctl set-default graphical.target
       changed_when: false
       when: "'graphics-gnome' in risdeploy_components"
+
