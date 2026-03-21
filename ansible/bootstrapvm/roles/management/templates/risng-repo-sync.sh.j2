@@ -4,8 +4,9 @@ set -euo pipefail
 ROOT="{{ risng_repo_root }}"
 UPSTREAM_BASE="{{ risng_repo_upstream_baseurl }}"
 SPEC_ROOT="{{ spec_repo_root }}"
+EXTRA_ROOT="{{ pxe_tftp_dir }}/kickstart/repos"
 LOGDIR="${ROOT}/sync/log"
-mkdir -p "$LOGDIR"
+mkdir -p "$LOGDIR" "$EXTRA_ROOT"
 LOGFILE="$LOGDIR/last-sync.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 
@@ -36,11 +37,6 @@ done
 if command -v createrepo_c >/dev/null 2>&1; then
   if find "$SPEC_ROOT" -type f -name '*.rpm' | grep -q .; then
     createrepo_c --update "$SPEC_ROOT" || true
-  fi
-fi
-
-echo "[$(date -Is)] RISng repo sync finished"
-PEC_ROOT" || true
   fi
 fi
 

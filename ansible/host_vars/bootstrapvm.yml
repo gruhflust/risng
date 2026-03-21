@@ -27,9 +27,9 @@ debian_mirror_url: "http://deb.debian.org/debian"
 # ------------------------------------------------------------
 risng_repo_mode: "internet"
 risng_repo_upstream_baseurl: "http://vault.centos.org"
-risng_repo_sync_on_stage: true
+risng_repo_sync_on_stage: false
 risng_repo_sync_interval: "12h"
-spec_repo_source_mode: "mirror"
+spec_repo_source_mode: "iso"
 
 # ------------------------------------------------------------
 # PXE layout and directories (place scratch under /var/tmp to avoid tmpfs limits)

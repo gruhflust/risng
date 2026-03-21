@@ -98,4 +98,19 @@
 - name: 15_08 Optionally run initial repository sync during staging
   ansible.builtin.command:
     cmd: systemctl start risng-repo-sync.service
+  register: risng_repo_sync_start
+  failed_when: false
+  changed_when: risng_repo_sync_start.rc == 0
   when: risng_repo_sync_on_stage | bool
+
+- name: 15_09 Warn when optional initial repository sync failed
+  ansible.builtin.debug:
+    msg: >-
+      Optional initial RISng repository sync failed (rc={{ risng_repo_sync_start.rc }}).
+      Continuing with spec_repo_source_mode={{ spec_repo_source_mode }}.
+      Check systemctl status risng-repo-sync.service and journalctl -xeu risng-repo-sync.service
+      if you want to debug the mirror path.
+  when:
+    - risng_repo_sync_on_stage | bool
+    - risng_repo_sync_start.rc is defined
+    - risng_repo_sync_start.rc != 0
