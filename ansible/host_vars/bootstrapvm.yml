@@ -21,6 +21,17 @@ debian_codename: "trixie"
 debian_mirror_url: "http://deb.debian.org/debian"
 
 # ------------------------------------------------------------
+# RISng local repository staging
+# Keep package and installer URLs stable on the PXE LAN; later only switch the
+# upstream from public vault to Nexus.
+# ------------------------------------------------------------
+risng_repo_mode: "internet"
+risng_repo_upstream_baseurl: "http://vault.centos.org"
+risng_repo_sync_on_stage: true
+risng_repo_sync_interval: "12h"
+spec_repo_source_mode: "mirror"
+
+# ------------------------------------------------------------
 # PXE layout and directories (place scratch under /var/tmp to avoid tmpfs limits)
 # ------------------------------------------------------------
 pxe_tmp_dir: "/var/tmp/pxe-build"

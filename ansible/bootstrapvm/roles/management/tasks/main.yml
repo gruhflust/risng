@@ -176,6 +176,8 @@
 
 - import_tasks: 02_prepare_iso.yml
 
+- import_tasks: 15_repo_staging.yml
+
 - name: 02_04a3 Install pynetbox and pytest via pip
   ansible.builtin.pip:
     name:

@@ -40,8 +40,8 @@ chown -R nor:nor /home/nor/.ssh || true
 chmod 0600 /home/nor/.ssh/authorized_keys || true
 
 # Explicitly avoid internet repos in first phase (all payload must come from control host)
-cat >/etc/yum.repos.d/risng-local.repo <<REPO
-[base]
+curl -fsSL "http://{{ tftp_server_ip }}/kickstart/centos7-local.repo" -o /etc/yum.repos.d/risng-local.repo || cat >/etc/yum.repos.d/risng-local.repo <<REPO
+[risng-base]
 name=RISng local base
 baseurl=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
 enabled=1
