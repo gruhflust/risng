@@ -123,12 +123,37 @@
     mode: "0644"
   when: spec_repo_source_mode == 'mirror'
 
-- name: 04 04 Render role-specific kickstart files
+- name: 04 04 Render base kickstart file
+  ansible.builtin.template:
+    src: kickstart-role.cfg.j2
+    dest: "{{ pxe_tftp_dir }}/kickstart/base.cfg"
+    mode: "0644"
+  vars:
+    risng_kickstart_role: base
+
+- name: 04 04a Render role-specific kickstart files
   ansible.builtin.template:
     src: kickstart-role.cfg.j2
     dest: "{{ pxe_tftp_dir }}/kickstart/{{ item | lower }}.cfg"
     mode: "0644"
+  vars:
+    risng_kickstart_role: "{{ item }}"
   loop: "{{ risng_client_roles }}"
+
+- name: 04 04aa Ensure legacy command alias kickstart exists
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ pxe_tftp_dir }}/kickstart/base.cfg"
+    dest: "{{ pxe_tftp_dir }}/kickstart/cmd.cfg"
+    mode: "0644"
+
+- name: 04 04ab Ensure iCMD kickstart exists even if role rendering changes later
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ pxe_tftp_dir }}/kickstart/base.cfg"
+    dest: "{{ pxe_tftp_dir }}/kickstart/icmd.cfg"
+    mode: "0644"
+    force: false
 
 - name: 04 04b Publish control-host SSH public key for client bootstrap
   ansible.builtin.copy:

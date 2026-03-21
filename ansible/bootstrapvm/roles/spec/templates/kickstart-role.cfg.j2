@@ -23,8 +23,9 @@ reboot
 %post --log=/root/ks-post.log
 set -euxo pipefail
 
-echo "RISNG_ROLE={{ item }}" > /etc/risng-role
-hostnamectl set-hostname {{ item | lower }}-centos78
+RISNG_ROLE="{{ risng_kickstart_role | default(item | default('base')) }}"
+echo "RISNG_ROLE=${RISNG_ROLE}" > /etc/risng-role
+hostnamectl set-hostname {{ (risng_kickstart_role | default(item | default('base'))) | lower }}-centos78
 
 # Ensure SSH service is active after first boot
 systemctl enable sshd || true
