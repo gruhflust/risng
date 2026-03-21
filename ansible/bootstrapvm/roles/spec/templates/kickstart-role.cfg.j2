@@ -8,8 +8,8 @@ network --bootproto=dhcp --device=bootif --activate --onboot=on --noipv6
 rootpw --plaintext risng
 user --name=nor --groups=wheel --password=nor --plaintext
 firewall --disabled
-selinux --permissive
 authconfig --enableshadow --passalgo=sha512
+selinux --disabled
 bootloader --location=mbr
 zerombr
 clearpart --all --initlabel
@@ -19,9 +19,10 @@ skipx
 firstboot --disable
 reboot
 
-%packages --nocore
+%packages
 @core
-curl
+chrony
+kexec-tools
 %end
 
 %pre --log=/tmp/ks-pre.log
