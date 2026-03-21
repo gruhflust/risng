@@ -182,6 +182,9 @@ dhcp_static_hosts:
     mac: "c0:7c:d1:31:53:95"
     ip: "10.228.229.200"
     boot_profile: iCMD
+    secondstage_enabled: true
+    secondstage_components:
+      - graphics-gnome
 
 # Optional role mapping written by RISng web UI
 dhcp_mac_role_map_file: "/etc/risng/mac_role_map.json"

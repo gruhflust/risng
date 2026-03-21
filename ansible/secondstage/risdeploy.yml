@@ -1,0 +1,149 @@
+---
+- name: Build RISng second-stage target inventory from DHCP definitions
+  hosts: bootstrapvm
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../bootstrapvm/roles/dhcp/defaults/main.yml
+    - vars/risdeploy_components.yml
+  tasks:
+    - name: Select enabled RIS deploy targets
+      ansible.builtin.set_fact:
+        risdeploy_targets: >-
+          {{
+            (dhcp_static_hosts | default([]))
+            | selectattr('secondstage_enabled', 'defined')
+            | selectattr('secondstage_enabled')
+            | list
+          }}
+
+    - name: Register enabled RIS deploy targets as dynamic hosts
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        groups: risdeploy_targets
+        ansible_host: "{{ item.ip }}"
+        ansible_user: "{{ risdeploy_ssh_user }}"
+        ansible_password: "{{ risdeploy_ssh_password }}"
+        ansible_become: true
+        ansible_become_password: "{{ risdeploy_ssh_password }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        risdeploy_components: "{{ item.secondstage_components | default(risdeploy_default_components) }}"
+      loop: "{{ risdeploy_targets }}"
+
+- name: Apply RISng second-stage components to selected clients
+  hosts: risdeploy_targets
+  gather_facts: true
+  vars_files:
+    - vars/risdeploy_components.yml
+  tasks:
+    - name: Configure local RISng repositories on second-stage client
+      ansible.builtin.copy:
+        dest: /etc/yum.repos.d/risng-secondstage.repo
+        mode: "0644"
+        content: |
+          [risng-base]
+          name=RISng CentOS 7.8 Base
+          baseurl=http://{{ risdeploy_repo_host }}/centos/7/os/x86_64/
+          enabled=1
+          gpgcheck=0
+
+          [risng-updates]
+          name=RISng CentOS 7.8 Updates
+          baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_updates_path }}
+          enabled=1
+          gpgcheck=0
+
+          [risng-extras]
+          name=RISng CentOS 7.8 Extras
+          baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_extras_path }}
+          enabled=1
+          gpgcheck=0
+
+    - name: Clean yum metadata before second-stage install
+      ansible.builtin.command: yum clean all
+      changed_when: false
+
+    - name: Build effective component list
+      ansible.builtin.set_fact:
+        risdeploy_component_defs: >-
+          {{
+            (risdeploy_components | default([]))
+            | map('extract', risdeploy_component_catalog)
+            | list
+          }}
+
+    - name: Install yum groups required by selected components
+      ansible.builtin.command:
+        cmd: "yum -y groupinstall {{ item }}"
+      loop: >-
+        {{
+          risdeploy_component_defs
+          | map(attribute='yum_groups')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+        }}
+      when: >-
+        (
+          risdeploy_component_defs
+          | map(attribute='yum_groups')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+          | length
+        ) > 0
+
+    - name: Install RPM packages required by selected components
+      ansible.builtin.yum:
+        name: >-
+          {{
+            risdeploy_component_defs
+            | map(attribute='packages')
+            | select('defined')
+            | list
+            | flatten
+            | unique
+          }}
+        state: present
+      when: >-
+        (
+          risdeploy_component_defs
+          | map(attribute='packages')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+          | length
+        ) > 0
+
+    - name: Enable services required by selected components
+      ansible.builtin.service:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop: >-
+        {{
+          risdeploy_component_defs
+          | map(attribute='services')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+        }}
+      when: >-
+        (
+          risdeploy_component_defs
+          | map(attribute='services')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+          | length
+        ) > 0
+
+    - name: Set graphical.target when graphical component is selected
+      ansible.builtin.command: systemctl set-default graphical.target
+      changed_when: false
+      when: "'graphics-gnome' in risdeploy_components"
