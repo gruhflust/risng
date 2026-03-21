@@ -71,7 +71,7 @@
 
     - name: Bootstrap Python 3 for Ansible on second-stage client
       ansible.builtin.raw: >-
-        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras
+        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates
         -y install python3 libselinux-python
       changed_when: false
 
