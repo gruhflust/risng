@@ -5,6 +5,7 @@ lang en_US.UTF-8
 keyboard --vckeymap=de --xlayouts='de'
 timezone Europe/Berlin --isUtc
 network --bootproto=dhcp --device=bootif --activate --onboot=on --noipv6
+url --url=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
 rootpw --plaintext risng
 user --name=nor --groups=wheel --password=nor --plaintext
 firewall --disabled
@@ -21,8 +22,6 @@ reboot
 
 %packages
 @core
-chrony
-kexec-tools
 %end
 
 %pre --log=/tmp/ks-pre.log
