@@ -40,10 +40,23 @@
   loop: "{{ risdeploy_required_repo_sets | default([]) }}"
 
 - name: 16_04 Mirror required HTTP-based repo sets from upstream vault
-  ansible.builtin.command: >-
-    wget --mirror --no-parent --no-host-directories --cut-dirs=0
-    --reject index.html* --directory-prefix {{ risdeploy_repo_sets[item].local_path }}
-    {{ risdeploy_repo_sets[item].source_url }}
+  ansible.builtin.shell: |
+    set -euo pipefail
+    target="{{ risdeploy_repo_sets[item].local_path }}"
+    source_url="{{ risdeploy_repo_sets[item].source_url }}"
+    mkdir -p "$target"
+    rm -rf "$target"/*
+    tmpdir=$(mktemp -d)
+    wget --mirror --no-parent --no-host-directories --cut-dirs=0 --reject 'index.html*' --directory-prefix "$tmpdir" "$source_url"
+    mirrored_root=$(find "$tmpdir" -mindepth 1 -maxdepth 5 -type d | grep -E '/(7\.8\.2003|epel/7/x86_64)(/|$)' | sort | head -n1)
+    if [ -z "$mirrored_root" ]; then
+      echo "Could not determine mirrored repo root for $source_url" >&2
+      exit 1
+    fi
+    cp -a "$mirrored_root"/. "$target"/
+    rm -rf "$tmpdir"
+  args:
+    executable: /bin/bash
   loop: "{{ risdeploy_required_repo_sets | default([]) }}"
   when:
     - risdeploy_repo_sets[item].mode == 'http-mirror'
