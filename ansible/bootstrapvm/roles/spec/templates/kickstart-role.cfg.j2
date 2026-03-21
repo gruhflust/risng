@@ -12,6 +12,7 @@ firewall --disabled
 authconfig --enableshadow --passalgo=sha512
 selinux --disabled
 bootloader --location=mbr
+services --disabled="kdump"
 zerombr
 clearpart --all --initlabel
 autopart --type=lvm
@@ -19,10 +20,8 @@ services --enabled=sshd
 skipx
 firstboot --disable
 reboot
+addon com_redhat_kdump --disable
 
-%packages
-@core
-%end
 
 %pre --log=/tmp/ks-pre.log
 set -x
