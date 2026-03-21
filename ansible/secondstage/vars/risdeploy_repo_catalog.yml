@@ -1,0 +1,43 @@
+---
+# Catalog of locally provided package sets for RISng second-stage deployments.
+# Purpose: keep package origin and intended use transparent and later renderable.
+
+risdeploy_repo_sets:
+  centos7-base:
+    source: "CentOS Vault 7.8.2003 os/x86_64"
+    source_url: "https://vault.centos.org/7.8.2003/os/x86_64/"
+    local_path: "{{ spec_repo_root }}"
+    purpose: "Base operating system packages required for all installed CentOS 7.8 clients."
+    mode: "iso-sync"
+
+  centos7-updates:
+    source: "CentOS Vault 7.8.2003 updates/x86_64"
+    source_url: "https://vault.centos.org/7.8.2003/updates/x86_64/"
+    local_path: "{{ pxe_tftp_dir }}/kickstart/repos/{{ risng_repo_centos_updates_path }}"
+    purpose: "Security, bugfix and post-install update packages for SecondStage deployments."
+    mode: "http-mirror"
+
+  centos7-extras:
+    source: "CentOS Vault 7.8.2003 extras/x86_64"
+    source_url: "https://vault.centos.org/7.8.2003/extras/x86_64/"
+    local_path: "{{ pxe_tftp_dir }}/kickstart/repos/{{ risng_repo_centos_extras_path }}"
+    purpose: "Additional platform packages required by selected SecondStage components."
+    mode: "http-mirror"
+
+risdeploy_component_catalog:
+  graphics-gnome:
+    description: "Install local graphical CentOS 7 desktop stack from RISng only."
+    purpose: "Provide graphical login and GNOME desktop on already installed CentOS 7.8 clients."
+    required_repo_sets:
+      - centos7-base
+      - centos7-updates
+      - centos7-extras
+    yum_groups:
+      - "GNOME Desktop"
+    packages:
+      - gdm
+      - gnome-terminal
+      - xorg-x11-xauth
+      - dbus-x11
+    services:
+      - gdm

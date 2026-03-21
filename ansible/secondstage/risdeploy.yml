@@ -35,6 +35,7 @@
   gather_facts: true
   vars_files:
     - vars/risdeploy_components.yml
+    - vars/risdeploy_repo_catalog.yml
   tasks:
     - name: Configure local RISng repositories on second-stage client
       ansible.builtin.copy:
