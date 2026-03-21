@@ -117,7 +117,7 @@ risng_label:       "Live-RIS (BIOS)"
 risng_grub_label:  "Live-RIS (UEFI)"
 
 # ------------------------------------------------------------
-# spec PXE role configuration
+# risng_install PXE role configuration
 # Provides CentOS 7.8 autoinstall over PXE
 # ------------------------------------------------------------
 

@@ -1,5 +1,5 @@
 ---
-# spec role defaults for CentOS 7.8 PXE autoinstall
+# risng_install role defaults for CentOS 7.8 PXE autoinstall
 spec_iso_mount: "{{ pxe_tmp_dir }}/mnt-spec"
 spec_target: "{{ pxe_tftp_dir }}/images/spec"
 spec_target_relative: "images/spec"
