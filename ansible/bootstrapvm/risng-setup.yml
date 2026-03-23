@@ -82,6 +82,64 @@
         create_home: true
         state: present
 
+    - name: 00.08b Ensure risng user password is set for local graphical login
+      ansible.builtin.user:
+        name: risng
+        password: "{{ 'risng' | password_hash('sha512') }}"
+        update_password: always
+
+    - name: 00.08c Ensure risng is passwordless sudoer
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/90-risng
+        owner: root
+        group: root
+        mode: "0440"
+        content: |
+          risng ALL=(ALL) NOPASSWD:ALL
+
+    - name: 00.08d Check whether AccountsService is available
+      ansible.builtin.stat:
+        path: /var/lib/AccountsService
+      register: risng_accountsservice_root
+      changed_when: false
+
+    - name: 00.08e Ensure AccountsService users directory exists
+      ansible.builtin.file:
+        path: /var/lib/AccountsService/users
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: risng_accountsservice_root.stat.exists | default(false)
+
+    - name: 00.08f Ensure risng is visible on graphical login screen
+      ansible.builtin.copy:
+        dest: /var/lib/AccountsService/users/risng
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [User]
+          SystemAccount=false
+          Hidden=false
+      when: risng_accountsservice_root.stat.exists | default(false)
+
+    - name: 00.08g Ensure risng GNOME config directory exists
+      ansible.builtin.file:
+        path: /home/risng/.config
+        state: directory
+        owner: risng
+        group: risng
+        mode: "0755"
+
+    - name: 00.08h Mark GNOME initial setup as done for risng
+      ansible.builtin.file:
+        path: /home/risng/.config/gnome-initial-setup-done
+        state: touch
+        owner: risng
+        group: risng
+        mode: "0644"
+
     - name: 00.09 Check whether minimal GNOME login stack is already present
       ansible.builtin.shell: |
         set -euo pipefail
@@ -139,76 +197,11 @@
         state: started
       failed_when: false
 
-    - name: 00.10 Ensure dedicated risng operator group exists
-      ansible.builtin.group:
-        name: risng
-        state: present
-
-    - name: 00.11 Ensure dedicated risng operator user exists
-      ansible.builtin.user:
-        name: risng
-        group: risng
-        shell: /bin/bash
-        create_home: true
-        state: present
-
-    - name: 00.11a Ensure risng user password is set for local graphical login
-      ansible.builtin.user:
-        name: risng
-        password: "{{ 'risng' | password_hash('sha512') }}"
-        update_password: always
-
-    - name: 00.11aa Ensure risng is passwordless sudoer
-      ansible.builtin.copy:
-        dest: /etc/sudoers.d/90-risng
-        owner: root
-        group: root
-        mode: "0440"
-        content: |
-          risng ALL=(ALL) NOPASSWD:ALL
-
-    - name: 00.11b Check whether AccountsService is available
-      ansible.builtin.stat:
-        path: /var/lib/AccountsService
-      register: risng_accountsservice_root
-      changed_when: false
-
-    - name: 00.11c Ensure AccountsService users directory exists
-      ansible.builtin.file:
-        path: /var/lib/AccountsService/users
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-      when: risng_accountsservice_root.stat.exists | default(false)
-
-    - name: 00.11d Ensure risng is visible on graphical login screen
-      ansible.builtin.copy:
-        dest: /var/lib/AccountsService/users/risng
-        owner: root
-        group: root
-        mode: "0644"
-        content: |
-          [User]
-          SystemAccount=false
-          Hidden=false
-      when: risng_accountsservice_root.stat.exists | default(false)
-
-    - name: 00.11e Ensure risng GNOME config directory exists
-      ansible.builtin.file:
-        path: /home/risng/.config
-        state: directory
-        owner: risng
-        group: risng
-        mode: "0755"
-
-    - name: 00.11f Mark GNOME initial setup as done for risng
-      ansible.builtin.file:
-        path: /home/risng/.config/gnome-initial-setup-done
-        state: touch
-        owner: risng
-        group: risng
-        mode: "0644"
+    # moved earlier: risng group/user bootstrap
+    # moved earlier: risng group/user bootstrap
+    # moved earlier: risng password bootstrap
+    # moved earlier: risng sudo bootstrap
+    # moved earlier: AccountsService + GNOME initial-setup bootstrap for risng
 
     - name: 00.12 Ensure risng ~/.ssh directory exists
       ansible.builtin.file:
