@@ -90,18 +90,23 @@
         group: risng
         mode: "0700"
 
-    - name: 00.13 Probe bootstrap invoker SSH public key candidates
+    - name: 00.12a Ensure risng SSH keypair exists on staging host
+      ansible.builtin.command: >-
+        sudo -u risng -H bash -lc 'test -s /home/risng/.ssh/id_ed25519 && test -s /home/risng/.ssh/id_ed25519.pub || ssh-keygen -t ed25519 -a 100 -N "" -f /home/risng/.ssh/id_ed25519'
+      changed_when: true
+
+    - name: 00.13 Probe bootstrap invoker SSH public key candidates (controller context)
       ansible.builtin.stat:
         path: "{{ item }}"
       loop:
-        - "/home/{{ lookup('ansible.builtin.env', 'SUDO_USER') | default('', true) }}/.ssh/id_ed25519.pub"
-        - "/home/{{ lookup('ansible.builtin.env', 'SUDO_USER') | default('', true) }}/.ssh/id_rsa.pub"
-        - "/home/{{ lookup('ansible.builtin.env', 'USER') | default('', true) }}/.ssh/id_ed25519.pub"
-        - "/home/{{ lookup('ansible.builtin.env', 'USER') | default('', true) }}/.ssh/id_rsa.pub"
+        - "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/id_ed25519.pub"
+        - "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/id_rsa.pub"
         - "/root/.ssh/id_ed25519.pub"
         - "/root/.ssh/id_rsa.pub"
       register: risng_operator_pubkey_stats
       changed_when: false
+      delegate_to: localhost
+      become: false
 
     - name: 00.14 Read first available bootstrap invoker SSH public key
       ansible.builtin.slurp:
@@ -109,6 +114,8 @@
       register: risng_operator_pubkey_raw
       when: (risng_operator_pubkey_stats.results | selectattr('stat.exists', 'equalto', true) | list | length) > 0
       no_log: true
+      delegate_to: localhost
+      become: false
 
     - name: 00.15 Authorize bootstrap invoker SSH key for risng user
       ansible.posix.authorized_key:
@@ -119,10 +126,21 @@
         - risng_operator_pubkey_raw is defined
         - risng_operator_pubkey_raw.content is defined
 
-    - name: 00.15a Warn when no bootstrap invoker SSH key was found
+    - name: 00.15a Fallback authorize risng self key when invoker key is missing
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cat /home/risng/.ssh/id_ed25519.pub >> /home/risng/.ssh/authorized_keys
+        sort -u /home/risng/.ssh/authorized_keys -o /home/risng/.ssh/authorized_keys
+        chown risng:risng /home/risng/.ssh/authorized_keys
+        chmod 600 /home/risng/.ssh/authorized_keys
+      args:
+        executable: /bin/bash
+      when: risng_operator_pubkey_raw is not defined or risng_operator_pubkey_raw.content is not defined
+
+    - name: 00.15b Warn when bootstrap invoker SSH key was not found (self-key fallback used)
       ansible.builtin.debug:
         msg: >-
-          No readable bootstrap invoker SSH public key found; continuing without populating /home/risng/.ssh/authorized_keys.
+          No readable bootstrap invoker SSH public key found; used /home/risng/.ssh/id_ed25519.pub fallback in authorized_keys.
       when: risng_operator_pubkey_raw is not defined or risng_operator_pubkey_raw.content is not defined
 
     - name: 00.16 Build candidate source paths for RISng code checkout
