@@ -69,6 +69,46 @@
 
     - import_tasks: "{{ playbook_dir }}/detect_interfaces.yml"
 
+    - name: 00.09 Check whether GNOME graphics stack is already present
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for pkg in gnome-shell gdm3 xserver-xorg; do
+          dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed" || exit 1
+        done
+      args:
+        executable: /bin/bash
+      register: risng_gnome_stack_check
+      changed_when: false
+      failed_when: false
+
+    - name: 00.09a Install missing GNOME graphics stack early (for local login UX)
+      ansible.builtin.apt:
+        name:
+          - gnome-shell
+          - gdm3
+          - xserver-xorg
+          - gnome-terminal
+        state: present
+        update_cache: true
+      when: risng_gnome_stack_check.rc != 0
+
+    - name: 00.09b Preseed gdm3 as default display manager when stack was installed
+      ansible.builtin.debconf:
+        name: gdm3
+        question: shared/default-x-display-manager
+        value: gdm3
+        vtype: select
+      when: risng_gnome_stack_check.rc != 0
+
+    - name: 00.09c Ensure graphical target and gdm3 are enabled
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        enabled: true
+      loop:
+        - gdm3
+        - graphical.target
+      failed_when: false
+
     - name: 00.10 Ensure dedicated risng operator group exists
       ansible.builtin.group:
         name: risng
@@ -346,6 +386,39 @@
     # - netinstall
     - risng
     - risng_install
+
+  post_tasks:
+    - name: 01.99 Build feuer artifact checklist
+      ansible.builtin.set_fact:
+        risng_feuer_artifact_paths:
+          - path: "{{ risng_target | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/images/risng') }}/filesystem.squashfs"
+            label: "Live-RIS squashfs (boot option 1)"
+          - path: "{{ risng_target | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/images/risng') }}/vmlinuz"
+            label: "Live-RIS kernel"
+          - path: "{{ risng_target | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/images/risng') }}/initrd.img"
+            label: "Live-RIS initrd"
+          - path: "{{ spec_repo_root | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/centos/7/os/x86_64') }}/LiveOS/squashfs.img"
+            label: "CentOS installer stage2 squashfs"
+          - path: "{{ spec_repo_root | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/centos/7/os/x86_64') }}/images/pxeboot/vmlinuz"
+            label: "CentOS installer kernel"
+          - path: "{{ spec_repo_root | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/centos/7/os/x86_64') }}/images/pxeboot/initrd.img"
+            label: "CentOS installer initrd"
+
+    - name: 01.99a Collect feuer artifact stats
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      loop: "{{ risng_feuer_artifact_paths }}"
+      register: risng_feuer_artifact_stats
+      changed_when: false
+
+    - name: 01.99b Print feuer artifact summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.item.label }} => {{ item.stat.path }} |
+          exists={{ item.stat.exists | default(false) }} |
+          size={{ item.stat.size | default(0) }}
+      loop: "{{ risng_feuer_artifact_stats.results }}"
+
 #
 ###############################################################################
 - name: 02 Offline phase  Serve PXE (DHCP/DNS/TFTP)
