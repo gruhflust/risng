@@ -115,7 +115,15 @@
         user: risng
         key: "{{ risng_operator_pubkey_raw.content | b64decode | trim }}"
         state: present
-      when: risng_operator_pubkey_raw is defined
+      when:
+        - risng_operator_pubkey_raw is defined
+        - risng_operator_pubkey_raw.content is defined
+
+    - name: 00.15a Warn when no bootstrap invoker SSH key was found
+      ansible.builtin.debug:
+        msg: >-
+          No readable bootstrap invoker SSH public key found; continuing without populating /home/risng/.ssh/authorized_keys.
+      when: risng_operator_pubkey_raw is not defined or risng_operator_pubkey_raw.content is not defined
 
     - name: 00.16 Build candidate source paths for RISng code checkout
       ansible.builtin.set_fact:
