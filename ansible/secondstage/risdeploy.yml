@@ -156,9 +156,9 @@
           sed -i 's/^#\?WaylandEnable=.*/WaylandEnable=false/' /etc/gdm/custom.conf
         else
           cat > /etc/gdm/custom.conf <<'EOF'
-[daemon]
-WaylandEnable=false
-EOF
+          [daemon]
+          WaylandEnable=false
+          EOF
         fi
       when: "'graphics-gnome' in risdeploy_components"
 
@@ -172,9 +172,9 @@ EOF
         chmod 700 "$home_dir"
         chmod 600 "$home_dir/.Xauthority" "$home_dir/.ICEauthority"
         cat > "$home_dir/.dmrc" <<'EOF'
-[Desktop]
-Session=gnome-xorg
-EOF
+        [Desktop]
+        Session=gnome-xorg
+        EOF
       when: "'graphics-gnome' in risdeploy_components"
 
     - name: Enable and start services required by selected components via systemctl
