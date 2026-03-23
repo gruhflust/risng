@@ -69,6 +69,19 @@
 
     - import_tasks: "{{ playbook_dir }}/detect_interfaces.yml"
 
+    - name: 00.08 Ensure dedicated risng operator group exists (early)
+      ansible.builtin.group:
+        name: risng
+        state: present
+
+    - name: 00.08a Ensure dedicated risng operator user exists (early)
+      ansible.builtin.user:
+        name: risng
+        group: risng
+        shell: /bin/bash
+        create_home: true
+        state: present
+
     - name: 00.09 Check whether minimal GNOME login stack is already present
       ansible.builtin.shell: |
         set -euo pipefail
@@ -108,6 +121,7 @@
         state: present
         update_cache: true
         cache_valid_time: 86400
+        lock_timeout: 120
         dpkg_options: force-confdef,force-confold
       environment:
         DEBIAN_FRONTEND: noninteractive
