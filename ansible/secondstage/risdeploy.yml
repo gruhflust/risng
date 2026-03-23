@@ -203,13 +203,15 @@
         chown -R {{ risdeploy_login_user }}:{{ risdeploy_login_user }} "$home_dir/.local"
       when: "'graphics-gnome' in risdeploy_components"
 
-    - name: Copy staged wallpaper base image to login user home via ansible copy
+    - name: Copy staged wallpaper base image to login user home via ansible copy forced
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../bootstrapvm/roles/management/files/BackgroundPic.png"
         dest: "/home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png"
         owner: "{{ risdeploy_login_user }}"
         group: "{{ risdeploy_login_user }}"
         mode: "0644"
+        force: true
+        unsafe_writes: true
       when: "'graphics-gnome' in risdeploy_components"
 
     - name: Annotate staged wallpaper with role timestamp and commit
