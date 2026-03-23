@@ -219,12 +219,13 @@
         /home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png
       when: "'graphics-gnome' in risdeploy_components"
 
-    - name: Apply wallpaper for login user in GNOME
+    - name: Replace common CentOS/GNOME default wallpapers with staged image
       ansible.builtin.raw: |
-        getent passwd {{ risdeploy_login_user }} >/dev/null 2>&1 || exit 0
-        home_dir=$(getent passwd {{ risdeploy_login_user }} | cut -d: -f6)
-        su - {{ risdeploy_login_user }} -c "dbus-launch gsettings set org.gnome.desktop.background picture-uri 'file://$home_dir/.local/share/backgrounds/BackgroundPic.png'"
-        su - {{ risdeploy_login_user }} -c "dbus-launch gsettings set org.gnome.desktop.background picture-uri-dark 'file://$home_dir/.local/share/backgrounds/BackgroundPic.png'"
+        src="/home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png"
+        for target in           /usr/share/backgrounds/images/default.png           /usr/share/backgrounds/images/default.jpg           /usr/share/backgrounds/gnome/adwaita-day.jpg           /usr/share/backgrounds/gnome/adwaita-night.jpg           /usr/share/backgrounds/gnome/adwaita-lock.jpg           /usr/share/backgrounds/day.jpg           /usr/share/backgrounds/default.png; do
+          [ -e "$target" ] || continue
+          cp -f "$src" "$target"
+        done
       when: "'graphics-gnome' in risdeploy_components"
 
     - name: Restart GDM after graphical session fixes
