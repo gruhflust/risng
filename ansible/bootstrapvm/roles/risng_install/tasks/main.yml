@@ -232,11 +232,8 @@
       inst.stage2=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
       inst.repo=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
       ks=http://{{ tftp_server_ip }}/kickstart/{{ item | lower }}.cfg
-      ip=dhcp
-      ksdevice=bootif
-      BOOTIF=01-${net_default_mac}
-      rd.bootif=1
-      noipv6
+      {{ spec_install_net_args }}
+      {{ spec_install_extra_args }}
   loop: "{{ risng_client_roles }}"
 
 - name: 04 06 Deploy GRUB entries per RISng role
@@ -253,11 +250,8 @@
       inst.stage2=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
       inst.repo=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
       ks=http://{{ tftp_server_ip }}/kickstart/{{ item | lower }}.cfg
-      ip=dhcp
-      ksdevice=bootif
-      BOOTIF=01-${net_default_mac}
-      rd.bootif=1
-      noipv6
+      {{ spec_install_net_args }}
+      {{ spec_install_extra_args }}
   loop: "{{ risng_client_roles }}"
 
 - import_tasks: bootloader_generation.yml

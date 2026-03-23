@@ -23,6 +23,23 @@ centos78_iso_path: "{{ iso_download_dir }}/centos78.iso"
 # If true, force full ISO extract/sync on every feuer run.
 spec_repo_rebuild_always: false
 
+# Network args for CentOS stage2 retrieval during autoinstall.
+# Tuned for slower/virtualized environments (e.g. cloud labs) where link bring-up
+# or DHCP can lag and otherwise trigger dracut/anaconda stage2 timeouts.
+spec_install_net_args: >-
+  ip=dhcp
+  ksdevice=bootif
+  BOOTIF=01-${net_default_mac}
+  rd.bootif=1
+  rd.neednet=1
+  rd.net.timeout.carrier=60
+  rd.net.timeout.ifup=120
+  rd.retry=180
+  noipv6
+
+# Optional extra kernel args appended to installer entries.
+spec_install_extra_args: ""
+
 # Supported RISng client roles for autoinstall
 risng_client_roles:
   - iCWP
