@@ -157,27 +157,6 @@ dhcp_static_hosts:
 
 # Hier wird für den Test manuell die MAC Adressen des Testhost eingetragen # Diese Informationen müssen später automatisch per Netbox Import eingelesen werden sobald die dortigen Daten vollständig sind
 
-  - name: dclhos1401.dc1.ops.lab.dfs.de
-    mac: "ec:2a:72:2a:71:78" # Embedded NIC 1
-    ip: "10.228.224.36" # diese IP soll identisch mit der später im Live Betreieb genutzten IP sein
-    extra_nics:
-      - mac: "84:16:0C:B7:9D:80" # "NIC.Integrated.1-1-1"
-        vlan_id: 401
-        vlan_ip: "10.228.224.36"
-        pingpartner_ip: ""
-      - mac: "84:16:0C:B7:9D:81" # "NIC.Integrated.1-2-1"
-        vlan_id: 402
-        vlan_ip: "10.228.228.132"
-        pingpartner_ip: ""
-      - mac: "84:16:0C:5B:46:50" # "NIC.Slot.5-1-1"
-        vlan_id: 403
-        vlan_ip: "10.228.226.65"
-        pingpartner_ip: ""       
-      - mac: "84:16:0C:5B:46:51" # "NIC.Slot.5-2-1"
-        vlan_id: 404
-        vlan_ip: "10.228.226.192"
-        pingpartner_ip: ""
-
   - name: icocmd01
     mac: "c0:7c:d1:31:53:95"
     ip: "10.228.229.200"
@@ -201,6 +180,32 @@ dhcp_static_hosts:
     #   - part /boot --fstype=xfs --size=1024 --ondisk=sda
     #   - part / --fstype=xfs --size=51200 --ondisk=sda
     #   - part swap --size=4096 --ondisk=sda
+
+  - name: icocmd02
+    mac: "00:50:56:ba:c8:11"
+    ip: "10.228.229.201"
+    boot_profile: iCMD
+    secondstage_enabled: true
+    secondstage_components:
+      - graphics-gnome
+    # Optional install-slot marker for operational overview / dryrun output
+    install_slot: "A"
+    # Optional slot map for future dual-slot workflows
+    install_slots:
+      A:
+        root_part: "sda2"
+      B:
+        root_part: "sda3"
+    # Optional per-client kickstart partition override.
+    # If omitted, default is: first disk (sda) full autopart.
+    # kickstart_partitioning:
+    #   - zerombr
+    #   - clearpart --all --initlabel --drives=sda
+    #   - part /boot --fstype=xfs --size=1024 --ondisk=sda
+    #   - part / --fstype=xfs --size=51200 --ondisk=sda
+    #   - part swap --size=4096 --ondisk=sda
+
+
 
 # Optional role mapping written by RISng web UI
 dhcp_mac_role_map_file: "/etc/risng/mac_role_map.json"
