@@ -1,8 +1,105 @@
-[0;31m[ERROR]: YAML parsing failed: While scanning a simple key could not find expected ':'.[0m
-[0;31mOrigin: /home/risng/risng/ansible/secondstage/risdeploy.yml:213:1[0m
+
+PLAY [Build RISng second-stage target inventory from DHCP definitions] *********
+
+TASK [Select enabled RIS deploy targets] ***************************************
+Monday 23 March 2026  19:33:20 +0100 (0:00:00.033)       0:00:00.033 ********** 
+[0;32mok: [bootstrapvm][0m
+
+TASK [Remove stale SSH host keys for RIS deploy targets on control host] *******
+Monday 23 March 2026  19:33:20 +0100 (0:00:00.111)       0:00:00.145 ********** 
+[1;35m[WARNING]: Host 'bootstrapvm' is using the discovered Python interpreter at '/usr/bin/python3.13', but future installation of another Python interpreter could cause a different interpreter to be discovered. See https://docs.ansible.com/ansible-core/2.19/reference_appendices/interpreter_discovery.html for more information.[0m
+[0;32mok: [bootstrapvm] => (item={'name': 'icocmd01', 'mac': 'c0:7c:d1:31:53:95', 'ip': '10.228.229.200', 'boot_profile': 'iCMD', 'secondstage_enabled': True, 'secondstage_components': ['graphics-gnome'], 'install_slot': 'A', 'install_slots': {'A': {'root_part': 'sda2'}, 'B': {'root_part': 'sda3'}}})[0m
+[0;32mok: [bootstrapvm] => (item={'name': 'icocmd02', 'mac': '00:50:56:ba:c8:11', 'ip': '10.228.229.201', 'boot_profile': 'iCMD', 'secondstage_enabled': True, 'secondstage_components': ['graphics-gnome'], 'install_slot': 'A', 'install_slots': {'A': {'root_part': 'sda2'}, 'B': {'root_part': 'sda3'}}})[0m
+
+TASK [Register enabled RIS deploy targets as dynamic hosts] ********************
+Monday 23 March 2026  19:33:21 +0100 (0:00:00.690)       0:00:00.836 ********** 
+[0;33mchanged: [bootstrapvm] => (item={'name': 'icocmd01', 'mac': 'c0:7c:d1:31:53:95', 'ip': '10.228.229.200', 'boot_profile': 'iCMD', 'secondstage_enabled': True, 'secondstage_components': ['graphics-gnome'], 'install_slot': 'A', 'install_slots': {'A': {'root_part': 'sda2'}, 'B': {'root_part': 'sda3'}}})[0m
+[0;33mchanged: [bootstrapvm] => (item={'name': 'icocmd02', 'mac': '00:50:56:ba:c8:11', 'ip': '10.228.229.201', 'boot_profile': 'iCMD', 'secondstage_enabled': True, 'secondstage_components': ['graphics-gnome'], 'install_slot': 'A', 'install_slots': {'A': {'root_part': 'sda2'}, 'B': {'root_part': 'sda3'}}})[0m
+
+PLAY [Apply RISng second-stage components to selected clients] *****************
+
+TASK [Bootstrap local RISng repositories on second-stage client without Python] ***
+Monday 23 March 2026  19:33:21 +0100 (0:00:00.090)       0:00:00.927 ********** 
+[0;32mok: [icocmd01][0m
+[0;31m[ERROR]: Task failed: Failed to connect to the host via ssh: ssh: connect to host 10.228.229.201 port 22: No route to host[0m
+[0;31mOrigin: /home/risng/risng/ansible/secondstage/risdeploy.yml:52:7[0m
 [0;31m[0m
-[0;31m211         cat > "$home_dir/.local/share/backgrounds/BackgroundPic.png.b64" <<'EOF'[0m
-[0;31m212 iVBORw0KGgoAAAANSUhEUgAABPcAAAJACAYAAADhBYM1AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAA...[0m
-[0;31m213 EOF[0m
-[0;31m    ^ column 1[0m
+[0;31m50     - vars/risdeploy_repo_catalog.yml[0m
+[0;31m51   pre_tasks:[0m
+[0;31m52     - name: Bootstrap local RISng repositories on second-stage client without Python[0m
+[0;31m         ^ column 7[0m
 [0;31m[0m
+[1;31mfatal: [icocmd02]: UNREACHABLE! => {"changed": false, "msg": "Task failed: Failed to connect to the host via ssh: ssh: connect to host 10.228.229.201 port 22: No route to host", "unreachable": true}[0m
+
+TASK [Bootstrap Python 3 for optional later use] *******************************
+Monday 23 March 2026  19:33:24 +0100 (0:00:03.098)       0:00:04.025 ********** 
+[0;32mok: [icocmd01][0m
+
+TASK [Build effective component definitions on control host] *******************
+Monday 23 March 2026  19:33:29 +0100 (0:00:04.781)       0:00:08.807 ********** 
+[0;32mok: [icocmd01 -> localhost][0m
+
+TASK [Clean yum metadata before second-stage install] **************************
+Monday 23 March 2026  19:33:29 +0100 (0:00:00.068)       0:00:08.875 ********** 
+[0;32mok: [icocmd01][0m
+
+TASK [Install yum groups required by selected components via raw yum] **********
+Monday 23 March 2026  19:33:29 +0100 (0:00:00.179)       0:00:09.054 ********** 
+[0;36mskipping: [icocmd01][0m
+
+TASK [Install RPM packages required by selected components via raw yum] ********
+Monday 23 March 2026  19:33:29 +0100 (0:00:00.059)       0:00:09.114 ********** 
+[0;33mchanged: [icocmd01][0m
+
+TASK [Force GDM to use Xorg on graphical clients] ******************************
+Monday 23 March 2026  19:34:22 +0100 (0:00:53.246)       0:01:02.361 ********** 
+[0;33mchanged: [icocmd01][0m
+
+TASK [Ensure login user home and authority files exist for graphical session] ***
+Monday 23 March 2026  19:34:22 +0100 (0:00:00.058)       0:01:02.419 ********** 
+[0;33mchanged: [icocmd01][0m
+
+TASK [Build wallpaper annotation label on control host] ************************
+Monday 23 March 2026  19:34:23 +0100 (0:00:00.068)       0:01:02.488 ********** 
+[0;32mok: [icocmd01 -> localhost][0m
+
+TASK [Ensure staging wallpaper directory exists for login user] ****************
+Monday 23 March 2026  19:34:23 +0100 (0:00:00.077)       0:01:02.566 ********** 
+[0;33mchanged: [icocmd01][0m
+
+TASK [Copy staged wallpaper base image to login user home] *********************
+Monday 23 March 2026  19:34:23 +0100 (0:00:00.070)       0:01:02.636 ********** 
+[1;35m[WARNING]: Host 'icocmd01' is using the discovered Python interpreter at '/usr/bin/python3', but future installation of another Python interpreter could cause a different interpreter to be discovered. See https://docs.ansible.com/ansible-core/2.19/reference_appendices/interpreter_discovery.html for more information.[0m
+[0;31m[ERROR]: Task failed: Failed to get information on remote file (/home/nor/.local/share/backgrounds/BackgroundPic.png): Shared connection to 10.228.229.200 closed.[0m
+[0;31mOrigin: /home/risng/risng/ansible/secondstage/risdeploy.yml:206:7[0m
+[0;31m[0m
+[0;31m204       when: "'graphics-gnome' in risdeploy_components"[0m
+[0;31m205[0m
+[0;31m206     - name: Copy staged wallpaper base image to login user home[0m
+[0;31m          ^ column 7[0m
+[0;31m[0m
+[0;31mfatal: [icocmd01]: FAILED! => {"changed": false, "msg": "Task failed: Failed to get information on remote file (/home/nor/.local/share/backgrounds/BackgroundPic.png): Shared connection to 10.228.229.200 closed."}[0m
+
+PLAY RECAP *********************************************************************
+[0;33mbootstrapvm[0m                : [0;32mok=3   [0m [0;33mchanged=1   [0m unreachable=0    failed=0    skipped=0    rescued=0    ignored=0   
+[0;31micocmd01[0m                   : [0;32mok=9   [0m [0;33mchanged=4   [0m unreachable=0    [0;31mfailed=1   [0m [0;36mskipped=1   [0m rescued=0    ignored=0   
+[0;31micocmd02[0m                   : ok=0    changed=0    [1;31munreachable=1   [0m failed=0    skipped=0    rescued=0    ignored=0   
+
+
+TASKS RECAP ********************************************************************
+Monday 23 March 2026  19:34:23 +0100 (0:00:00.380)       0:01:03.017 ********** 
+=============================================================================== 
+Install RPM packages required by selected components via raw yum ------- 53.25s
+Bootstrap Python 3 for optional later use ------------------------------- 4.78s
+Bootstrap local RISng repositories on second-stage client without Python --- 3.10s
+Remove stale SSH host keys for RIS deploy targets on control host ------- 0.69s
+Copy staged wallpaper base image to login user home --------------------- 0.38s
+Clean yum metadata before second-stage install -------------------------- 0.18s
+Select enabled RIS deploy targets --------------------------------------- 0.11s
+Register enabled RIS deploy targets as dynamic hosts -------------------- 0.09s
+Build wallpaper annotation label on control host ------------------------ 0.08s
+Ensure staging wallpaper directory exists for login user ---------------- 0.07s
+Ensure login user home and authority files exist for graphical session --- 0.07s
+Build effective component definitions on control host ------------------- 0.07s
+Install yum groups required by selected components via raw yum ---------- 0.06s
+Force GDM to use Xorg on graphical clients ------------------------------ 0.06s
