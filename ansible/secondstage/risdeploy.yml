@@ -202,13 +202,14 @@
         chown -R {{ risdeploy_login_user }}:{{ risdeploy_login_user }} "$home_dir/.local"
       when: "'graphics-gnome' in risdeploy_components"
 
-    - name: Copy staged wallpaper image to login user home
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../artifacts/BackgroundPic.png"
-        dest: "/home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png"
-        owner: "{{ risdeploy_login_user }}"
-        group: "{{ risdeploy_login_user }}"
-        mode: "0644"
+    - name: Copy staged wallpaper image to login user home from controlhost via scp
+      ansible.builtin.shell: |
+        set -euo pipefail
+        sshpass -p '{{ risdeploy_ssh_password }}' scp {{ risdeploy_ssh_common_args }}           "{{ playbook_dir }}/../artifacts/BackgroundPic.png"           {{ risdeploy_ssh_user }}@{{ ansible_host }}:/home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png
+        sshpass -p '{{ risdeploy_ssh_password }}' ssh {{ risdeploy_ssh_common_args }}           {{ risdeploy_ssh_user }}@{{ ansible_host }}           'chown {{ risdeploy_login_user }}:{{ risdeploy_login_user }} /home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png && chmod 0644 /home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png'
+      args:
+        executable: /bin/bash
+      delegate_to: localhost
       when: "'graphics-gnome' in risdeploy_components"
 
     - name: Annotate staged wallpaper with role timestamp and commit
