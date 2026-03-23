@@ -1,8 +1,8 @@
 [0;31m[ERROR]: YAML parsing failed: While scanning a simple key could not find expected ':'.[0m
-[0;31mOrigin: /home/risng/risng/ansible/secondstage/risdeploy.yml:212:1[0m
+[0;31mOrigin: /home/risng/risng/ansible/secondstage/risdeploy.yml:213:1[0m
 [0;31m[0m
-[0;31m210         cat > "$home_dir/.local/share/backgrounds/BackgroundPic.png.b64" <<'EOF'[0m
-[0;31m211 iVBORw0KGgoAAAANSUhEUgAABPcAAAJACAYAAADhBYM1AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAA...[0m
-[0;31m212 EOF[0m
+[0;31m211         cat > "$home_dir/.local/share/backgrounds/BackgroundPic.png.b64" <<'EOF'[0m
+[0;31m212 iVBORw0KGgoAAAANSUhEUgAABPcAAAJACAYAAADhBYM1AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAA...[0m
+[0;31m213 EOF[0m
 [0;31m    ^ column 1[0m
 [0;31m[0m
