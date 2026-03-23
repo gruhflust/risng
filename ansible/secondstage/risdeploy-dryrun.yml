@@ -54,6 +54,9 @@
               'packages': packages | unique | list,
               'services': services | unique | list,
               'required_repo_sets': repo_sets | unique | list,
+              'kickstart_partitioning': t.kickstart_partitioning | default([]),
+              'install_slot': t.install_slot | default('default'),
+              'install_slots': t.install_slots | default({}),
             }) %}
             {% endfor %}
             {{ out }}
@@ -73,6 +76,8 @@
           - "packages={{ item.packages | join(', ') if (item.packages | length > 0) else 'none' }}"
           - "services={{ item.services | join(', ') if (item.services | length > 0) else 'none' }}"
           - "required_repo_sets={{ item.required_repo_sets | join(', ') if (item.required_repo_sets | length > 0) else 'none' }}"
+          - "install_slot={{ item.install_slot }} install_slots={{ item.install_slots | to_json }}"
+          - "kickstart_partitioning={{ item.kickstart_partitioning | to_json }}"
       loop: "{{ risdeploy_dryrun_plan.targets }}"
       loop_control:
         label: "{{ item.name }}"

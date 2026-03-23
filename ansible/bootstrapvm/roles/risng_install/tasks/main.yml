@@ -134,6 +134,10 @@
     mode: "0644"
   when: spec_repo_source_mode == 'mirror'
 
+- name: 04 03z Load DHCP host templates for per-client kickstart partition planning
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/roles/dhcp/defaults/main.yml"
+
 - name: 04 04 Render base kickstart file
   ansible.builtin.template:
     src: kickstart-role.cfg.j2
