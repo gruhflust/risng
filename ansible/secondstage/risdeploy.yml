@@ -17,6 +17,15 @@
             | list
           }}
 
+    - name: Remove stale SSH host keys for RIS deploy targets on control host
+      ansible.builtin.shell: |
+        ssh-keygen -f "$HOME/.ssh/known_hosts" -R "{{ item.ip }}" >/dev/null 2>&1 || true
+        ssh-keygen -f "$HOME/.ssh/known_hosts" -R "{{ item.name }}" >/dev/null 2>&1 || true
+      args:
+        executable: /bin/bash
+      loop: "{{ risdeploy_targets }}"
+      changed_when: false
+
     - name: Register enabled RIS deploy targets as dynamic hosts
       ansible.builtin.add_host:
         name: "{{ item.name }}"
