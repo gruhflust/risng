@@ -155,10 +155,8 @@
         if [ -f /etc/gdm/custom.conf ]; then
           sed -i 's/^#\?WaylandEnable=.*/WaylandEnable=false/' /etc/gdm/custom.conf
         else
-          cat > /etc/gdm/custom.conf <<'EOF'
-          [daemon]
-          WaylandEnable=false
-          EOF
+          printf '%s
+' '[daemon]' 'WaylandEnable=false' > /etc/gdm/custom.conf
         fi
       when: "'graphics-gnome' in risdeploy_components"
 
