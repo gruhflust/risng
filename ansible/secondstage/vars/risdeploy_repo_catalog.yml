@@ -58,5 +58,14 @@ risdeploy_component_catalog:
       - mesa-libGL
       - mesa-libEGL
       - dbus-x11
+      - dejavu-sans-fonts
+      - dejavu-sans-mono-fonts
+      - dejavu-serif-fonts
+      - liberation-mono-fonts
+      - liberation-sans-fonts
+      - liberation-serif-fonts
+      - google-noto-sans-fonts
+      - google-noto-emoji-fonts
+      - vlgothic-p-fonts
     services:
       - gdm
