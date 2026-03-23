@@ -175,6 +175,10 @@
         EOF
       when: "'graphics-gnome' in risdeploy_components"
 
+    - name: Restart GDM after graphical session fixes
+      ansible.builtin.raw: systemctl restart gdm
+      when: "'graphics-gnome' in risdeploy_components"
+
     - name: Enable and start services required by selected components via systemctl
       ansible.builtin.raw: systemctl enable {{ item }} && systemctl start {{ item }}
       loop: >-
