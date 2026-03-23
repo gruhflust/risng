@@ -195,17 +195,29 @@
         chown -R {{ risdeploy_login_user }}:{{ risdeploy_login_user }} "$home_dir/.local"
       when: "'graphics-gnome' in risdeploy_components"
 
-    - name: Copy staged wallpaper base image to temporary path via scp without sshpass
-      ansible.builtin.command:
-        argv:
-          - scp
-          - -o
-          - StrictHostKeyChecking=no
-          - -o
-          - UserKnownHostsFile=/dev/null
-          - '{{ playbook_dir }}/../bootstrapvm/roles/management/files/BackgroundPic.png'
-          - '{{ risdeploy_ssh_user }}@{{ ansible_host }}:/tmp/BackgroundPic.png'
+    - name: Build wallpaper base64 chunks on control host
+      ansible.builtin.set_fact:
+        risdeploy_wallpaper_b64_chunks: >-
+          {{
+            (lookup('file', playbook_dir ~ '/../bootstrapvm/roles/management/files/BackgroundPic.png')
+            | b64encode)
+            | regex_findall('.{1,3000}')
+          }}
       delegate_to: localhost
+      delegate_facts: true
+      when: "'graphics-gnome' in risdeploy_components"
+
+    - name: Reset temporary wallpaper staging files on target
+      ansible.builtin.raw: rm -f /tmp/BackgroundPic.png /tmp/BackgroundPic.png.b64
+      when: "'graphics-gnome' in risdeploy_components"
+
+    - name: Append wallpaper base64 chunks on target
+      ansible.builtin.raw: "printf '%s' '{{ item }}' >> /tmp/BackgroundPic.png.b64"
+      loop: "{{ hostvars['localhost'].risdeploy_wallpaper_b64_chunks }}"
+      when: "'graphics-gnome' in risdeploy_components"
+
+    - name: Decode temporary wallpaper image on target
+      ansible.builtin.raw: base64 -d /tmp/BackgroundPic.png.b64 > /tmp/BackgroundPic.png
       when: "'graphics-gnome' in risdeploy_components"
 
     - name: Install staged wallpaper from temporary path into login user home
