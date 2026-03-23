@@ -81,18 +81,13 @@
       changed_when: false
       failed_when: false
 
-    - name: 00.09a Install missing GNOME graphics stack early (for local login UX)
-      ansible.builtin.apt:
-        name:
-          - gnome-shell
-          - gdm3
-          - xserver-xorg
-          - gnome-terminal
-        state: present
-        update_cache: true
-      when: risng_gnome_stack_check.rc != 0
+    - name: 00.09a Stop packagekit early to avoid apt lock while installing graphics stack
+      ansible.builtin.systemd:
+        name: packagekit
+        state: stopped
+      failed_when: false
 
-    - name: 00.09b Preseed gdm3 as default display manager when stack was installed
+    - name: 00.09b Preseed gdm3 as default display manager before install
       ansible.builtin.debconf:
         name: gdm3
         question: shared/default-x-display-manager
@@ -100,13 +95,34 @@
         vtype: select
       when: risng_gnome_stack_check.rc != 0
 
-    - name: 00.09c Ensure graphical target and gdm3 are enabled
-      ansible.builtin.systemd:
-        name: "{{ item }}"
+    - name: 00.09c Install workstationprep-style minimal GNOME stack early (for local login UX)
+      ansible.builtin.apt:
+        name:
+          - gnome-shell
+          - gnome-session
+          - gnome-terminal
+          - task-gnome-desktop
+          - gdm3
+          - dbus-x11
+          - dconf-cli
+          - xserver-xorg
+        state: present
+        update_cache: true
+        dpkg_options: force-confdef,force-confold
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when: risng_gnome_stack_check.rc != 0
+
+    - name: 00.09d Ensure graphical.target is default
+      ansible.builtin.command: systemctl set-default graphical.target
+      changed_when: false
+      failed_when: false
+
+    - name: 00.09e Ensure gdm3 is enabled and running
+      ansible.builtin.service:
+        name: gdm3
         enabled: true
-      loop:
-        - gdm3
-        - graphical.target
+        state: started
       failed_when: false
 
     - name: 00.10 Ensure dedicated risng operator group exists
@@ -163,6 +179,22 @@
           SystemAccount=false
           Hidden=false
       when: risng_accountsservice_root.stat.exists | default(false)
+
+    - name: 00.11e Ensure risng GNOME config directory exists
+      ansible.builtin.file:
+        path: /home/risng/.config
+        state: directory
+        owner: risng
+        group: risng
+        mode: "0755"
+
+    - name: 00.11f Mark GNOME initial setup as done for risng
+      ansible.builtin.file:
+        path: /home/risng/.config/gnome-initial-setup-done
+        state: touch
+        owner: risng
+        group: risng
+        mode: "0644"
 
     - name: 00.12 Ensure risng ~/.ssh directory exists
       ansible.builtin.file:
