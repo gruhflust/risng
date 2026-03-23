@@ -162,6 +162,20 @@
         fi
       when: "'graphics-gnome' in risdeploy_components"
 
+    - name: Ensure login user home and authority files exist for graphical session
+      ansible.builtin.raw: |
+        getent passwd {{ risdeploy_login_user }} >/dev/null 2>&1 || exit 0
+        home_dir=$(getent passwd {{ risdeploy_login_user }} | cut -d: -f6)
+        mkdir -p "$home_dir"
+        touch "$home_dir/.Xauthority" "$home_dir/.ICEauthority" "$home_dir/.dmrc"
+        chown {{ risdeploy_login_user }}:{{ risdeploy_login_user }} "$home_dir" "$home_dir/.Xauthority" "$home_dir/.ICEauthority" "$home_dir/.dmrc"
+        chmod 700 "$home_dir"
+        chmod 600 "$home_dir/.Xauthority" "$home_dir/.ICEauthority"
+        printf '[Desktop]
+Session=gnome-xorg
+' > "$home_dir/.dmrc"
+      when: "'graphics-gnome' in risdeploy_components"
+
     - name: Enable and start services required by selected components via systemctl
       ansible.builtin.raw: systemctl enable {{ item }} && systemctl start {{ item }}
       loop: >-
