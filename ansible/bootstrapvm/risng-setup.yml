@@ -187,6 +187,13 @@
             . "$HOME/.bashrc"
           fi
 
+    - name: 00.24 Debug RISng user bootstrap summary
+      ansible.builtin.debug:
+        msg:
+          - "RISng effective ssh_user={{ ssh_user }} ssh_user_home={{ ssh_user_home }}"
+          - "RISng source path for sync={{ risng_code_source_path | default('UNRESOLVED') }}"
+          - "RISng bashrc link=/home/risng/.bashrc -> /home/risng/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
+
 
   vars_files:
     - ../host_vars/bootstrapvm.yml
