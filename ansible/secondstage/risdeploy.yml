@@ -203,36 +203,13 @@
         chown -R {{ risdeploy_login_user }}:{{ risdeploy_login_user }} "$home_dir/.local"
       when: "'graphics-gnome' in risdeploy_components"
 
-    - name: Copy staged wallpaper image to login user home from controlhost via scp argv
-      ansible.builtin.command:
-        argv:
-          - sshpass
-          - -p
-          - '{{ risdeploy_ssh_password }}'
-          - scp
-          - -o
-          - StrictHostKeyChecking=no
-          - -o
-          - UserKnownHostsFile=/dev/null
-          - '{{ playbook_dir }}/../bootstrapvm/roles/management/files/BackgroundPic.png'
-          - '{{ risdeploy_ssh_user }}@{{ ansible_host }}:/home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png'
-      delegate_to: localhost
-      when: "'graphics-gnome' in risdeploy_components"
-
-    - name: Fix ownership and mode on staged wallpaper via ssh argv
-      ansible.builtin.command:
-        argv:
-          - sshpass
-          - -p
-          - '{{ risdeploy_ssh_password }}'
-          - ssh
-          - -o
-          - StrictHostKeyChecking=no
-          - -o
-          - UserKnownHostsFile=/dev/null
-          - '{{ risdeploy_ssh_user }}@{{ ansible_host }}'
-          - 'chown {{ risdeploy_login_user }}:{{ risdeploy_login_user }} /home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png && chmod 0644 /home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png'
-      delegate_to: localhost
+    - name: Copy staged wallpaper base image to login user home via ansible copy
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../bootstrapvm/roles/management/files/BackgroundPic.png"
+        dest: "/home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png"
+        owner: "{{ risdeploy_login_user }}"
+        group: "{{ risdeploy_login_user }}"
+        mode: "0644"
       when: "'graphics-gnome' in risdeploy_components"
 
     - name: Annotate staged wallpaper with role timestamp and commit
