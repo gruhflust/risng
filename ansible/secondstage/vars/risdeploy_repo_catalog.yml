@@ -58,5 +58,6 @@ risdeploy_component_catalog:
       - mesa-libGL
       - mesa-libEGL
       - dbus-x11
+      - ImageMagick
     services:
       - gdm
