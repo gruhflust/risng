@@ -82,6 +82,39 @@
         create_home: true
         state: present
 
+    - name: 00.11a Ensure risng user password is set for local graphical login
+      ansible.builtin.user:
+        name: risng
+        password: "{{ 'risng' | password_hash('sha512') }}"
+        update_password: always
+
+    - name: 00.11b Check whether AccountsService is available
+      ansible.builtin.stat:
+        path: /var/lib/AccountsService
+      register: risng_accountsservice_root
+      changed_when: false
+
+    - name: 00.11c Ensure AccountsService users directory exists
+      ansible.builtin.file:
+        path: /var/lib/AccountsService/users
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: risng_accountsservice_root.stat.exists | default(false)
+
+    - name: 00.11d Ensure risng is visible on graphical login screen
+      ansible.builtin.copy:
+        dest: /var/lib/AccountsService/users/risng
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [User]
+          SystemAccount=false
+          Hidden=false
+      when: risng_accountsservice_root.stat.exists | default(false)
+
     - name: 00.12 Ensure risng ~/.ssh directory exists
       ansible.builtin.file:
         path: /home/risng/.ssh
@@ -146,8 +179,11 @@
     - name: 00.16 Build candidate source paths for RISng code checkout
       ansible.builtin.set_fact:
         risng_code_source_candidates:
-          # Primary candidate: checkout root inferred from current playbook path
+          # Common local checkout paths on controlhost/bootstrap host
+          - "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo/risng_code"
+          - "{{ lookup('ansible.builtin.env', 'HOME') }}/risng"
           - "{{ playbook_dir | regex_replace('/ansible/bootstrapvm$', '') }}"
+          - "/home/user/botrepo/risng_code"
           - "/root/botrepo/risng_code"
 
     - name: 00.17 Probe RISng code source candidates
