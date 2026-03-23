@@ -527,12 +527,20 @@
         group: "{{ ssh_user }}"
         mode: "0644"
 
-    - name: 02.98 Determine deployed RISng commit with fallback to botrepo
+    - name: 02.98 Determine deployed RISng commit with robust fallback to botrepo
       ansible.builtin.shell: |
         set -euo pipefail
-        for repo in "{{ ssh_user_home }}/risng" "{{ ssh_user_home }}/botrepo" "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" "/root/botrepo"; do
-          if [ -d "$repo/.git" ]; then
-            git -C "$repo" log -1 --pretty=format:%h
+        for repo in \
+          "/home/risng/botrepo" \
+          "/home/risng/risng" \
+          "{{ ssh_user_home }}/botrepo" \
+          "{{ ssh_user_home }}/risng" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
+          "/root/botrepo"
+        do
+          [ -d "$repo/.git" ] || continue
+          if out="$(git -C "$repo" log -1 --pretty=format:%h 2>/dev/null)" && [ -n "$out" ]; then
+            echo "$out"
             exit 0
           fi
         done
@@ -543,12 +551,20 @@
       changed_when: false
       failed_when: false
 
-    - name: 02.98 Determine deployed RISng branch with fallback to botrepo
+    - name: 02.98 Determine deployed RISng branch with robust fallback to botrepo
       ansible.builtin.shell: |
         set -euo pipefail
-        for repo in "{{ ssh_user_home }}/risng" "{{ ssh_user_home }}/botrepo" "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" "/root/botrepo"; do
-          if [ -d "$repo/.git" ]; then
-            git -C "$repo" rev-parse --abbrev-ref HEAD
+        for repo in \
+          "/home/risng/botrepo" \
+          "/home/risng/risng" \
+          "{{ ssh_user_home }}/botrepo" \
+          "{{ ssh_user_home }}/risng" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
+          "/root/botrepo"
+        do
+          [ -d "$repo/.git" ] || continue
+          if out="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)" && [ -n "$out" ]; then
+            echo "$out"
             exit 0
           fi
         done
