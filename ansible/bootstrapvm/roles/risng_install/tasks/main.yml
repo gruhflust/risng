@@ -82,6 +82,29 @@
   when: >-
     (spec_repo_critical_rpms.results | rejectattr('stat.exists') | list | length) > 0
 
+- name: 04 02fc Validate stage2 squashfs exists in published CentOS repo
+  ansible.builtin.stat:
+    path: "{{ spec_repo_root }}/LiveOS/squashfs.img"
+  register: spec_repo_stage2_squashfs
+
+- name: 04 02fd Fail early when stage2 squashfs is missing (would cause dracut-initqueue timeout)
+  ansible.builtin.fail:
+    msg: >-
+      Missing {{ spec_repo_root }}/LiveOS/squashfs.img. Installer stage2 cannot be fetched and clients will fail with dracut-initqueue timeout.
+  when: not spec_repo_stage2_squashfs.stat.exists
+
+- name: 04 02fe Validate installer runtime image exists in published CentOS repo
+  ansible.builtin.stat:
+    path: "{{ spec_repo_root }}/images/install.img"
+  register: spec_repo_install_img
+
+- name: 04 02ff Fail early when installer runtime image is missing
+  ansible.builtin.fail:
+    msg: >-
+      Missing {{ spec_repo_root }}/images/install.img in published CentOS repo.
+      This indicates incomplete staging content.
+  when: not spec_repo_install_img.stat.exists
+
 - name: 04 02g Ensure legacy pxe-http service is stopped and disabled
   ansible.builtin.systemd:
     name: pxe-http
