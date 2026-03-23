@@ -195,15 +195,17 @@
         chown -R {{ risdeploy_login_user }}:{{ risdeploy_login_user }} "$home_dir/.local"
       when: "'graphics-gnome' in risdeploy_components"
 
-    - name: Copy staged wallpaper base image to temporary path via ansible copy
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../bootstrapvm/roles/management/files/BackgroundPic.png"
-        dest: "/tmp/BackgroundPic.png"
-        owner: "root"
-        group: "root"
-        mode: "0644"
-        force: true
-        unsafe_writes: true
+    - name: Copy staged wallpaper base image to temporary path via scp without sshpass
+      ansible.builtin.command:
+        argv:
+          - scp
+          - -o
+          - StrictHostKeyChecking=no
+          - -o
+          - UserKnownHostsFile=/dev/null
+          - '{{ playbook_dir }}/../bootstrapvm/roles/management/files/BackgroundPic.png'
+          - '{{ risdeploy_ssh_user }}@{{ ansible_host }}:/tmp/BackgroundPic.png'
+      delegate_to: localhost
       when: "'graphics-gnome' in risdeploy_components"
 
     - name: Install staged wallpaper from temporary path into login user home
