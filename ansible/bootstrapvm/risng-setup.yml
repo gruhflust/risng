@@ -531,11 +531,14 @@
       ansible.builtin.shell: |
         set -euo pipefail
         for repo in \
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo" \
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/risng" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/risng" \
           "/home/risng/botrepo" \
           "/home/risng/risng" \
           "{{ ssh_user_home }}/botrepo" \
           "{{ ssh_user_home }}/risng" \
-          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
           "/root/botrepo"
         do
           [ -d "$repo/.git" ] || continue
@@ -555,11 +558,14 @@
       ansible.builtin.shell: |
         set -euo pipefail
         for repo in \
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo" \
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/risng" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/risng" \
           "/home/risng/botrepo" \
           "/home/risng/risng" \
           "{{ ssh_user_home }}/botrepo" \
           "{{ ssh_user_home }}/risng" \
-          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
           "/root/botrepo"
         do
           [ -d "$repo/.git" ] || continue
