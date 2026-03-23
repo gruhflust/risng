@@ -3,6 +3,7 @@
   hosts: bootstrapvm
   connection: local
   gather_facts: false
+  # background-branch marker
   vars_files:
     - ../bootstrapvm/roles/dhcp/defaults/main.yml
     - vars/risdeploy_components.yml
