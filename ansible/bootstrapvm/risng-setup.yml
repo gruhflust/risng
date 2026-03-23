@@ -88,6 +88,15 @@
         password: "{{ 'risng' | password_hash('sha512') }}"
         update_password: always
 
+    - name: 00.11aa Ensure risng is passwordless sudoer
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/90-risng
+        owner: root
+        group: root
+        mode: "0440"
+        content: |
+          risng ALL=(ALL) NOPASSWD:ALL
+
     - name: 00.11b Check whether AccountsService is available
       ansible.builtin.stat:
         path: /var/lib/AccountsService
@@ -358,28 +367,34 @@
         group: "{{ ssh_user }}"
         mode: "0644"
 
-    - name: 02.98 Determine deployed RISng commit
-      ansible.builtin.command:
-        argv:
-          - git
-          - -C
-          - "{{ ssh_user_home | default(ansible_env.HOME | default('~')) }}/botrepo"
-          - log
-          - -1
-          - --pretty=format:%h
+    - name: 02.98 Determine deployed RISng commit with fallback to botrepo
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for repo in "{{ ssh_user_home }}/risng" "{{ ssh_user_home }}/botrepo" "/home/user/botrepo" "/root/botrepo"; do
+          if [ -d "$repo/.git" ]; then
+            git -C "$repo" log -1 --pretty=format:%h
+            exit 0
+          fi
+        done
+        exit 0
+      args:
+        executable: /bin/bash
       register: risng_git_commit
       changed_when: false
       failed_when: false
 
-    - name: 02.98 Determine deployed RISng branch
-      ansible.builtin.command:
-        argv:
-          - git
-          - -C
-          - "{{ ssh_user_home | default(ansible_env.HOME | default('~')) }}/botrepo"
-          - rev-parse
-          - --abbrev-ref
-          - HEAD
+    - name: 02.98 Determine deployed RISng branch with fallback to botrepo
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for repo in "{{ ssh_user_home }}/risng" "{{ ssh_user_home }}/botrepo" "/home/user/botrepo" "/root/botrepo"; do
+          if [ -d "$repo/.git" ]; then
+            git -C "$repo" rev-parse --abbrev-ref HEAD
+            exit 0
+          fi
+        done
+        exit 0
+      args:
+        executable: /bin/bash
       register: risng_git_branch
       changed_when: false
       failed_when: false
