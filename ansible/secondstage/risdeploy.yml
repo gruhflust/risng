@@ -195,15 +195,22 @@
         chown -R {{ risdeploy_login_user }}:{{ risdeploy_login_user }} "$home_dir/.local"
       when: "'graphics-gnome' in risdeploy_components"
 
-    - name: Copy staged wallpaper base image to login user home via ansible copy forced
+    - name: Copy staged wallpaper base image to temporary path via ansible copy
       ansible.builtin.copy:
         src: "{{ playbook_dir }}/../bootstrapvm/roles/management/files/BackgroundPic.png"
-        dest: "/home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png"
-        owner: "{{ risdeploy_login_user }}"
-        group: "{{ risdeploy_login_user }}"
+        dest: "/tmp/BackgroundPic.png"
+        owner: "root"
+        group: "root"
         mode: "0644"
         force: true
         unsafe_writes: true
+      when: "'graphics-gnome' in risdeploy_components"
+
+    - name: Install staged wallpaper from temporary path into login user home
+      ansible.builtin.raw: |
+        getent passwd {{ risdeploy_login_user }} >/dev/null 2>&1 || exit 0
+        home_dir=$(getent passwd {{ risdeploy_login_user }} | cut -d: -f6)
+        install -o {{ risdeploy_login_user }} -g {{ risdeploy_login_user }} -m 0644 /tmp/BackgroundPic.png "$home_dir/.local/share/backgrounds/BackgroundPic.png"
       when: "'graphics-gnome' in risdeploy_components"
 
     - name: Regenerate machine identity for freshly staged client
