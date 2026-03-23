@@ -19,6 +19,10 @@ centos78_iso_filename: "CentOS-7-x86_64-DVD-2003.iso"
 centos78_iso_url: "http://vault.centos.org/7.8.2003/isos/x86_64/{{ centos78_iso_filename }}"
 centos78_iso_path: "{{ iso_download_dir }}/centos78.iso"
 
+# If false (default), ISO extract/sync runs only when critical stage2 artifacts are missing.
+# If true, force full ISO extract/sync on every feuer run.
+spec_repo_rebuild_always: false
+
 # Supported RISng client roles for autoinstall
 risng_client_roles:
   - iCWP

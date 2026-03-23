@@ -25,28 +25,64 @@
     timeout: 1200
   when: spec_repo_source_mode == 'iso'
 
-- name: 04 02 Reset extracted ISO workspace when ISO mode is selected
+- name: 04 01b Probe staged installer artifacts before optional ISO rebuild
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ spec_repo_root }}/LiveOS/squashfs.img"
+    - "{{ spec_repo_root }}/images/install.img"
+    - "{{ spec_repo_root }}/images/pxeboot/{{ spec_kernel }}"
+    - "{{ spec_repo_root }}/images/pxeboot/{{ spec_initrd }}"
+  register: spec_repo_stage2_probe
+  when: spec_repo_source_mode == 'iso'
+
+- name: 04 01c Determine whether ISO extract/sync is required
+  ansible.builtin.set_fact:
+    spec_repo_needs_rebuild: >-
+      {{
+        (spec_repo_rebuild_always | bool)
+        or
+        ((spec_repo_stage2_probe.results | rejectattr('stat.exists') | list | length) > 0)
+      }}
+  when: spec_repo_source_mode == 'iso'
+
+- name: 04 01d Explain ISO rebuild decision
+  ansible.builtin.debug:
+    msg: >-
+      spec_repo_source_mode=iso, spec_repo_needs_rebuild={{ spec_repo_needs_rebuild | default(true) }}
+      (rebuild_always={{ spec_repo_rebuild_always | bool }}).
+  when: spec_repo_source_mode == 'iso'
+
+- name: 04 02 Reset extracted ISO workspace when ISO mode and rebuild is required
   ansible.builtin.file:
     path: "{{ spec_iso_mount }}"
     state: absent
-  when: spec_repo_source_mode == 'iso'
+  when:
+    - spec_repo_source_mode == 'iso'
+    - spec_repo_needs_rebuild | default(true)
 
-- name: 04 02a Recreate extracted ISO workspace when ISO mode is selected
+- name: 04 02a Recreate extracted ISO workspace when ISO mode and rebuild is required
   ansible.builtin.file:
     path: "{{ spec_iso_mount }}"
     state: directory
     mode: "0755"
-  when: spec_repo_source_mode == 'iso'
+  when:
+    - spec_repo_source_mode == 'iso'
+    - spec_repo_needs_rebuild | default(true)
 
-- name: 04 02b Extract CentOS 7.8 ISO when ISO mode is selected
+- name: 04 02b Extract CentOS 7.8 ISO when ISO mode and rebuild is required
   ansible.builtin.command: >
     bsdtar -C {{ spec_iso_mount }} -xf {{ centos78_iso_path }}
-  when: spec_repo_source_mode == 'iso'
+  when:
+    - spec_repo_source_mode == 'iso'
+    - spec_repo_needs_rebuild | default(true)
 
-- name: 04 02c Sync extracted CentOS tree into HTTP repo root when ISO mode is selected
+- name: 04 02c Sync extracted CentOS tree into HTTP repo root when ISO mode and rebuild is required
   ansible.builtin.command: >
     rsync -a --delete {{ spec_iso_mount }}/ {{ spec_repo_root }}/
-  when: spec_repo_source_mode == 'iso'
+  when:
+    - spec_repo_source_mode == 'iso'
+    - spec_repo_needs_rebuild | default(true)
 
 - name: 04 02d Validate synced CentOS repo metadata exists
   ansible.builtin.stat:
@@ -125,37 +161,19 @@
     enabled: true
     state: started
 
-- name: 04 03 Copy kernel from extracted ISO in ISO mode
-  ansible.builtin.copy:
-    remote_src: true
-    src: "{{ spec_iso_mount }}/images/pxeboot/{{ spec_kernel }}"
-    dest: "{{ spec_target }}/{{ spec_kernel }}"
-    mode: "0644"
-  when: spec_repo_source_mode == 'iso'
-
-- name: 04 03a Copy initrd from extracted ISO in ISO mode
-  ansible.builtin.copy:
-    remote_src: true
-    src: "{{ spec_iso_mount }}/images/pxeboot/{{ spec_initrd }}"
-    dest: "{{ spec_target }}/{{ spec_initrd }}"
-    mode: "0644"
-  when: spec_repo_source_mode == 'iso'
-
-- name: 04 03b Copy kernel from mirrored repo in mirror mode
+- name: 04 03 Copy kernel from staged repo
   ansible.builtin.copy:
     remote_src: true
     src: "{{ spec_repo_root }}/images/pxeboot/{{ spec_kernel }}"
     dest: "{{ spec_target }}/{{ spec_kernel }}"
     mode: "0644"
-  when: spec_repo_source_mode == 'mirror'
 
-- name: 04 03c Copy initrd from mirrored repo in mirror mode
+- name: 04 03a Copy initrd from staged repo
   ansible.builtin.copy:
     remote_src: true
     src: "{{ spec_repo_root }}/images/pxeboot/{{ spec_initrd }}"
     dest: "{{ spec_target }}/{{ spec_initrd }}"
     mode: "0644"
-  when: spec_repo_source_mode == 'mirror'
 
 - name: 04 03z Load DHCP host templates for per-client kickstart partition planning
   ansible.builtin.include_vars:
