@@ -46,6 +46,12 @@ risdeploy_component_catalog:
       - gnome-terminal
       - xorg-x11-server-Xorg
       - xorg-x11-xauth
+      - xorg-x11-drivers
+      - xorg-x11-drv-libinput
+      - xorg-x11-drv-evdev
+      - xorg-x11-drv-vesa
+      - xorg-x11-drv-fbdev
+      - mesa-dri-drivers
       - dbus-x11
     services:
       - gdm

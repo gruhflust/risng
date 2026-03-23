@@ -149,6 +149,19 @@
           | length
         ) > 0
 
+    - name: Force GDM to use Xorg on graphical clients
+      ansible.builtin.raw: |
+        mkdir -p /etc/gdm
+        if [ -f /etc/gdm/custom.conf ]; then
+          sed -i 's/^#\?WaylandEnable=.*/WaylandEnable=false/' /etc/gdm/custom.conf
+        else
+          cat > /etc/gdm/custom.conf <<'EOF'
+        [daemon]
+        WaylandEnable=false
+        EOF
+        fi
+      when: "'graphics-gnome' in risdeploy_components"
+
     - name: Enable and start services required by selected components via systemctl
       ansible.builtin.raw: systemctl enable {{ item }} && systemctl start {{ item }}
       loop: >-
