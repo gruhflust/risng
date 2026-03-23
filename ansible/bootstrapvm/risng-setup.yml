@@ -69,6 +69,54 @@
 
     - import_tasks: "{{ playbook_dir }}/detect_interfaces.yml"
 
+    - name: 00.10 Ensure dedicated risng operator group exists
+      ansible.builtin.group:
+        name: risng
+        state: present
+
+    - name: 00.11 Ensure dedicated risng operator user exists
+      ansible.builtin.user:
+        name: risng
+        group: risng
+        shell: /bin/bash
+        create_home: true
+        state: present
+
+    - name: 00.12 Ensure risng ~/.ssh directory exists
+      ansible.builtin.file:
+        path: /home/risng/.ssh
+        state: directory
+        owner: risng
+        group: risng
+        mode: "0700"
+
+    - name: 00.13 Probe bootstrap invoker SSH public key candidates
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "/home/{{ lookup('ansible.builtin.env', 'SUDO_USER') | default('', true) }}/.ssh/id_ed25519.pub"
+        - "/home/{{ lookup('ansible.builtin.env', 'SUDO_USER') | default('', true) }}/.ssh/id_rsa.pub"
+        - "/home/{{ lookup('ansible.builtin.env', 'USER') | default('', true) }}/.ssh/id_ed25519.pub"
+        - "/home/{{ lookup('ansible.builtin.env', 'USER') | default('', true) }}/.ssh/id_rsa.pub"
+        - "/root/.ssh/id_ed25519.pub"
+        - "/root/.ssh/id_rsa.pub"
+      register: risng_operator_pubkey_stats
+      changed_when: false
+
+    - name: 00.14 Read first available bootstrap invoker SSH public key
+      ansible.builtin.slurp:
+        src: "{{ (risng_operator_pubkey_stats.results | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list | first) }}"
+      register: risng_operator_pubkey_raw
+      when: (risng_operator_pubkey_stats.results | selectattr('stat.exists', 'equalto', true) | list | length) > 0
+      no_log: true
+
+    - name: 00.15 Authorize bootstrap invoker SSH key for risng user
+      ansible.posix.authorized_key:
+        user: risng
+        key: "{{ risng_operator_pubkey_raw.content | b64decode | trim }}"
+        state: present
+      when: risng_operator_pubkey_raw is defined
+
 
   vars_files:
     - ../host_vars/bootstrapvm.yml

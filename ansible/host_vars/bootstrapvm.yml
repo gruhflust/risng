@@ -63,10 +63,11 @@ dhcp_netmask: "255.255.255.0"
 dhcp_range_start: "{{ dhcp_network_prefix }}.101"
 dhcp_range_end:   "{{ dhcp_network_prefix }}.200"
 # ------------------------------------------------------------
-# SSH user to be injected into PXE systems
+# Dedicated RISng operator user on the staging host
+# (feuer may be started by another sudo-capable user, but RISng assets live under this account)
 # ------------------------------------------------------------
-ssh_user: "{{ lookup('env', 'USER') | default(ansible_user_id, true) }}"
-ssh_user_home: "{{ '/home/' ~ (lookup('env', 'USER') | default(ansible_user_id, true)) }}"
+ssh_user: "risng"
+ssh_user_home: "/home/risng"
 
 # ------------------------------------------------------------
 # Alpine ISO (optional fallback)
