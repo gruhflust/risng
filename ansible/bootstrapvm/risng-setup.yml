@@ -190,12 +190,17 @@
       changed_when: false
       failed_when: false
 
-    - name: 00.09e Ensure gdm3 is enabled and running
+    - name: 00.09e Ensure gdm3 is enabled (do not start during feuer console run)
       ansible.builtin.service:
         name: gdm3
         enabled: true
-        state: started
       failed_when: false
+
+    - name: 00.09f Note about deferred graphical login activation
+      ansible.builtin.debug:
+        msg: >-
+          gdm3 was enabled but not started during feuer to avoid interrupting the active console session.
+          Start it after feuer with 'sudo systemctl start gdm3' or reboot.
 
     # moved earlier: risng group/user bootstrap
     # moved earlier: risng group/user bootstrap
