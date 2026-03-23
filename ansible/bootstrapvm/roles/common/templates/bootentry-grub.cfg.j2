@@ -1,0 +1,19 @@
+## bootentry-grub.cfg.j2 – globales GRUB UEFI Menütemplate
+## Version: bootentry_grub_v2 – enthält GUI-Einleitung mit Hintergrundbild
+
+insmod efi_gop
+insmod gfxterm
+insmod tftp
+insmod net
+insmod linux
+
+loadfont /boot/grub/unicode.pf2
+set gfxmode=800x600
+set gfxpayload=keep
+terminal_output gfxterm
+background_image /booting.png
+
+menuentry "{{ menu_title }}" {
+  linux {{ kernel_path }} {{ append_args }}
+  initrd {{ initrd_path }}
+}

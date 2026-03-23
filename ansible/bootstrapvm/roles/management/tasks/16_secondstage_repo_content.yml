@@ -1,0 +1,130 @@
+---
+# Prepare additional local package content on RISng for second-stage deployments.
+# The goal is transparent, documented package origin and a deterministic local repo.
+
+- name: 16_00 Load SecondStage package catalog
+  ansible.builtin.include_vars:
+    file: "{{ risng_code_dir | default(playbook_dir ~ '/../') }}/secondstage/vars/risdeploy_repo_catalog.yml"
+
+- name: 16_01 Build enabled SecondStage component list from DHCP host definitions
+  ansible.builtin.set_fact:
+    risdeploy_enabled_components: >-
+      {{
+        (dhcp_static_hosts | default([]))
+        | selectattr('secondstage_enabled', 'defined')
+        | selectattr('secondstage_enabled')
+        | map(attribute='secondstage_components')
+        | list
+        | flatten
+        | unique
+      }}
+
+- name: 16_02 Build required repo-set list for enabled SecondStage components
+  ansible.builtin.set_fact:
+    risdeploy_required_repo_sets: >-
+      {{
+        risdeploy_enabled_components
+        | map('extract', risdeploy_component_catalog)
+        | map(attribute='required_repo_sets')
+        | list
+        | flatten
+        | unique
+      }}
+  when: risdeploy_enabled_components | length > 0
+
+- name: 16_03 Ensure target directories for required repo sets exist
+  ansible.builtin.file:
+    path: "{{ risdeploy_repo_sets[item].local_path }}"
+    state: directory
+    mode: "0755"
+  loop: "{{ risdeploy_required_repo_sets | default([]) }}"
+
+- name: 16_04 Mirror required HTTP-based repo sets from upstream vault
+  ansible.builtin.shell: |
+    set -euo pipefail
+    target="{{ risdeploy_repo_sets[item].local_path }}"
+    source_url="{{ risdeploy_repo_sets[item].source_url }}"
+    mkdir -p "$target"
+    rm -rf "$target"/*
+    tmpdir=$(mktemp -d)
+    wget --mirror --no-parent --no-host-directories --cut-dirs=0 --reject 'index.html*' --directory-prefix "$tmpdir" "$source_url"
+    mirrored_root=$(find "$tmpdir" -mindepth 1 -maxdepth 5 -type d | grep -E '/(7\.8\.2003|epel/7/x86_64)(/|$)' | sort | head -n1)
+    if [ -z "$mirrored_root" ]; then
+      echo "Could not determine mirrored repo root for $source_url" >&2
+      exit 1
+    fi
+    cp -a "$mirrored_root"/. "$target"/
+    rm -rf "$tmpdir"
+  args:
+    executable: /bin/bash
+  loop: "{{ risdeploy_required_repo_sets | default([]) }}"
+  when:
+    - risdeploy_repo_sets[item].mode == 'http-mirror'
+
+- name: 16_05 Validate bootstrap packages required for SecondStage exist locally
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop:
+    - { name: 'python3', path: '{{ spec_repo_root }}/Packages/python3-3.6.8-18.el7.x86_64.rpm' }
+    - { name: 'libselinux-python', path: '{{ spec_repo_root }}/Packages/libselinux-python-2.5-15.el7.x86_64.rpm' }
+    - { name: 'epel-release', path: '{{ pxe_tftp_dir }}/kickstart/repos/epel/7/x86_64/Packages/e/epel-release-7-14.noarch.rpm' }
+  register: risdeploy_bootstrap_rpms
+  when: risdeploy_enabled_components | default([]) | length > 0
+
+- name: 16_05a Fail early when SecondStage bootstrap packages are missing locally
+  ansible.builtin.fail:
+    msg: >-
+      SecondStage package provisioning on RISng is incomplete. Missing bootstrap RPMs:
+      {{ risdeploy_bootstrap_rpms.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}
+  when:
+    - risdeploy_enabled_components | default([]) | length > 0
+    - (risdeploy_bootstrap_rpms.results | rejectattr('stat.exists') | list | length) > 0
+
+
+- name: 16_05b Validate published repodata for mirrored SecondStage repos
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+  loop:
+    - { name: 'centos7-updates', path: '{{ pxe_tftp_dir }}/kickstart/repos/{{ risng_repo_centos_updates_path }}/repodata/repomd.xml' }
+    - { name: 'centos7-extras', path: '{{ pxe_tftp_dir }}/kickstart/repos/{{ risng_repo_centos_extras_path }}/repodata/repomd.xml' }
+    - { name: 'epel7', path: '{{ pxe_tftp_dir }}/kickstart/repos/epel/7/x86_64/repodata/repomd.xml' }
+  register: risdeploy_repodata_paths
+  when: risdeploy_enabled_components | default([]) | length > 0
+
+- name: 16_05c Fail early when mirrored SecondStage repodata is missing
+  ansible.builtin.fail:
+    msg: >-
+      SecondStage repo publishing on RISng is incomplete. Missing repodata for:
+      {{ risdeploy_repodata_paths.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}
+  when:
+    - risdeploy_enabled_components | default([]) | length > 0
+    - (risdeploy_repodata_paths.results | rejectattr('stat.exists') | list | length) > 0
+
+- name: 16_06 Write SecondStage package source manifest
+  ansible.builtin.copy:
+    dest: "{{ pxe_tftp_dir }}/kickstart/secondstage-package-sources.yml"
+    mode: "0644"
+    content: |
+      secondstage_components:
+      {% for component in risdeploy_enabled_components | default([]) %}
+        - name: {{ component }}
+          description: {{ risdeploy_component_catalog[component].description | to_json }}
+          purpose: {{ risdeploy_component_catalog[component].purpose | to_json }}
+          required_repo_sets:
+          {% for repo_set in risdeploy_component_catalog[component].required_repo_sets %}
+            - name: {{ repo_set }}
+              source: {{ risdeploy_repo_sets[repo_set].source | to_json }}
+              source_url: {{ risdeploy_repo_sets[repo_set].source_url | default('n/a') | to_json }}
+              local_path: {{ risdeploy_repo_sets[repo_set].local_path | to_json }}
+              purpose: {{ risdeploy_repo_sets[repo_set].purpose | to_json }}
+          {% endfor %}
+          yum_groups:
+          {% for group in risdeploy_component_catalog[component].yum_groups | default([]) %}
+            - {{ group | to_json }}
+          {% endfor %}
+          packages:
+          {% for pkg in risdeploy_component_catalog[component].packages | default([]) %}
+            - name: {{ pkg }}
+              purpose: "part of component {{ component }}"
+          {% endfor %}
+  when: risdeploy_enabled_components | default([]) | length > 0

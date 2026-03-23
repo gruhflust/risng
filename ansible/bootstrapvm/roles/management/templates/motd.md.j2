@@ -1,0 +1,29 @@
+# Welcome to risng
+
+
+**risng - Cloud Host Endpoint Analysis Probe**
+
+### Core aliases (reports/tests)
+
+### EANTC IMIX variants (parallel, legacy-safe)
+These variants keep the legacy workflows untouched and produce distinguishable reports.
+
+  - a header note
+  - the rendered EANTC mix table (text)
+  - **per-target** TCP/UDP summary tables (weighted by the mix)
+
+
+
+
+### EANTC randomized variants
+These reduce sequential/block effects (e.g. avoiding long consecutive 1500B periods).
+
+  - Captures seed and observed msg_size counts in JSON for traceability.
+
+  - Build a scaled quota deck from EANTC weights
+  - Shuffle and draw msg_size entries until time is up
+  - Report is cumulative (per-target TCP/UDP summaries) + legend.
+
+### Related reporting aliases
+- `report_snapshot` – Run snapshot-style report chain.
+- `report_increment` – Run incremental report chain.

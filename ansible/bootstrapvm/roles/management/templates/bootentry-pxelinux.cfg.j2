@@ -1,0 +1,5 @@
+# bootentry-pxelinux.cfg.j2 (global PXELINUX template)
+LABEL {{ filename_prefix }}
+  MENU LABEL {{ menu_title }}
+  KERNEL {{ kernel_path }}
+  APPEND initrd={{ initrd_path }} {{ kernel_cmdline }}

@@ -1,0 +1,111 @@
+---
+- name: Detect interfaces and configure VLANs
+  hosts: all
+  become: true
+  gather_facts: false  # Avoids unnecessary gathering
+  vars:
+    risng_workspace: "{{ ansible_env.HOME }}/.risng"
+    vlan_data_path: "{{ risng_workspace }}/vlan_data.json"
+    detected_interfaces_dest: "{{ risng_workspace }}/detected_interfaces.json"
+    vlans: []  # VLANs will be loaded from JSON
+
+  tasks:
+    - name: Load VLAN data from JSON
+      ansible.builtin.include_vars:
+        file: "{{ vlan_data_path }}"
+
+    - name: Detect physical interfaces (excluding VLANs and virtual)
+      ansible.builtin.shell: |
+        set -o pipefail
+        ip -o link show | awk -F': ' '{print $2}' | grep -vE 'lo|@|vnet|vir|docker|tap|br|vmk' | sed 's/:$//' | head -4
+      args:
+        executable: /bin/bash
+      register: detected_interfaces
+      changed_when: false
+
+    - name: Debug detected interfaces command output
+      ansible.builtin.debug:
+        msg: "STDOUT: {{ detected_interfaces.stdout }} | STDERR: {{ detected_interfaces.stderr }} | RC: {{ detected_interfaces.rc }}"
+
+    # - name: Debug detected interfaces
+    #   ansible.builtin.debug:
+    #     var: detected_interfaces.stdout_lines
+
+    - name: Debug vlan variable
+      ansible.builtin.debug:
+        var: vlan
+
+    - name: Store detected interfaces
+      ansible.builtin.set_fact:
+        interfaces: "{{ detected_interfaces.stdout_lines }}"
+
+    - name: Inject detected interfaces into VLAN data
+      ansible.builtin.set_fact:
+        vlan_mappings: "{{ vlan_mappings | default([]) +
+          [vlans[item.0] | combine({'linux_interface': detected_interfaces[item.0]})] }}"
+      loop: "{{ range(0, vlans | length) | list }}"
+
+    - name: Ensure VLAN interfaces exist
+      ansible.builtin.command:
+        cmd: "ip link show {{ item.0 }}.{{ item.1 }}"
+      register: vlan_check
+      failed_when: vlan_check.rc not in [0, 1]
+      changed_when: false
+      loop: "{{ detected_interfaces | zip(vlans | map(attribute='vlan_id') | list) | list }}"
+      loop_control:
+        label: "{{ item.0 }} - VLAN {{ item.1 }}"
+
+    - name: Configure VLAN interfaces (if missing)
+      ansible.builtin.command:
+        cmd: "ip link add link {{ item.0 }} name {{ item.0 }}.{{ item.1.vlan_id }} type vlan id {{ item.1.vlan_id }}"
+        creates: "/sys/class/net/{{ item.0 }}.{{ item.1.vlan_id }}"
+      loop: "{{ interfaces | zip(vlans) | list }}"
+      loop_control:
+        label: "{{ item.0 }} - VLAN {{ item.1.vlan_id }}"
+
+    - name: Assign IP address to VLAN interface
+      ansible.builtin.command:
+        cmd: "ip addr add {{ item.1.test_ip }} dev {{ item.0 }}.{{ item.1.vlan_id }}"
+      loop: "{{ interfaces | zip(vlans) | list }}"
+      loop_control:
+        label: "{{ item.0 }} - VLAN {{ item.1.vlan_id }}"
+      changed_when: false
+
+    - name: Bring VLAN interface up
+      ansible.builtin.command:
+        cmd: "ip link set {{ item.0 }}.{{ item.1.vlan_id }} up"
+      loop: "{{ interfaces | zip(vlans) | list }}"
+      loop_control:
+        label: "{{ item.0 }} - VLAN {{ item.1.vlan_id }}"
+      changed_when: false
+
+    - name: Verify VLAN connectivity by pinging gateways
+      ansible.builtin.command:
+        cmd: "ping -c 3 {{ item.1.gateway }}"
+      register: ping_result
+      changed_when: false
+      ignore_errors: true
+      loop: "{{ interfaces | zip(vlans) | list }}"
+      loop_control:
+        label: "{{ item.0 }} - VLAN {{ item.1.vlan_id }}"
+
+    - name: Display ping results
+      ansible.builtin.debug:
+        msg: "{{ item.stdout }}"
+      loop: "{{ ping_result.results }}"
+      loop_control:
+        label: "{{ item.item.0 }} - VLAN {{ item.item.1.vlan_id }}"
+
+    - name: Save detected interfaces to a JSON file
+      ansible.builtin.copy:
+        content: "{{ detected_interfaces.stdout_lines | to_json }}"
+        dest: "/tmp/detected_interfaces.json"
+        group: root
+        mode: '0755'
+      delegate_to: "{{ inventory_hostname }}"
+
+    - name: Fetch detected interfaces file to host
+      ansible.builtin.fetch:
+        src: "/tmp/detected_interfaces.json"
+        dest: "{{ detected_interfaces_dest }}"
+        flat: true

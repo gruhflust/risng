@@ -1,0 +1,37 @@
+---
+- name: Render markdown docs from ~/docrender to ~/docdeliver (HTML/PDF + table PNG)
+  hosts: localhost
+  gather_facts: false
+  become: true
+  become_user: risng
+  vars:
+    run_as_user: risng
+    user_home: "/home/{{ run_as_user }}"
+    docrender_source_dir: "{{ lookup('env', 'DOCRENDER_SOURCE_DIR') | default(user_home ~ '/docrender', true) }}"
+    docrender_output_dir: "{{ lookup('env', 'DOCRENDER_OUTPUT_DIR') | default(user_home ~ '/docdeliver', true) }}"
+    docrender_script: "{{ playbook_dir }}/files/docrender.py"
+  tasks:
+    - name: Ensure renderer dependency is present (python3-pil for table PNG rendering)
+      ansible.builtin.apt:
+        name: python3-pil
+        state: present
+        update_cache: true
+
+    - name: Ensure output directory exists
+      ansible.builtin.file:
+        path: "{{ docrender_output_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Render markdown bundle
+      ansible.builtin.command:
+        cmd: >-
+          python3 {{ docrender_script }}
+          --source {{ docrender_source_dir }}
+          --out {{ docrender_output_dir }}
+      register: docrender_run
+      changed_when: true
+
+    - name: Show render summary
+      ansible.builtin.debug:
+        var: docrender_run.stdout_lines

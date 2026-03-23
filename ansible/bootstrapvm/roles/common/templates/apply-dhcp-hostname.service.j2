@@ -1,0 +1,13 @@
+[Unit]
+Description=Apply DHCP supplied hostname
+After=network-online.target
+Wants=network-online.target
+ConditionFileIsExecutable=/usr/local/sbin/apply-dhcp-hostname.sh
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/apply-dhcp-hostname.sh
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,96 @@
+# roles/management/tasks/02_prepare_iso.yml
+# Version: management_iso_v3
+# Prepares the Debian Live ISO for usage by PXE roles (debian-live, netinstall)
+
+- name: 02 19 00 Fetch Debian Live ISO checksums
+  ansible.builtin.uri:
+    url: "{{ debian_live_iso_base_url }}/SHA256SUMS"
+    return_content: true
+  register: debian_live_iso_checksums
+
+- name: 02 19 00a Reset Debian Live ISO detection facts
+  ansible.builtin.set_fact:
+    debian_live_iso_filename: "{{ debian_live_iso_filename | default('') }}"
+    debian_live_iso_checksum: "{{ debian_live_iso_checksum | default('') }}"
+  when: debian_live_iso_checksums.status == 200
+
+- name: 02 19 00a1 Determine Debian Live ISO filename and checksum (flavor fallback)
+  vars:
+    candidate_filename: "{{ debian_live_iso_checksums.content | regex_search('debian-live-(?:testing|[0-9.]+)-amd64-' ~ item ~ '\\.iso') | default('', true) }}"
+    candidate_checksum: "{{ debian_live_iso_checksums.content | regex_search('([a-f0-9]{64})\\s+debian-live-(?:testing|[0-9.]+)-amd64-' ~ item ~ '\\.iso', '\\1') | default('', true) }}"
+  ansible.builtin.set_fact:
+    debian_live_iso_filename: "{{ candidate_filename }}"
+    debian_live_iso_checksum: "{{ candidate_checksum }}"
+  loop: "{{ debian_live_iso_flavors }}"
+  loop_control:
+    label: "{{ item }}"
+  when: debian_live_iso_checksums.status == 200 and debian_live_iso_filename | length == 0 and candidate_filename | length > 0 and candidate_checksum | length > 0
+
+- name: 02 19 00a2 Set Debian Live ISO download URL
+  ansible.builtin.set_fact:
+    debian_live_iso_url: "{{ debian_live_iso_base_url }}/{{ debian_live_iso_filename }}"
+  when: debian_live_iso_filename | length > 0
+
+- name: 02 19 00b Fail if Debian Live ISO filename or checksum could not be determined
+  ansible.builtin.fail:
+    msg: "Could not determine Debian Live ISO from {{ debian_live_iso_base_url }}"
+  when: debian_live_iso_filename | length == 0 or debian_live_iso_checksum | length == 0
+
+- name: 02 19 00c Show resolved Debian Live ISO information
+  ansible.builtin.debug:
+    msg:
+      - "Debian Live ISO base URL: {{ debian_live_iso_base_url }}"
+      - "Selected filename: {{ debian_live_iso_filename }}"
+      - "Checksum: {{ debian_live_iso_checksum }}"
+      - "Download URL: {{ debian_live_iso_url }}"
+
+- name: 02 19 01 Ensure ISO download directory exists
+  file:
+    path: "{{ debian_live_iso_path | dirname }}"
+    state: directory
+    owner: "{{ pxe_tmp_owner }}"
+    group: "{{ pxe_tmp_group }}"
+    mode: "{{ pxe_tmp_mode }}"
+
+- name: 02 19 02 Ensure mount directory for Debian Live ISO exists
+  file:
+    path: "{{ debian_live_iso_mount }}"
+    state: directory
+    owner: "{{ pxe_tmp_owner }}"
+    group: "{{ pxe_tmp_group }}"
+    mode: "{{ pxe_tmp_mode }}"
+
+- name: 02 19 03 Check if Debian Live ISO is already present
+  stat:
+    path: "{{ debian_live_iso_path }}"
+  register: iso_file
+
+- name: 02 19 04 Download Debian Live ISO (when absent or incomplete)
+  ansible.builtin.get_url:
+    url: "{{ debian_live_iso_url }}"
+    dest: "{{ debian_live_iso_path }}"
+    checksum: "sha256:{{ debian_live_iso_checksum }}"
+    owner: "{{ pxe_tmp_owner }}"
+    group: "{{ pxe_tmp_group }}"
+    mode: "0644"
+  when: not iso_file.stat.exists or iso_file.stat.size | default(0) < 1000000000
+
+- name: 02 19 04a Show downloaded Debian Live ISO size
+  ansible.builtin.stat:
+    path: "{{ debian_live_iso_path }}"
+  register: iso_file_post
+
+- name: 02 19 04b Debug Debian Live ISO size
+  ansible.builtin.debug:
+    msg: "Debian Live ISO size: {{ iso_file_post.stat.size | default('unknown') }}"
+
+- name: 02 19 05 Check if ISO has already been extracted
+  stat:
+    path: "{{ debian_live_iso_mount }}/live/vmlinuz"
+  register: live_iso_extracted
+
+- name: 02 19 06 Extract Debian Live ISO using bsdtar
+  command: >
+    bsdtar -C {{ debian_live_iso_mount }} -xf {{ debian_live_iso_path }}
+  when: not live_iso_extracted.stat.exists
+

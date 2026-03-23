@@ -1,0 +1,85 @@
+# RISng CentOS 7.8 Kickstart (role: {{ risng_kickstart_role | default(item | default('base')) }})
+install
+text
+lang en_US.UTF-8
+keyboard --vckeymap=de --xlayouts='de'
+timezone Europe/Berlin --isUtc
+network --bootproto=dhcp --device=bootif --activate --onboot=on --noipv6
+url --url=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+rootpw --plaintext risng
+user --name=nor --groups=wheel --password=nor --plaintext
+firewall --disabled
+authconfig --enableshadow --passalgo=sha512
+selinux --disabled
+bootloader --location=mbr
+services --disabled="kdump"
+
+
+%pre --log=/tmp/ks-pre.log
+set -x
+nmcli radio wifi off || true
+rfkill block wifi || true
+
+BOOTIF_MAC="$(sed -n 's/.*BOOTIF=01-\([0-9A-Fa-f-]*\).*/\1/p' /proc/cmdline | tr 'A-F' 'a-f' | tr '-' ':' | head -n1)"
+
+case "$BOOTIF_MAC" in
+{% for h in dhcp_static_hosts | default([]) %}
+{%   if h.mac is defined and (h.kickstart_partitioning is defined) %}
+  "{{ h.mac | lower }}")
+    cat >/tmp/risng-partitioning.ks <<'EOF'
+{{ h.kickstart_partitioning | join('\n') }}
+EOF
+    ;;
+{%   endif %}
+{% endfor %}
+  *)
+    cat >/tmp/risng-partitioning.ks <<EOF
+zerombr
+clearpart --all --initlabel
+autopart --type=lvm
+EOF
+    ;;
+esac
+%end
+
+%include /tmp/risng-partitioning.ks
+services --enabled=sshd
+skipx
+firstboot --disable
+reboot
+
+%post --log=/root/ks-post.log
+set -euxo pipefail
+
+RISNG_ROLE="{{ risng_kickstart_role | default(item | default('base')) }}"
+echo "RISNG_ROLE=${RISNG_ROLE}" > /etc/risng-role
+hostnamectl set-hostname {{ (risng_kickstart_role | default(item | default('base'))) | lower }}-centos78
+
+# Ensure SSH service is active after first boot
+systemctl enable sshd || true
+
+# Passwordless access from control host (same model as live clients)
+install -d -m 0700 /root/.ssh
+curl -fsSL "http://{{ tftp_server_ip }}/bootstrap/controlhost_id_ed25519.pub" >> /root/.ssh/authorized_keys || true
+chmod 0600 /root/.ssh/authorized_keys || true
+
+install -d -m 0700 /home/nor/.ssh
+curl -fsSL "http://{{ tftp_server_ip }}/bootstrap/controlhost_id_ed25519.pub" >> /home/nor/.ssh/authorized_keys || true
+chown -R nor:nor /home/nor/.ssh || true
+chmod 0600 /home/nor/.ssh/authorized_keys || true
+
+# Explicitly avoid internet repos in first phase (all payload must come from control host)
+curl -fsSL "http://{{ tftp_server_ip }}/kickstart/centos7-local.repo" -o /etc/yum.repos.d/risng-local.repo || cat >/etc/yum.repos.d/risng-local.repo <<REPO
+[risng-base]
+name=RISng local base
+baseurl=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+enabled=1
+gpgcheck=0
+REPO
+
+yum clean all || true
+
+# Install ansible after base install from local repo (phase 1 may still need mirrored RPM set)
+yum -y install ansible || true
+
+%end

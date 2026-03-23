@@ -1,0 +1,43 @@
+# host_vars/localhost.yml – korrigierte Version für Benutzer "risng"
+
+debian_codename: "trixie"
+debian_mirror_url: "http://deb.debian.org/debian"
+
+
+# Netzwerkinterfaces (Standardwerte; werden bei Bedarf automatisch erkannt)
+#internetinterface: "ens33"
+#risng_lan_interface: "ens36"
+
+# DHCP-Konfiguration
+dhcp_gateway: "{{ bootstrap_ip }}"
+dhcp_prefix: "24"
+dhcp_netmask: "255.255.255.0"
+# group_vars/all.yml
+grub_dir: "/var/lib/tftpboot/boot/grub"
+
+# PXE output target for TFTP
+pxe_tftp_dir: "/var/lib/tftpboot"
+pxe_tmp_dir: "/var/tmp/pxe-build/tftpboot_tmp"
+pxelinux_dir: "/var/lib/tftpboot/pxelinux.cfg"
+tftp_root: /var/lib/tftpboot
+
+pxe_timeout:        100
+pxe_default_label:  live-ris
+pxe_menu_prefixes:  [10,20]     # weitere Präfixe hier ergänzen
+
+# SSH-Benutzer und Home
+ssh_user: "{{ lookup('env', 'USER') | default(ansible_user_id, true) }}"
+ssh_user_home: "{{ '/home/' ~ (lookup('env', 'USER') | default(ansible_user_id, true)) }}"
+ssh_pubkey_path: "{{ pxe_tftp_dir }}/ssh/id_rsa.pub"
+
+# TFTP-Server-IP (für GRUB/Preseed Templates)
+tftp_server_ip: "{{ bootstrap_ip }}"
+
+# Optional – explizite Festlegung des echten Hostnamens
+ansible_hostname: "risng"
+
+# alpine_iso_defaults_v1
+alpine_iso_url: "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-standard-3.19.1-x86_64.iso"
+alpine_iso_path: "{{ iso_download_dir }}/alpine.iso"
+
+pxe_default_grub_entry: "Live-RIS (UEFI)"

@@ -1,0 +1,5 @@
+# bootentry-grub.cfg.j2 (global GRUB template)
+menuentry "{{ menu_title }}" {
+    linux {{ kernel_path }} {{ append_args }}
+    initrd {{ initrd_path }}
+}

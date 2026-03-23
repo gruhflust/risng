@@ -1,0 +1,78 @@
+# repair_v02
+# Version 02 – cleans up PXE stack and reinitialises DHCP + TFTP
+
+- name: 00 Stop PXE environment
+  hosts: bootstrapvm
+  become: true
+  
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+
+
+  tasks:
+
+    - name: 00-01 Stop DHCP and TFTP services
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - isc-dhcp-server
+        - tftpd-hpa
+
+    - name: 00-02 Down PXE NIC and flush IPs
+      ansible.builtin.shell: |
+        ip addr flush dev {{ risng_lan_interface }} || true
+        ip link set {{ risng_lan_interface }} down
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: 00-03 Bring internet NIC up
+      ansible.builtin.shell: ip link set {{ internetinterface }} up
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+- name: 01 Repair PXE content
+  hosts: bootstrapvm
+  become: true
+
+  roles:
+    - management
+    - debian-live
+
+- name: 02 Restart PXE services and report status
+  hosts: bootstrapvm
+  become: true
+
+  tasks:
+
+    - name: 02-01 Start DHCP and TFTP services
+      ansible.builtin.service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - isc-dhcp-server
+        - tftpd-hpa
+
+    - name: 02-02 Show current NICs
+      ansible.builtin.shell: ip -brief addr
+      register: iface_state
+      changed_when: false
+
+    - name: 02-03 Show PXE service status
+      ansible.builtin.shell: |
+        systemctl is-active isc-dhcp-server
+        systemctl is-active tftpd-hpa
+      register: pxe_service_state
+      changed_when: false
+
+    - name: 02-04 Final repair report
+      ansible.builtin.debug:
+        msg: |
+          PXE services running:
+          {{ pxe_service_state.stdout_lines | join('\n') }}
+
+          Interface states:
+          {{ iface_state.stdout_lines | join('\n') }}

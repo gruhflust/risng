@@ -1,0 +1,211 @@
+# dhcp_defaults_v11
+
+dhcp_interface: "{{ risng_lan_interface }}"
+dhcp_subnet: "{{ dhcp_network_prefix }}.0"
+dhcp_netmask: "255.255.255.0"
+dhcp_prefix: "24"
+dhcp_gateway: "{{ bootstrap_ip }}"
+dhcp_dns_server: "{{ bootstrap_ip }}"
+
+dhcp_range_start: "{{ dhcp_network_prefix }}.101"
+dhcp_range_end:   "{{ dhcp_network_prefix }}.110"
+
+# Boot profile selection.
+# - dhcp_default_boot_profile controls the default preselected role for all clients.
+# - Per-host overrides via dhcp_static_hosts[].boot_profile are supported.
+# - dhcp_static_hosts[].boot_filename still has highest priority.
+#
+# Keep risng as default unless you explicitly want another role.
+dhcp_default_boot_profile: "live-ris"
+
+dhcp_boot_profiles:
+  live-ris:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  iCWP:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  iFDO:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  iCMD:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  FDPS:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  CORRP:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  debian-live:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+  spec:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
+
+# Menu targets used for per-host preselection/highlighting.
+# BIOS labels must match LABEL entries in pxelinux fragments.
+# UEFI entries must match GRUB menuentry titles.
+dhcp_boot_menu_defaults:
+  live-ris:
+    bios_label: "live-ris"
+    uefi_menuentry: "Live-RIS (UEFI)"
+  iCWP:
+    bios_label: "icwp"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (iCWP)"
+  iFDO:
+    bios_label: "ifdo"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (iFDO)"
+  iCMD:
+    bios_label: "icmd"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (iCMD)"
+  FDPS:
+    bios_label: "fdps"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (FDPS)"
+  CORRP:
+    bios_label: "corrp"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (CORRP)"
+  debian-live:
+    bios_label: "live-ris"
+    uefi_menuentry: "Live-RIS (UEFI)"
+  spec:
+    bios_label: "icwp"
+    uefi_menuentry: "CentOS 7.8 AutoInstall (iCWP)"
+
+
+dhcp_static_hosts:
+  - name: homelabdummy
+    mac: "BC:24:11:FC:F9:EA"
+    ip:  "10.228.229.66"
+    boot_profile: risng  
+
+  - name: nochndummy
+    mac: "BC:24:11:31:27:0E"
+    ip:  "10.228.229.67"
+    boot_profile: debian-live
+  - name: uefidummy
+    mac: "BC:24:11:2E:15:F8"
+    ip:  "10.228.229.68"
+    boot_profile: debian-live
+
+  - name: uefidummy2
+    mac: "BC:24:11:25:6E:4A"
+    ip:  "10.228.229.69"
+    boot_profile: spec
+
+  - name: dhcp-uefi2
+    mac: "00:50:56:ba:f8:4a"
+    ip:  "10.228.229.98"
+    boot_profile: iCMD
+    pingpartner_ip: "10.228.229.23"
+    
+  - name: uefi-freak
+    mac: "00:50:56:ba:9d:8b"
+    ip:  "10.228.229.78"
+    pingpartner_ip: "10.228.229.98"
+    extra_nics:
+      - mac: "00:50:56:ba:3f:1f"
+        vlan_id: 401
+        vlan_ip: "10.228.229.79"
+        pingpartner_ip: "10.208.1.126" # ermittelt aus code/ansible/inventory/vlans.yml
+      - mac: "00:50:56:ba:33:c3"
+        vlan_id: 402
+        vlan_ip: "10.228.229.85"
+        pingpartner_ip: "10.208.7.254"
+
+  - name: legacy
+    mac: "00:50:56:ba:5e:02"
+    ip:  "10.228.229.23"
+    pingpartner_ip: "10.228.229.78"
+
+  - name: auf99
+    mac: "00:50:56:ba:3f:d3"
+    ip:  "10.228.229.99"
+    pingpartner_ip: "10.228.229.98"
+    extra_nics:
+      - mac: "00:50:56:ba:7d:94"
+        vlan_id: 401
+        vlan_ip: "10.228.229.150"
+        pingpartner_ip: "10.208.1.126"
+
+  - name: vlan-test-1
+    mac: "00:50:56:ba:34:bd"
+    ip:  "10.228.229.60"
+    extra_nics:
+      - mac: "00:50:56:ba:71:83"
+        vlan_id: 2000
+        vlan_ip: "10.228.0.10"
+        pingpartner_ip: "10.228.0.14"
+      - mac: "00:50:56:ba:f8:51"
+        vlan_id: 2001
+        vlan_ip: "10.228.0.20"
+        pingpartner_ip: "10.228.0.30"
+        
+  - name: vlan-test-2
+    mac: "00:50:56:ba:39:61"
+    ip:  "10.228.229.61"
+    extra_nics:
+      - mac: "00:50:56:ba:fd:4c"
+        vlan_id: 2000
+        vlan_ip: "10.228.0.11"
+        pingpartner_ip: "10.228.0.14"
+      - mac: "00:50:56:ba:d8:05"
+        vlan_id: 2001
+        vlan_ip: "10.228.0.21"
+        pingpartner_ip: "10.228.0.30"
+
+# Hier wird für den Test manuell die MAC Adressen des Testhost eingetragen # Diese Informationen müssen später automatisch per Netbox Import eingelesen werden sobald die dortigen Daten vollständig sind
+
+  - name: icocmd01
+    mac: "c0:7c:d1:31:53:95"
+    ip: "10.228.229.200"
+    boot_profile: iCMD
+    secondstage_enabled: true
+    secondstage_components:
+      - graphics-gnome
+    # Optional install-slot marker for operational overview / dryrun output
+    install_slot: "A"
+    # Optional slot map for future dual-slot workflows
+    install_slots:
+      A:
+        root_part: "sda2"
+      B:
+        root_part: "sda3"
+    # Optional per-client kickstart partition override.
+    # If omitted, default is: first disk (sda) full autopart.
+    # kickstart_partitioning:
+    #   - zerombr
+    #   - clearpart --all --initlabel --drives=sda
+    #   - part /boot --fstype=xfs --size=1024 --ondisk=sda
+    #   - part / --fstype=xfs --size=51200 --ondisk=sda
+    #   - part swap --size=4096 --ondisk=sda
+
+  - name: icocmd02
+    mac: "00:50:56:ba:c8:11"
+    ip: "10.228.229.201"
+    boot_profile: iCMD
+    secondstage_enabled: true
+    secondstage_components:
+      - graphics-gnome
+    # Optional install-slot marker for operational overview / dryrun output
+    install_slot: "A"
+    # Optional slot map for future dual-slot workflows
+    install_slots:
+      A:
+        root_part: "sda2"
+      B:
+        root_part: "sda3"
+    # Optional per-client kickstart partition override.
+    # If omitted, default is: first disk (sda) full autopart.
+    # kickstart_partitioning:
+    #   - zerombr
+    #   - clearpart --all --initlabel --drives=sda
+    #   - part /boot --fstype=xfs --size=1024 --ondisk=sda
+    #   - part / --fstype=xfs --size=51200 --ondisk=sda
+    #   - part swap --size=4096 --ondisk=sda
+
+
+
+# Optional role mapping written by RISng web UI
+dhcp_mac_role_map_file: "/etc/risng/mac_role_map.json"

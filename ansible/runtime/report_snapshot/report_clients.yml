@@ -1,0 +1,398 @@
+---
+# report_clients_v14 – DHCP lease extraction + SSH system probing
+# Voraussetzungen:
+# - SSH-Key: /home/risng/.ssh/id_ed25519
+# - root-Login auf PXE-Clients ist möglich (SSH-Key wurde durch risng-setup verteilt)
+
+- name: Collect DHCP client info with remote system data via SSH
+  hosts: localhost
+  become: true
+  gather_facts: false
+
+  vars:
+    dhcp_leases_file: "/var/lib/dhcp/dhcpd.leases"
+    static_hosts_file: "/etc/dhcp/static-hosts.conf"
+    output_file: "{{ lookup('env', 'HOME') }}/report.json"
+    pdf_output_file: "{{ (output_file is match('.*\\.json$')) | ternary(output_file | regex_replace('\\.json$', '.pdf'), output_file + '.pdf') }}"
+    html_output_file: "{{ pdf_output_file | regex_replace('\\.pdf$', '.html') }}"
+    ssh_user: "root"
+    ssh_key_file: "/home/risng/.ssh/id_ed25519"
+    ssh_opts: "-i {{ ssh_key_file }} -o StrictHostKeyChecking=no -o ConnectTimeout=3"
+    tmp_raw: "/tmp/leases_raw.json"
+    client_data: []
+    dhcp_defaults_file: "{{ playbook_dir | realpath }}/../../bootstrapvm/roles/dhcp/defaults/main.yml"
+    dhcp_mac_hostname_map: {}
+
+  tasks:
+    - name: 01 Parse DHCP leases into raw JSON
+      shell: |
+        awk '
+          BEGIN { print "["; first = 1 }
+          /^lease/ { ip = $2; mac = ""; hostname = ""; active = 0 }
+          /hardware ethernet/ { gsub(";", "", $3); mac = $3 }
+          /client-hostname/ { gsub(/[\";]/, "", $2); hostname = $2 }
+          /binding state active/ { active = 1 }
+          /^}/ {
+            if (active) {
+              hostname = (hostname == "") ? mac : hostname
+              if (!first) print ","
+              printf("{\"ip\":\"%s\",\"mac\":\"%s\",\"hostname\":\"%s\"}", ip, mac, hostname)
+              first = 0
+            }
+          }
+          END { print "]" }
+        ' {{ dhcp_leases_file }} > {{ tmp_raw }}
+      changed_when: false
+
+    - name: 02 Load leases from file
+      slurp:
+        src: "{{ tmp_raw }}"
+      register: leases_raw
+
+    - name: 03 Decode leases into structured list
+      set_fact:
+        leases: "{{ leases_raw.content | b64decode | from_json }}"
+
+    - name: 03a Load DHCP defaults from repository without templating
+      slurp:
+        src: "{{ dhcp_defaults_file }}"
+      register: dhcp_defaults_raw
+
+    - name: 03a.1 Parse DHCP defaults YAML
+      set_fact:
+        dhcp_defaults: "{{ dhcp_defaults_raw.content | b64decode | from_yaml | default({}, true) }}"
+
+    - name: 03a.2 Initialize static hosts list
+      set_fact:
+        static_hosts: []
+
+    - name: 03a.3 Populate dhcp_static_hosts from defaults
+      set_fact:
+        dhcp_static_hosts: "{{ dhcp_defaults.dhcp_static_hosts | default([]) }}"
+
+    - name: 03a.3c Build pingpartner index from dhcp_static_hosts
+      shell: |
+        python3 - <<'PY'
+        import json
+        import sys
+        from collections import defaultdict
+        from pathlib import Path
+
+        try:
+          hosts = json.loads(sys.argv[1]) or []
+        except json.JSONDecodeError:
+          hosts = []
+
+        defaults_path = Path(sys.argv[2])
+        raw_lines = []
+        if defaults_path.exists():
+          raw_lines = defaults_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+
+        pingpartners = defaultdict(list)
+
+        def add_partner(ip_value: str | None, partner: str | None) -> None:
+          if not ip_value or not partner:
+            return
+          ip_value = str(ip_value).strip()
+          partner = str(partner).strip()
+          if not ip_value or not partner or partner.lower() == "n/a":
+            return
+          if partner not in pingpartners[ip_value]:
+            pingpartners[ip_value].append(partner)
+
+        for host in hosts:
+          if not isinstance(host, dict):
+            continue
+          add_partner(host.get("ip"), host.get("pingpartner_ip"))
+          for nic in host.get("extra_nics") or []:
+            if not isinstance(nic, dict):
+              continue
+            add_partner(nic.get("vlan_ip"), nic.get("pingpartner_ip"))
+
+        # Also scan the raw defaults file so repeated pingpartner_ip entries are not lost
+        # if YAML parsing collapses duplicate keys.
+        current_ip = None
+        for line in raw_lines:
+          stripped = line.strip()
+          if not stripped:
+            continue
+          if stripped.startswith("- name:"):
+            current_ip = None
+            continue
+          if stripped.startswith("ip:") or stripped.startswith("vlan_ip:"):
+            current_ip = stripped.split(":", 1)[1].strip().strip("\"'")
+            continue
+          if stripped.startswith("pingpartner_ip:"):
+            partner_val = stripped.split(":", 1)[1].strip().strip("\"'")
+            add_partner(current_ip, partner_val)
+
+        print(json.dumps(pingpartners, ensure_ascii=False))
+        PY
+      args:
+        argv:
+          - "{{ dhcp_static_hosts | default([]) | to_json }}"
+          - "{{ dhcp_defaults_file }}"
+      register: dhcp_pingpartner_index
+      changed_when: false
+      failed_when: false
+
+    - name: 03a.3d Store pingpartner index
+      set_fact:
+        dhcp_pingpartner_map: "{{ dhcp_pingpartner_index.stdout | default('{}', true) | from_json | default({}, true) }}"
+
+    - name: 03a.3e Build pingpartner MAC index from dhcp_static_hosts
+      shell: |
+        python3 - <<'PY'
+        import json
+        import re
+        import sys
+        from collections import defaultdict
+        from pathlib import Path
+
+        def normalize_mac(raw: str | None) -> str:
+          raw = (raw or "").strip().lower()
+          raw = re.sub(r"[^0-9a-f]", "", raw)
+          if len(raw) == 12:
+            raw = ":".join(raw[i : i + 2] for i in range(0, 12, 2))
+          return raw
+
+        try:
+          hosts = json.loads(sys.argv[1]) or []
+        except json.JSONDecodeError:
+          hosts = []
+
+        defaults_path = Path(sys.argv[2])
+        raw_lines = []
+        if defaults_path.exists():
+          raw_lines = defaults_path.read_text(encoding="utf-8", errors="ignore").splitlines()
+
+        pingpartners = defaultdict(list)
+
+        def add_partner(mac_value: str | None, partner: str | None) -> None:
+          mac_value = normalize_mac(mac_value)
+          if not mac_value or not partner:
+            return
+          partner = str(partner).strip()
+          if not partner or partner.lower() == "n/a":
+            return
+          if partner not in pingpartners[mac_value]:
+            pingpartners[mac_value].append(partner)
+
+        for host in hosts:
+          if not isinstance(host, dict):
+            continue
+          add_partner(host.get("mac"), host.get("pingpartner_ip"))
+          for nic in host.get("extra_nics") or []:
+            if not isinstance(nic, dict):
+              continue
+            add_partner(nic.get("mac"), nic.get("pingpartner_ip"))
+
+        # Also scan raw defaults to keep duplicate pingpartner_ip values from being dropped
+        current_mac = None
+        for line in raw_lines:
+          stripped = line.strip()
+          if not stripped:
+            continue
+          if stripped.startswith("- name:"):
+            current_mac = None
+            continue
+          if stripped.startswith("mac:"):
+            current_mac = stripped.split(":", 1)[1].strip().strip("\"'")
+            continue
+          if stripped.startswith("pingpartner_ip:"):
+            partner_val = stripped.split(":", 1)[1].strip().strip("\"'")
+            add_partner(current_mac, partner_val)
+
+        print(json.dumps(pingpartners, ensure_ascii=False))
+        PY
+      args:
+        argv:
+          - "{{ dhcp_static_hosts | default([]) | to_json }}"
+          - "{{ dhcp_defaults_file }}"
+      register: dhcp_pingpartner_mac_index
+      changed_when: false
+      failed_when: false
+
+    - name: 03a.3f Store pingpartner MAC index
+      set_fact:
+        dhcp_pingpartner_mac_map: "{{ dhcp_pingpartner_mac_index.stdout | default('{}', true) | from_json | default({}, true) }}"
+
+    - name: 03a.3a Build MAC map from structured defaults content
+      shell: |
+        python3 - <<'PY'
+        import json
+        import re
+        import sys
+
+        def normalize_mac(raw: str | None) -> str:
+            raw = (raw or "").strip().lower()
+            raw = re.sub(r"[^0-9a-f]", "", raw)
+            if len(raw) == 12:
+                raw = ":".join(raw[i : i + 2] for i in range(0, 12, 2))
+            return raw
+
+        try:
+            hosts = json.loads(sys.argv[1]) or []
+        except json.JSONDecodeError:
+            hosts = []
+
+        mapping: dict[str, str] = {}
+        for host in hosts:
+            if not isinstance(host, dict):
+                continue
+            name = str(host.get("name") or "").strip()
+            mac = normalize_mac(host.get("mac"))
+            if name and mac:
+                mapping[mac] = name
+            for nic in host.get("extra_nics") or []:
+                if not isinstance(nic, dict):
+                    continue
+                nic_mac = normalize_mac(nic.get("mac"))
+                if name and nic_mac:
+                    mapping[nic_mac] = name
+
+        print(json.dumps(mapping, ensure_ascii=False))
+        PY
+      args:
+        argv:
+          - "{{ dhcp_static_hosts | default([]) | to_json }}"
+      register: dhcp_structured_map
+      changed_when: false
+      failed_when: false
+
+    - name: 03a.3b Extract MAC-to-hostname pairs from raw defaults text
+      shell: |
+        python3 - <<'PY'
+        import json
+        import re
+        import sys
+
+        text = sys.stdin.read()
+        current_name = None
+        mapping: dict[str, str] = {}
+
+
+        def normalize_mac(value: str) -> str:
+            value = value.strip().lower().replace("-", ":")
+            value = re.sub(r"[^0-9a-f:]", "", value)
+            if len(value) == 12:
+                value = ":".join(value[i : i + 2] for i in range(0, 12, 2))
+            return value
+
+        name_re = re.compile(r"\s*-\s*name:\s*(.+)")
+        mac_re = re.compile(r"\s*mac:\s*\"?([0-9A-Fa-f:]{11,})")
+
+        for line in text.splitlines():
+            name_match = name_re.match(line)
+            if name_match:
+                current_name = name_match.group(1).strip().strip('"').strip("'")
+                continue
+
+            mac_match = mac_re.match(line)
+            if mac_match and current_name:
+                mac_value = normalize_mac(mac_match.group(1))
+                if mac_value:
+                    mapping[mac_value] = current_name
+
+        print(json.dumps(mapping, ensure_ascii=False))
+        PY
+      args:
+        stdin: "{{ dhcp_defaults_raw.content | b64decode }}"
+      register: dhcp_defaults_text_map
+      changed_when: false
+      failed_when: false
+
+    - name: 03a.4 Consolidate normalized MAC-to-hostname map
+      set_fact:
+        dhcp_structured_map_parsed: "{{ dhcp_structured_map.stdout | default('{}', true) | from_json | default({}, true) }}"
+        dhcp_defaults_text_map_parsed: "{{ dhcp_defaults_text_map.stdout | default('{}', true) | from_json | default({}, true) }}"
+
+    - name: 03a.5 Merge normalized MAC-to-hostname map
+      set_fact:
+        dhcp_mac_hostname_map: "{{ dhcp_structured_map_parsed | combine(dhcp_defaults_text_map_parsed) }}"
+
+    - name: 03b Add hosts from dhcp_static_hosts variable
+      set_fact:
+        static_hosts: "{{ static_hosts + [{ 'ip': item.ip, 'mac': item.mac, 'hostname': item.name }] }}"
+      loop: "{{ dhcp_static_hosts }}"
+      when: dhcp_static_hosts is defined
+
+    - name: 03c Check static hosts file
+      stat:
+        path: "{{ static_hosts_file }}"
+      register: static_hosts_file_stat
+      when: static_hosts|length == 0
+
+    - name: 03d Parse static-hosts.conf if available
+      shell: |
+        awk '
+          BEGIN { print "["; first=1 }
+          /^host/ { hostname=$2 }
+          /hardware ethernet/ { mac=$3; gsub(";", "", mac) }
+          /fixed-address/ { ip=$2; gsub(";", "", ip) }
+          /^}/ {
+            if (!first) print ","
+            printf("{\"ip\":\"%s\",\"mac\":\"%s\",\"hostname\":\"%s\"}", ip, mac, hostname)
+            first=0
+          }
+          END { print "]" }
+        ' {{ static_hosts_file }} > /tmp/static_hosts.json
+      when: static_hosts|length == 0 and static_hosts_file_stat.stat.exists
+      changed_when: false
+
+    - name: 03e Load static hosts from file
+      slurp:
+        src: /tmp/static_hosts.json
+      register: static_hosts_raw
+      when: static_hosts|length == 0 and static_hosts_file_stat.stat.exists
+
+    - name: 03f Decode static hosts
+      set_fact:
+        static_hosts: "{{ static_hosts_raw.content | b64decode | from_json }}"
+      when: static_hosts|length == 0 and static_hosts_file_stat.stat.exists
+
+    - name: 03g Ensure static_hosts is defined
+      set_fact:
+        static_hosts: "{{ static_hosts | default([]) }}"
+
+    - name: 04 Enrich each lease with remote SSH data
+      include_tasks: ssh_client_collect.yml
+      loop: "{{ leases + static_hosts }}"
+      loop_control:
+        loop_var: lease
+
+    - name: 05 Save full report to JSON
+      copy:
+        dest: "{{ output_file }}"
+        content: "{{ client_data | to_nice_json }}"
+        mode: "0644"
+        owner: risng
+        group: risng
+
+    - name: 06 Ensure PDF renderer helper is available
+      copy:
+        src: files/report_to_pdf.py
+        dest: /tmp/report_to_pdf.py
+        mode: "0755"
+
+    - name: 06a Ensure report icon is available for HTML/PDF export
+      copy:
+        src: files/risng_icon.png
+        dest: /tmp/risng_icon.png
+        mode: "0644"
+
+    - name: 07 Render PDF summary next to JSON report
+      command: python3 /tmp/report_to_pdf.py "{{ output_file }}" "{{ pdf_output_file }}"
+
+    - name: 08 Ensure report artefacts owned by risng
+      file:
+        path: "{{ item }}"
+        state: file
+        owner: risng
+        group: risng
+        mode: "0644"
+      loop:
+        - "{{ output_file }}"
+        - "{{ pdf_output_file }}"
+        - "{{ html_output_file }}"
+

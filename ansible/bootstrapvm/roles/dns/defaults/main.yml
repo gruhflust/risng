@@ -1,0 +1,20 @@
+---
+# Forward DNS zone served by bind9 for the PXE network.
+dns_zone_name: "pnt.local"
+
+# Reverse zone derived from the active PXE network prefix (e.g. 10.228.229 -> 229.228.10.in-addr.arpa).
+dns_reverse_zone_name: "{{ (dhcp_network_prefix | default((bootstrap_ip.split('.')[:3] | join('.')))).split('.') | reverse | join('.') }}.in-addr.arpa"
+
+dns_bootstrap_ip: "{{ bootstrap_ip }}"
+# dns_interface: "ens36"
+
+# Local resolver address written to /etc/resolv.conf on bootstrap host.
+dns_nameserver: "{{ bootstrap_ip }}"
+
+# Upstream resolvers for recursive lookups (optional). Empty = no explicit forwarders.
+dns_forwarders: []
+
+# Service names can differ across images/releases.
+dns_service_candidates:
+  - bind9
+  - named

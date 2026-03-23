@@ -1,0 +1,17 @@
+---
+# 01 Paths used only while rebuilding the live filesystem
+debian_live_iso_mount: "{{ pxe_tmp_dir }}/mnt-live"
+debian_live_workdir:   "{{ pxe_tmp_dir }}/live-root"
+debian_live_target:    "{{ pxe_tftp_dir }}/debian-live/live"
+debian_live_squashfs:  "{{ debian_live_iso_mount }}/live/filesystem.squashfs"
+
+# 02 Location of the already-downloaded ISO (comes from management role)
+debian_live_iso_path: "{{ iso_download_dir }}/debian-live.iso"
+
+# 03 File names inside the ISO
+debian_live_kernel: "vmlinuz"
+debian_live_initrd: "initrd.img"
+
+# 04 User inserted into the squashfs
+ssh_user:       "risng"
+ssh_user_home:  "{{ '/home/' ~ (lookup('env', 'USER') | default(ansible_user_id, true)) }}"

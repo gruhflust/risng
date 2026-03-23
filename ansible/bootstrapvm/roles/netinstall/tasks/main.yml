@@ -1,0 +1,155 @@
+# roles/netinstall/tasks/main.yml
+# Version: netinstall_main_v12 – Preseed-free PXE Boot with squashfs root
+
+- name: 04 01 Ensure working directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ netinstall_workdir }}"
+    - "{{ netinstall_target }}"
+    - "{{ pxelinux_dir }}"
+    - "{{ grub_dir }}"
+
+# -------------------------------------------------------------------
+# Step 1: Bootstrap minimal Debian system (native architecture)
+# -------------------------------------------------------------------
+- name: 04 01a Stat check for existing debootstrap rootfs
+  ansible.builtin.stat:
+    path: "{{ netinstall_workdir }}/bin/bash"
+  register: netinstall_rootfs_check
+
+- name: 04 01b Remove old debootstrap target if incomplete
+  ansible.builtin.file:
+    path: "{{ netinstall_workdir }}"
+    state: absent
+  when: not netinstall_rootfs_check.stat.exists
+
+- name: 04 01c Recreate working directory
+  ansible.builtin.file:
+    path: "{{ netinstall_workdir }}"
+    state: directory
+    mode: "0755"
+
+
+- name: 04 02 Run debootstrap with complete systemd support
+  vars:
+    debootstrap_includes: >-
+      systemd,systemd-sysv,live-boot,openssh-server,python3,rsync,
+      netbase,ifupdown,locales,vim,less,dialog,sudo
+  command: >
+    debootstrap
+    --no-check-gpg
+    --include={{ debootstrap_includes | replace('\n', '') | replace(' ', '') }}
+    {{ debian_codename }} {{ netinstall_workdir }} {{ debian_mirror_url }}
+  args:
+    creates: "{{ netinstall_workdir }}/bin/bash"
+
+- name: 04 02a Verify presence of init system (systemd)
+  stat:
+    path: "{{ netinstall_workdir }}/usr/lib/systemd/systemd"
+  register: init_check
+
+- name: 04 02b Abort if init system is missing
+  fail:
+    msg: "ERROR: /usr/lib/systemd/systemd missing – debootstrap rootfs unbootable!"
+  when: not init_check.stat.exists
+
+- name: 04 02c Ensure target /root directory exists
+  file:
+    path: "{{ netinstall_workdir }}/root"
+    state: directory
+    mode: "0750"
+
+- name: 04 02d Copy all helper files from role into /root of target system
+  copy:
+    src: "{{ item }}"
+    dest: "{{ netinstall_workdir }}/root/{{ item | basename }}"
+    mode: "0644"
+  with_fileglob:
+    - "{{ role_path }}/files/*"
+  when: lookup('fileglob', '{{ role_path }}/files/*', errors='ignore') | length > 0
+
+# -------------------------------------------------------------------
+# Step 2: Customize system (SSH user, hostname, keys, etc.)
+# -------------------------------------------------------------------
+- import_tasks: customise_root.yml
+
+# -------------------------------------------------------------------
+# Step 3: Configure persistent network setup inside rootfs
+# -------------------------------------------------------------------
+- import_tasks: 20_network_persistence.yml
+
+# -------------------------------------------------------------------
+# Step 4: Create squashfs for PXE boot
+# -------------------------------------------------------------------
+- name: 04 05 Create squashfs rootfs
+  command: >
+    mksquashfs {{ netinstall_workdir }} {{ netinstall_target }}/filesystem.squashfs -comp xz -noappend
+  args:
+    creates: "{{ netinstall_target }}/filesystem.squashfs"
+
+# -------------------------------------------------------------------
+# Step 5: Mount and extract initrd/vmlinuz from Debian Live ISO
+# -------------------------------------------------------------------
+- name: 04 00 Mount Debian Live ISO (initrd/vmlinuz)
+  command: >
+    bsdtar -C {{ debian_live_iso_mount }} -xf {{ debian_live_iso_path }}
+  args:
+    creates: "{{ debian_live_iso_mount }}/live"
+
+- name: 04 06a Use live initrd.img instead of netboot
+  copy:
+    remote_src: true
+    src: "{{ debian_live_iso_mount }}/live/initrd.img"
+    dest: "{{ netinstall_target }}/initrd.img"
+    mode: "0644"
+
+- name: 04 06b Use live vmlinuz instead of netboot
+  copy:
+    remote_src: true
+    src: "{{ debian_live_iso_mount }}/live/vmlinuz"
+    dest: "{{ netinstall_target }}/vmlinuz"
+    mode: "0644"
+
+# -------------------------------------------------------------------
+# Step 6: Deploy PXELINUX (BIOS) menu entry
+# -------------------------------------------------------------------
+- name: 04 07 Deploy PXELINUX (BIOS) entry
+  template:
+    src: "{{ pxe_entry_pxelinux_template }}"
+    dest: "{{ pxelinux_dir }}/10-netinstall.cfg"
+    mode: "0644"
+  vars:
+    filename_prefix: netinstall
+    menu_title: "{{ netinstall_label }}"
+    kernel_path: "/{{ netinstall_target_relative }}/{{ netinstall_kernel }}"
+    initrd_path: "/{{ netinstall_target_relative }}/{{ netinstall_initrd }}"
+    kernel_cmdline: >-
+      boot=live fetch=tftp://{{ tftp_server_ip }}/{{ netinstall_target_relative }}/filesystem.squashfs
+      debug nosplash toram
+
+# -------------------------------------------------------------------
+# Step 7: Deploy GRUB (UEFI) menu entry
+# -------------------------------------------------------------------
+- name: 04 08 Deploy GRUB (UEFI) entry
+  template:
+    src: "{{ pxe_entry_grub_template }}"
+    dest: "{{ grub_dir }}/10-netinstall.cfg"
+    mode: "0644"
+  vars:
+    filename_prefix: netinstall
+    menu_title: "{{ netinstall_grub_label }}"
+    kernel_path: "/{{ netinstall_target_relative }}/{{ netinstall_kernel }}"
+    initrd_path: "/{{ netinstall_target_relative }}/{{ netinstall_initrd }}"
+    append_args: >-
+      boot=live net.ifnames=0 ip=dhcp
+      fetch=tftp://{{ tftp_server_ip }}/{{ netinstall_target_relative }}/filesystem.squashfs
+      locales=de_DE.UTF-8 keyboard-layouts=de
+      debug nosplash toram
+
+# -------------------------------------------------------------------
+# Step 8: Generate bootloader binaries (shared with debian-live)
+# -------------------------------------------------------------------
+- import_tasks: bootloader_generation.yml

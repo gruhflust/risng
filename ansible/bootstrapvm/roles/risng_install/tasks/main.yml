@@ -1,0 +1,257 @@
+# roles/risng_install/tasks/main.yml
+# CentOS 7.8 PXE autoinstall + role-specific kickstart profiles
+
+- name: 04 01 Ensure working directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ iso_download_dir }}"
+    - "{{ spec_iso_mount }}"
+    - "{{ spec_target }}"
+    - "{{ spec_repo_root }}"
+    - "{{ pxe_tftp_dir }}/kickstart"
+    - "{{ pxe_tftp_dir }}/bootstrap"
+    - "{{ pxelinux_dir }}"
+    - "{{ grub_dir }}"
+
+- name: 04 01a Download CentOS 7.8 ISO when ISO mode is selected
+  ansible.builtin.get_url:
+    url: "{{ centos78_iso_url }}"
+    dest: "{{ centos78_iso_path }}"
+    mode: "0644"
+    force: false
+    timeout: 1200
+  when: spec_repo_source_mode == 'iso'
+
+- name: 04 01b Probe staged installer artifacts before optional ISO rebuild
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ spec_repo_root }}/LiveOS/squashfs.img"
+    - "{{ spec_repo_root }}/images/install.img"
+    - "{{ spec_repo_root }}/images/pxeboot/{{ spec_kernel }}"
+    - "{{ spec_repo_root }}/images/pxeboot/{{ spec_initrd }}"
+  register: spec_repo_stage2_probe
+  when: spec_repo_source_mode == 'iso'
+
+- name: 04 01c Determine whether ISO extract/sync is required
+  ansible.builtin.set_fact:
+    spec_repo_needs_rebuild: >-
+      {{
+        (spec_repo_rebuild_always | bool)
+        or
+        ((spec_repo_stage2_probe.results | rejectattr('stat.exists') | list | length) > 0)
+      }}
+  when: spec_repo_source_mode == 'iso'
+
+- name: 04 01d Explain ISO rebuild decision
+  ansible.builtin.debug:
+    msg: >-
+      spec_repo_source_mode=iso, spec_repo_needs_rebuild={{ spec_repo_needs_rebuild | default(true) }}
+      (rebuild_always={{ spec_repo_rebuild_always | bool }}).
+  when: spec_repo_source_mode == 'iso'
+
+- name: 04 02 Reset extracted ISO workspace when ISO mode and rebuild is required
+  ansible.builtin.file:
+    path: "{{ spec_iso_mount }}"
+    state: absent
+  when:
+    - spec_repo_source_mode == 'iso'
+    - spec_repo_needs_rebuild | default(true)
+
+- name: 04 02a Recreate extracted ISO workspace when ISO mode and rebuild is required
+  ansible.builtin.file:
+    path: "{{ spec_iso_mount }}"
+    state: directory
+    mode: "0755"
+  when:
+    - spec_repo_source_mode == 'iso'
+    - spec_repo_needs_rebuild | default(true)
+
+- name: 04 02b Extract CentOS 7.8 ISO when ISO mode and rebuild is required
+  ansible.builtin.command: >
+    bsdtar -C {{ spec_iso_mount }} -xf {{ centos78_iso_path }}
+  when:
+    - spec_repo_source_mode == 'iso'
+    - spec_repo_needs_rebuild | default(true)
+
+- name: 04 02c Sync extracted CentOS tree into HTTP repo root when ISO mode and rebuild is required
+  ansible.builtin.command: >
+    rsync -a --delete {{ spec_iso_mount }}/ {{ spec_repo_root }}/
+  when:
+    - spec_repo_source_mode == 'iso'
+    - spec_repo_needs_rebuild | default(true)
+
+- name: 04 02d Validate synced CentOS repo metadata exists
+  ansible.builtin.stat:
+    path: "{{ spec_repo_root }}/repodata/repomd.xml"
+  register: spec_repo_repodata
+
+- name: 04 02e Validate synced CentOS package tree exists
+  ansible.builtin.stat:
+    path: "{{ spec_repo_root }}/Packages"
+  register: spec_repo_packages
+
+- name: 04 02f Fail early when local CentOS repo is incomplete
+  ansible.builtin.fail:
+    msg: >-
+      Local CentOS repo incomplete under {{ spec_repo_root }}
+      (repodata={{ spec_repo_repodata.stat.exists }}, packages={{ spec_repo_packages.stat.exists }}).
+  when: not spec_repo_repodata.stat.exists or not spec_repo_packages.stat.exists
+
+- name: 04 02fa Validate critical RPMs exist in published CentOS repo
+  ansible.builtin.stat:
+    path: "{{ spec_repo_root }}/Packages/{{ item }}"
+  loop:
+    - fipscheck-lib-1.4.1-6.el7.x86_64.rpm
+    - centos-release-7-8.2003.0.el7.centos.x86_64.rpm
+    - kernel-3.10.0-1127.el7.x86_64.rpm
+  register: spec_repo_critical_rpms
+
+- name: 04 02fb Fail early when critical RPMs are missing from published repo
+  ansible.builtin.fail:
+    msg: >-
+      Published CentOS repo under {{ spec_repo_root }} is missing critical RPMs:
+      {{ spec_repo_critical_rpms.results | rejectattr('stat.exists') | map(attribute='item') | list | join(', ') }}
+  when: >-
+    (spec_repo_critical_rpms.results | rejectattr('stat.exists') | list | length) > 0
+
+- name: 04 02fc Validate stage2 squashfs exists in published CentOS repo
+  ansible.builtin.stat:
+    path: "{{ spec_repo_root }}/LiveOS/squashfs.img"
+  register: spec_repo_stage2_squashfs
+
+- name: 04 02fd Fail early when stage2 squashfs is missing (would cause dracut-initqueue timeout)
+  ansible.builtin.fail:
+    msg: >-
+      Missing {{ spec_repo_root }}/LiveOS/squashfs.img. Installer stage2 cannot be fetched and clients will fail with dracut-initqueue timeout.
+  when: not spec_repo_stage2_squashfs.stat.exists
+
+- name: 04 02fe Check optional installer runtime image path in published CentOS repo
+  ansible.builtin.stat:
+    path: "{{ spec_repo_root }}/images/install.img"
+  register: spec_repo_install_img
+
+- name: 04 02ff Warn when images/install.img is missing (non-fatal for squashfs-based stage2)
+  ansible.builtin.debug:
+    msg: >-
+      Optional path {{ spec_repo_root }}/images/install.img is missing.
+      Continuing because stage2 squashfs exists.
+  when: not spec_repo_install_img.stat.exists
+
+- name: 04 02g Ensure legacy pxe-http service is stopped and disabled
+  ansible.builtin.systemd:
+    name: pxe-http
+    enabled: false
+    state: stopped
+    daemon_reload: true
+  failed_when: false
+
+- name: 04 02h Reset pxe-http failed state after disabling it
+  ansible.builtin.command:
+    cmd: systemctl reset-failed pxe-http
+  changed_when: false
+  failed_when: false
+
+- name: 04 02i Ensure nginx is enabled and serving PXE repo root
+  ansible.builtin.systemd:
+    name: nginx
+    enabled: true
+    state: started
+
+- name: 04 03 Copy kernel from staged repo
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ spec_repo_root }}/images/pxeboot/{{ spec_kernel }}"
+    dest: "{{ spec_target }}/{{ spec_kernel }}"
+    mode: "0644"
+
+- name: 04 03a Copy initrd from staged repo
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ spec_repo_root }}/images/pxeboot/{{ spec_initrd }}"
+    dest: "{{ spec_target }}/{{ spec_initrd }}"
+    mode: "0644"
+
+- name: 04 03z Load DHCP host templates for per-client kickstart partition planning
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/roles/dhcp/defaults/main.yml"
+
+- name: 04 04 Render base kickstart file
+  ansible.builtin.template:
+    src: kickstart-role.cfg.j2
+    dest: "{{ pxe_tftp_dir }}/kickstart/base.cfg"
+    mode: "0644"
+  vars:
+    risng_kickstart_role: base
+
+- name: 04 04a Render role-specific kickstart files
+  ansible.builtin.template:
+    src: kickstart-role.cfg.j2
+    dest: "{{ pxe_tftp_dir }}/kickstart/{{ item | lower }}.cfg"
+    mode: "0644"
+  vars:
+    risng_kickstart_role: "{{ item }}"
+  loop: "{{ risng_client_roles }}"
+
+- name: 04 04aa Ensure legacy command alias kickstart exists
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ pxe_tftp_dir }}/kickstart/base.cfg"
+    dest: "{{ pxe_tftp_dir }}/kickstart/cmd.cfg"
+    mode: "0644"
+
+- name: 04 04ab Ensure iCMD kickstart exists even if role rendering changes later
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ pxe_tftp_dir }}/kickstart/base.cfg"
+    dest: "{{ pxe_tftp_dir }}/kickstart/icmd.cfg"
+    mode: "0644"
+    force: false
+
+- name: 04 04b Publish control-host SSH public key for client bootstrap
+  ansible.builtin.copy:
+    src: "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+    dest: "{{ pxe_tftp_dir }}/bootstrap/controlhost_id_ed25519.pub"
+    remote_src: true
+    mode: "0644"
+
+- name: 04 05 Deploy PXELINUX entries per RISng role
+  ansible.builtin.template:
+    src: "{{ pxe_entry_pxelinux_template }}"
+    dest: "{{ pxelinux_dir }}/20-{{ item | lower }}.cfg"
+    mode: "0644"
+  vars:
+    filename_prefix: "{{ item | lower }}"
+    menu_title: "CentOS 7.8 AutoInstall ({{ item }})"
+    kernel_path: "/{{ spec_target_relative }}/{{ spec_kernel }}"
+    initrd_path: "/{{ spec_target_relative }}/{{ spec_initrd }}"
+    kernel_cmdline: >-
+      inst.stage2=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+      inst.repo=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+      ks=http://{{ tftp_server_ip }}/kickstart/{{ item | lower }}.cfg
+      {{ spec_install_net_args }}
+      {{ spec_install_extra_args }}
+  loop: "{{ risng_client_roles }}"
+
+- name: 04 06 Deploy GRUB entries per RISng role
+  ansible.builtin.template:
+    src: "{{ pxe_entry_grub_template }}"
+    dest: "{{ grub_dir }}/20-{{ item | lower }}.cfg"
+    mode: "0644"
+  vars:
+    filename_prefix: "{{ item | lower }}"
+    menu_title: "CentOS 7.8 AutoInstall ({{ item }})"
+    kernel_path: "/{{ spec_target_relative }}/{{ spec_kernel }}"
+    initrd_path: "/{{ spec_target_relative }}/{{ spec_initrd }}"
+    append_args: >-
+      inst.stage2=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+      inst.repo=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+      ks=http://{{ tftp_server_ip }}/kickstart/{{ item | lower }}.cfg
+      {{ spec_install_net_args }}
+      {{ spec_install_extra_args }}
+  loop: "{{ risng_client_roles }}"
+
+- import_tasks: bootloader_generation.yml

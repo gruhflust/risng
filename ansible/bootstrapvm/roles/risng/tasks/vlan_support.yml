@@ -1,0 +1,8 @@
+# Ensure VLAN support is available in the risng client OS
+
+- name: Task IR-62 - Enable 8021q module autoload in risng image
+  ansible.builtin.copy:
+    dest: "{{ risng_workdir }}/etc/modules-load.d/8021q.conf"
+    content: |
+      8021q
+    mode: "0644"

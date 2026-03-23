@@ -1,0 +1,130 @@
+# host_vars/bootstrapvm.yml – Host-specific variables for PXE bootstrap
+# Version: bootstrapvm_vars_v03
+
+# ------------------------------------------------------------
+# System + Networking
+# ------------------------------------------------------------
+ansible_hostname: "risng"
+
+# Network interfaces (defaults; can be auto-detected)
+#internetinterface: "ens33"        # External NIC with Internet access
+#risng_lan_interface: "ens36"  # PXE NIC for serving DHCP/TFTP
+
+# Static addressing for the PXE management network
+bootstrap_ip: "10.228.229.7"
+dhcp_network_prefix: "10.228.229"
+
+# ------------------------------------------------------------
+# Debian release information
+# ------------------------------------------------------------
+debian_codename: "trixie"
+debian_mirror_url: "http://deb.debian.org/debian"
+
+# ------------------------------------------------------------
+# RISng local repository staging
+# Keep package and installer URLs stable on the PXE LAN; later only switch the
+# upstream from public vault to Nexus.
+# ------------------------------------------------------------
+risng_repo_mode: "internet"
+risng_repo_upstream_baseurl: "http://vault.centos.org"
+risng_repo_sync_on_stage: false
+risng_repo_sync_interval: "12h"
+spec_repo_source_mode: "iso"
+
+# ------------------------------------------------------------
+# PXE layout and directories (place scratch under /var/tmp to avoid tmpfs limits)
+# ------------------------------------------------------------
+pxe_tmp_dir: "/var/tmp/pxe-build"
+iso_download_dir: "{{ pxe_tmp_dir }}/iso"
+
+pxe_tftp_dir: "/var/lib/tftpboot"
+pxelinux_dir: "{{ pxe_tftp_dir }}/pxelinux.cfg"
+grub_dir:     "{{ pxe_tftp_dir }}/boot/grub"
+tftp_root:    "{{ pxe_tftp_dir }}"
+
+pxe_timeout:        100
+pxe_default_label:  live-ris
+pxe_menu_prefixes:  [10, 20]
+
+# PXE menu templates
+pxe_entry_pxelinux_template: "bootentry-pxelinux.cfg.j2"
+pxe_entry_grub_template:     "bootentry-grub.cfg.j2"
+
+# TFTP server IP address used in bootloader fetch lines
+tftp_server_ip: "{{ bootstrap_ip }}"
+
+# ------------------------------------------------------------
+# DHCP configuration (for PXE NIC)
+# ------------------------------------------------------------
+dhcp_gateway: "{{ bootstrap_ip }}"
+dhcp_prefix:  "24"
+dhcp_netmask: "255.255.255.0"
+
+dhcp_range_start: "{{ dhcp_network_prefix }}.101"
+dhcp_range_end:   "{{ dhcp_network_prefix }}.200"
+# ------------------------------------------------------------
+# Dedicated RISng operator user on the staging host
+# (feuer may be started by another sudo-capable user, but RISng assets live under this account)
+# ------------------------------------------------------------
+ssh_user: "risng"
+ssh_user_home: "/home/risng"
+
+# ------------------------------------------------------------
+# Alpine ISO (optional fallback)
+# ------------------------------------------------------------
+alpine_iso_url:  "https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-standard-3.19.1-x86_64.iso"
+alpine_iso_path: "{{ iso_download_dir }}/alpine.iso"
+
+# ------------------------------------------------------------
+# Netinstall PXE role configuration
+# Provides a minimal Debian system over PXE (non-interactive)
+# ------------------------------------------------------------
+
+debian_live_iso_path: /var/tmp/pxe-build/iso/debian-live.iso
+debian_live_iso_mount: /var/tmp/pxe-build/mnt/debian-live
+
+
+
+# Path to extract netboot.tar.gz (used to copy kernel/initrd)
+netboot_extract_dir: "{{ pxe_tmp_dir }}/netinstall"
+
+# Rootfs workspace + final target under TFTP
+netinstall_workdir: "/var/tmp/pxe-build/rootfs-netinstall"
+netinstall_target:  "{{ pxe_tftp_dir }}/images/netinstall"
+
+# PXE-relative path used in GRUB and PXELINUX templates
+netinstall_target_relative: "images/netinstall"
+
+# PXE boot menu labels
+netinstall_label:       "Debian Netinstall (BIOS)"
+netinstall_grub_label:  "Debian Netinstall (UEFI)"
+
+
+# ------------------------------------------------------------
+# risng PXE role configuration
+# Provides a minimal Debian system over PXE (non-interactive)
+# ------------------------------------------------------------
+
+
+# Rootfs workspace + final target under TFTP
+risng_workdir: "/var/tmp/pxe-build/rootfs-risng"
+risng_target:  "{{ pxe_tftp_dir }}/images/risng"
+
+# PXE-relative path used in GRUB and PXELINUX templates
+risng_target_relative: "images/risng"
+
+# PXE boot menu labels
+risng_label:       "Live-RIS (BIOS)"
+risng_grub_label:  "Live-RIS (UEFI)"
+
+# ------------------------------------------------------------
+# risng_install PXE role configuration
+# Provides CentOS 7.8 autoinstall over PXE
+# ------------------------------------------------------------
+
+spec_iso_mount: "{{ pxe_tmp_dir }}/mnt-spec"
+spec_target: "{{ pxe_tftp_dir }}/images/spec"
+spec_target_relative: "images/spec"
+spec_label: "CentOS 7.8 AutoInstall (BIOS)"
+spec_grub_label: "CentOS 7.8 AutoInstall (UEFI)"
+pxe_default_grub_entry: "Live-RIS (UEFI)"

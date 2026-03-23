@@ -1,0 +1,14 @@
+$TTL 604800
+@   IN  SOA  {{ dns_zone_name }}. admin.{{ dns_zone_name }}. (
+                {{ serial | default('2025012101') }} ; Serial
+                604800     ; Refresh
+                86400      ; Retry
+                2419200    ; Expire
+                604800 )   ; Negative Cache TTL
+
+    IN  NS  bootstrapvm.{{ dns_zone_name }}.
+
+bootstrapvm  IN  A  {{ dns_bootstrap_ip }}
+pxe          IN  A  {{ dns_bootstrap_ip }}
+dhcp         IN  A  {{ dns_bootstrap_ip }}
+dns          IN  A  {{ dns_bootstrap_ip }}

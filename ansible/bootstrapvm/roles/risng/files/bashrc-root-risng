@@ -1,0 +1,28 @@
+# ~/.bashrc – dynamic IP-based prompt (root user)
+
+HISTCONTROL=ignoreboth
+shopt -s histappend
+HISTSIZE=1000
+HISTFILESIZE=2000
+shopt -s checkwinsize
+
+# IP fetch function
+get_ip() {
+  ip -4 addr show scope global | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n 1
+}
+
+# Set prompt: root@IP_hostname
+if [ -n "$PS1" ]; then
+  if tput setaf 1 &> /dev/null; then
+    PS1='\[\033[01;31m\]\u@\[\033[01;36m\]$(get_ip)\[\033[01;32m\]_\h\[\033[00m\]:\w\$ '
+  else
+    PS1='\u@$(get_ip)_\h:\w\$ '
+  fi
+fi
+
+# Standard aliases
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+
+# cheap LAN test helpers

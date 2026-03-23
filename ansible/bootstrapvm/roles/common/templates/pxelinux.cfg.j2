@@ -1,0 +1,6 @@
+# pxelinux.cfg.j2 – BIOS menu entry (pxe_entry_template_bios_v1.0)
+LABEL {{ boot_label }}
+  MENU LABEL {{ menu_label }}
+  KERNEL {{ kernel_path }}
+  INITRD {{ initrd_path }}
+  APPEND {{ append_args }}

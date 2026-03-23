@@ -1,0 +1,35 @@
+---
+# unreport_v01 – purge PXE report data
+
+- name: Purge DHCP lease and PXE log data
+  hosts: localhost
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../host_vars/localhost.yml
+
+  vars:
+    dhcp_leases_file: "/var/lib/dhcp/dhcpd.leases"
+    pxe_log_dir: "{{ pxe_tmp_dir }}/log"
+    report_file: "{{ lookup('env', 'HOME') }}/report.json"
+
+  tasks:
+    - name: 01 Truncate DHCP leases file
+      ansible.builtin.command: "truncate -s 0 {{ dhcp_leases_file }}"
+      changed_when: true
+
+    - name: 02 Remove PXE log directory
+      ansible.builtin.file:
+        path: "{{ pxe_log_dir }}"
+        state: absent
+
+    - name: 03 Recreate empty PXE log directory
+      ansible.builtin.file:
+        path: "{{ pxe_log_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: 04 Remove previous report file
+      ansible.builtin.file:
+        path: "{{ report_file }}"
+        state: absent

@@ -1,0 +1,81 @@
+---
+# pingpartner pytest wrapper – executes helper validation locally
+
+- name: Run pingpartner helper pytest suite
+  hosts: localhost
+  gather_facts: false
+  become: true
+  become_user: "{{ run_as_user }}"
+  vars:
+    run_as_user: risng
+    # Snapshot-specific helper and tests live alongside this playbook for isolation
+    pingpartner_python_dir: "{{ playbook_dir | realpath }}/pingpartner_helper"
+    user_home: "/home/{{ run_as_user }}"
+  tasks:
+    - name: Ensure pingpartner cache directories exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ user_home }}/.cache"
+        - "{{ user_home }}/.cache/pycache"
+        - "{{ user_home }}/.cache/pytest_cache"
+
+    - name: Execute pytest for pingpartner helper
+      ansible.builtin.command:
+        cmd: python3 -m pytest test_pingpartner_helper_snapshot.py -vv
+        chdir: "{{ pingpartner_python_dir }}"
+      environment:
+        PYTHONPYCACHEPREFIX: "{{ user_home }}/.cache/pycache"
+        PYTEST_ADDOPTS: "-o cache_dir={{ user_home }}/.cache/pytest_cache"
+      register: pingpartner_pytest
+      changed_when: false
+      failed_when: pingpartner_pytest.rc != 0
+
+    - name: Show pytest summary
+      ansible.builtin.debug:
+        msg:
+          - "Pytest return code: {{ pingpartner_pytest.rc }}"
+          - "Stdout:\n{{ pingpartner_pytest.stdout }}"
+          - "Stderr:\n{{ pingpartner_pytest.stderr }}"
+
+    - name: Run pingpartner healthcheck and store JSON report in home directory
+      ansible.builtin.shell: |
+        set -euo pipefail
+        python3 - <<'PYCODE'
+        from pathlib import Path
+
+        from pingpartner_helper_snapshot import run_pingpartner_healthcheck
+
+
+        output_path = Path("{{ user_home }}") / "test_results.json"
+        run_pingpartner_healthcheck(output_path=output_path)
+        print(f"Stored pingpartner results at {output_path}")
+        PYCODE
+      args:
+        chdir: "{{ pingpartner_python_dir }}"
+        executable: /bin/bash
+      environment:
+        PYTHONPYCACHEPREFIX: "{{ user_home }}/.cache/pycache"
+      register: pingpartner_healthcheck
+      changed_when: true
+      failed_when: pingpartner_healthcheck.rc != 0
+
+    - name: Verify pingpartner results JSON exists
+      ansible.builtin.stat:
+        path: "{{ user_home }}/test_results.json"
+      register: pingpartner_results_json
+      failed_when: not pingpartner_results_json.stat.exists
+
+    - name: Show pingpartner results location
+      ansible.builtin.debug:
+        msg: "Pingpartner results written to {{ pingpartner_results_json.stat.path }}"
+
+    - name: Remove repository-local pycache and pytest cache artifacts
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ pingpartner_python_dir }}/__pycache__"
+        - "{{ pingpartner_python_dir }}/.pytest_cache"

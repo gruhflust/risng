@@ -1,0 +1,73 @@
+# management_bootloader_generation_v08
+# -------------------------------------------------------------
+# Erzeugt und verteilt alle Bootloader-Dateien für PXE-Boot
+# BIOS:  pxelinux.0 + Syslinux-Module im TFTP-Root
+# UEFI:  bootx64.efi + GRUB-Module unter boot/grub/x86_64-efi
+# -------------------------------------------------------------
+---
+
+- name: '02_18_01 Copy PXELINUX and BIOS modules'
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ item }}"
+    dest: "{{ pxe_tftp_dir }}/"
+    mode: "0644"
+  loop:
+    - /usr/lib/PXELINUX/pxelinux.0
+    - /usr/lib/syslinux/modules/bios/ldlinux.c32
+    - /usr/lib/syslinux/modules/bios/vesamenu.c32
+    - /usr/lib/syslinux/modules/bios/libcom32.c32
+    - /usr/lib/syslinux/modules/bios/libutil.c32
+
+- name: 02_18_01a Gather available GRUB x86_64-efi modules
+  ansible.builtin.find:
+    paths: /usr/lib/grub/x86_64-efi
+    patterns: "*.mod"
+    file_type: file
+  register: grub_mods_found
+
+- name: 02_18_01b Collect available GRUB modules
+  ansible.builtin.set_fact:
+    grub_available_modules: "{{ grub_mods_found.files | default([]) | map(attribute='path') | map('basename') | map('regex_replace', '\\.mod$', '') | list }}"
+
+- name: 02_18_01c Determine GRUB modules for bootx64.efi
+  ansible.builtin.set_fact:
+    grub_mkimage_modules: "{{ (grub_mkimage_desired_modules | default([])) | intersect(grub_available_modules | default([])) }}"
+
+- name: 02_18_01d Abort when Linux GRUB module is unavailable
+  ansible.builtin.fail:
+    msg: "GRUB bootx64.efi build aborted: linux.mod not present in /usr/lib/grub/x86_64-efi"
+  when:
+    - "'linux' not in (grub_mkimage_modules | default([]))"
+
+- name: 02_18_02 Build GRUB bootx64.efi for UEFI PXE
+  ansible.builtin.command: >
+    grub-mkimage -O x86_64-efi -d /usr/lib/grub/x86_64-efi
+    -o {{ pxe_tftp_dir }}/bootx64.efi
+    -p /boot/grub
+    {{ grub_mkimage_modules | join(' ') }}
+  args:
+    creates: "{{ pxe_tftp_dir }}/bootx64.efi"
+
+- name: 02_18_03 Ensure GRUB module directory exists
+  ansible.builtin.file:
+    path: "{{ grub_dir }}/x86_64-efi"
+    state: directory
+    mode: "0755"
+
+- name: 02_18_04 Copy GRUB modules (UEFI)
+  ansible.builtin.copy:
+    remote_src: true
+    src: /usr/lib/grub/x86_64-efi/
+    dest: "{{ grub_dir }}/x86_64-efi/"
+    mode: "0644"
+
+- name: 02_18_05 Verify GRUB bootx64.efi exists
+  ansible.builtin.stat:
+    path: "{{ pxe_tftp_dir }}/bootx64.efi"
+  register: bootx64
+
+- name: 02_18_06 Abort when GRUB build failed
+  ansible.builtin.fail:
+    msg: "GRUB bootx64.efi could not be built – file missing"
+  when: not bootx64.stat.exists

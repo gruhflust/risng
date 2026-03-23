@@ -1,0 +1,27 @@
+---
+# repair_dhcp_v01
+# Refresh DHCP configuration when NIC name changed
+
+- name: Repair isc-dhcp-server service
+  hosts: bootstrapvm
+  become: true
+  gather_facts: true
+
+  vars_files:
+    - ../group_vars/all.yml
+    - ../host_vars/bootstrapvm.yml
+
+  pre_tasks:
+    - name: Import interface detection
+      ansible.builtin.import_tasks: detect_interfaces.yml
+
+    - name: Ensure dhcp_network_prefix is defined
+      ansible.builtin.set_fact:
+        dhcp_network_prefix: "{{ (dhcp_gateway | default(bootstrap_ip | default(ansible_default_ipv4.address))).split('.')[:-1] | join('.') }}"
+      when: dhcp_network_prefix is not defined
+
+  vars:
+    dhcp_interface: "{{ risng_lan_interface }}"
+
+  roles:
+    - dhcp

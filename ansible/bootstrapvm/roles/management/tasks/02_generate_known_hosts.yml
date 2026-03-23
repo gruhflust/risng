@@ -1,0 +1,21 @@
+# roles/management/tasks/02_generate_known_hosts.yml
+# Version: management_knownhosts_v03 – uses id_ed25519.pub as fixed key
+
+- name: 02_04a_01 Slurp user SSH public key
+  ansible.builtin.slurp:
+    src: "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+  register: own_pubkey
+
+- name: 02_04a_02 Generate known_hosts for DHCP range (dynamic)
+  ansible.builtin.copy:
+    dest: "{{ ssh_user_home }}/.ssh/known_hosts"
+    content: |
+      {%- set start = dhcp_range_start.split('.')[-1] | int -%}
+      {%- set end   = dhcp_range_end.split('.')[-1]   | int -%}
+      {%- set prefix = dhcp_range_start.split('.')[:3] | join('.') -%}
+      {% for i in range(start, end + 1) %}
+      {{ prefix }}.{{ i }} {{ own_pubkey['content'] | b64decode }}
+      {% endfor %}
+    owner: "{{ ssh_user }}"
+    group: "{{ ssh_user }}"
+    mode: "0644"

@@ -1,0 +1,80 @@
+# roles/systemupdate/tasks/heal_internet.yml
+# Version: heal_internet_tasks_v02 – clean resolv.conf fix and DHCP recovery
+
+
+- name: 02 Ensure DHCP client is installed on Debian
+  ansible.builtin.apt:
+    name: isc-dhcp-client
+    state: present
+    update_cache: true
+
+- name: 03 Kill existing dhclient processes
+  shell: pkill -f "dhclient.*{{ internetinterface }}" || true
+  changed_when: false
+  failed_when: false
+
+- name: 04 Flush IP addresses and routes
+  shell: |
+    ip addr flush dev {{ internetinterface }}
+    ip route del default dev {{ internetinterface }} || true
+  changed_when: true
+
+- name: 05 Restart interface to trigger link detection
+  shell: |
+    ip link set {{ internetinterface }} down
+    sleep 1
+    ip link set {{ internetinterface }} up
+  changed_when: true
+
+- name: 06 Stop interfering local DNS services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop:
+    - dnsmasq
+    - bind9
+    - unbound
+  failed_when: false
+  changed_when: false
+
+- name: 07 Overwrite resolv.conf with fallback DNS
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    content: |
+      nameserver 1.1.1.1
+      nameserver 8.8.8.8
+    mode: "0644"
+
+- name: 08 Start dhclient to request new IP
+  shell: dhclient -4 -v {{ internetinterface }}
+  register: dhcp_out
+  changed_when: "'bound to' in dhcp_out.stdout"
+
+- name: 09 Debug current IP address state
+  shell: ip -brief addr show {{ internetinterface }}
+  register: ip_show
+  changed_when: false
+
+- name: 10 Test DNS resolution for deb.debian.org
+  shell: getent hosts deb.debian.org
+  register: dns_test
+  retries: 5
+  delay: 2
+  changed_when: false
+  until: dns_test.rc == 0
+
+- name: 11 Show final networking state after healing
+  shell: |
+    echo "=== IP ==="
+    ip -brief addr show {{ internetinterface }}
+    echo "=== ROUTE ==="
+    ip route show
+    echo "=== RESOLV ==="
+    cat /etc/resolv.conf
+  register: final_net
+  changed_when: false
+
+- name: 12 Debug output of final network state
+  debug:
+    msg: "{{ final_net.stdout_lines }}"

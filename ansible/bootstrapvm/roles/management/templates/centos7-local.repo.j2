@@ -1,0 +1,17 @@
+[risng-base]
+name=RISng CentOS 7.8 Base
+baseurl=http://{{ tftp_server_ip }}/{{ spec_repo_relative }}
+enabled=1
+gpgcheck=0
+
+[risng-updates]
+name=RISng CentOS 7.8 Updates
+baseurl=http://{{ tftp_server_ip }}/kickstart/repos/{{ risng_repo_centos_updates_path }}
+enabled=1
+gpgcheck=0
+
+[risng-extras]
+name=RISng CentOS 7.8 Extras
+baseurl=http://{{ tftp_server_ip }}/kickstart/repos/{{ risng_repo_centos_extras_path }}
+enabled=1
+gpgcheck=0

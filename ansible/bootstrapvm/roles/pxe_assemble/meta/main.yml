@@ -1,0 +1,14 @@
+---
+galaxy_info:
+  role_name: pxe_assemble
+  author: RISNG
+  description: |
+    Collect PXE menu fragments from all roles and build the final
+    pxelinux (BIOS) and GRUB (UEFI) configuration, automatically
+    selecting the newest entry as default.
+  license: MIT
+  min_ansible_version: "2.11"
+  platforms:
+    - name: Debian
+      versions: [12]
+dependencies: []

@@ -1,0 +1,36 @@
+---
+# RISng gopass integration defaults (modular; portable to ironscope)
+
+gopass_enabled: true
+
+gopass_user: "{{ ssh_user | default('ironscope') }}"
+gopass_home: "/home/{{ gopass_user }}"
+
+gopass_base_packages:
+  - gnupg2
+  - qrencode
+  - curl
+  - ca-certificates
+
+gopass_try_apt_package: true
+# Fallback binary install used when apt package is not available.
+gopass_fallback_binary_install: true
+gopass_version: "1.15.16"
+# amd64|arm64 (auto-detected from ansible_architecture)
+gopass_arch_map:
+  x86_64: amd64
+  amd64: amd64
+  aarch64: arm64
+  arm64: arm64
+
+# Dedicated controlhost key identity for RISng secret material.
+gopass_gpg_name: "RISng Controlhost"
+gopass_gpg_email: "risng-control@localhost"
+
+# Preparation behavior (safe defaults).
+gopass_generate_key: true
+gopass_init_store: false
+
+gopass_state_dir: "{{ gopass_home }}/.config/risng/gopass"
+gopass_store_path: "{{ gopass_home }}/.local/share/gopass/stores/risng-secrets"
+gopass_mount_name: "risng"

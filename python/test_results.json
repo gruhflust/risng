@@ -1,0 +1,30 @@
+[
+    {
+        "interface": "ens192",
+        "vlan_id": 2000,
+        "gateway": "10.20.3.1",
+        "status": "FAIL",
+        "error": ""
+    },
+    {
+        "interface": "ens192",
+        "vlan_id": 2001,
+        "gateway": "10.20.3.1",
+        "status": "FAIL",
+        "error": ""
+    },
+    {
+        "interface": "ens192",
+        "vlan_id": 2002,
+        "gateway": "10.20.3.1",
+        "status": "FAIL",
+        "error": ""
+    },
+    {
+        "interface": "ens192",
+        "vlan_id": 2003,
+        "gateway": "10.20.3.1",
+        "status": "FAIL",
+        "error": ""
+    }
+]

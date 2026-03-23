@@ -1,0 +1,102 @@
+---
+# ssh_client_collect_v15 – robust, funktional, disk parsing vollständig per loop
+
+- name: 04.01 Check SSH access
+  shell: ssh {{ ssh_opts }} {{ ssh_user }}@{{ lease.ip }} echo ok
+  register: ssh_check
+  failed_when: false
+  changed_when: false
+
+- name: 04.01a Normalize lease MAC
+  set_fact:
+    lease_mac_clean: "{{ lease.mac | default('') | lower | regex_replace('[^0-9a-f]', '') }}"
+
+- name: 04.01b Normalize lease MAC with separators
+  set_fact:
+    lease_mac_normalized: "{{
+      (lease_mac_clean | length == 12)
+        | ternary(
+            lease_mac_clean | regex_replace('(..)', '\\1:') | regex_replace(':$',''),
+            lease.mac | default('') | lower | regex_replace('[-]', ':') | regex_replace('[^0-9a-f:]', '') | trim
+        )
+    }}"
+    lease_hostname: "{{ lease.hostname | default('') | trim }}"
+
+- name: 04.01c Resolve hostname from DHCP defaults
+  set_fact:
+    resolved_hostname: "{{ (dhcp_mac_hostname_map | default({})).get(lease_mac_normalized) | default('', true) }}"
+
+- name: 04.02 Get hostname from system
+  shell: ssh {{ ssh_opts }} {{ ssh_user }}@{{ lease.ip }} hostname
+  register: ssh_hostname
+  failed_when: false
+  changed_when: false
+  when: (resolved_hostname | default('')) | length == 0
+
+- name: 04.03 Get network interfaces with addresses
+  shell: ssh {{ ssh_opts }} {{ ssh_user }}@{{ lease.ip }} "ip -json address 2>/dev/null" 2>/dev/null || echo '[]'
+  register: ssh_nics
+  failed_when: false
+  changed_when: false
+
+- name: 04.04 Get raw disk list
+  shell: ssh {{ ssh_opts }} {{ ssh_user }}@{{ lease.ip }} lsblk -bdno NAME,SIZE
+  register: ssh_disks
+  failed_when: false
+  changed_when: false
+
+- name: 04.05a Init parsed_disks
+  set_fact:
+    parsed_disks: []
+
+- name: 04.05b Parse disk lines manually
+  set_fact:
+    parsed_disks: "{{ parsed_disks + [{
+      'name': (item.split()[0]),
+      'bytes': (item.split()[1] | int),
+      'size_gb': ((item.split()[1] | int) / 1073741824) | round(1)
+    }] }}"
+  loop: "{{ ssh_disks.stdout_lines }}"
+  when: item is match('^\\S+\\s+\\d+$')
+  loop_control:
+    label: "{{ item.split()[0] if item is match('^\\S+\\s+\\d+$') else 'skip' }}"
+
+- name: 04.06 Get memory in GiB
+  shell: ssh {{ ssh_opts }} {{ ssh_user }}@{{ lease.ip }} free -g | awk '/^Mem:/ { print $2 }'
+  register: ssh_ram
+  failed_when: false
+  changed_when: false
+
+- name: 04.06a Determine pingpartner candidates
+  set_fact:
+    lease_pingpartners: "{{ (
+      (dhcp_pingpartner_map[lease.ip] if (dhcp_pingpartner_map is defined and lease.ip in dhcp_pingpartner_map) else []) +
+      (dhcp_pingpartner_mac_map[lease_mac_normalized] if (dhcp_pingpartner_mac_map is defined and lease_mac_normalized in dhcp_pingpartner_mac_map) else [])
+    ) | map('string') | map('trim') | select('truthy') | list | unique }}"
+
+- name: 04.07 Append result to report
+  set_fact:
+    client_data: "{{ client_data + [ {
+      'ip': lease.ip,
+      'lease_mac_normalized': lease_mac_normalized,
+      'mac': lease_mac_normalized | default(lease.mac, true),
+      'lease_hostname': lease_hostname,
+      'dhcp_assigned_hostname': resolved_hostname | default(lease_hostname, true),
+      'pingpartners': lease_pingpartners | default([], true),
+      'pingpartner': (
+        lease_pingpartners | default([], true)
+      ) | join(', ') | default('n/a', true) | regex_replace('^\\s*$', 'n/a'),
+      'hostname': (
+        resolved_hostname | default('') | trim
+      ) | default(
+        ssh_hostname.stdout | default('') | trim,
+        true
+      ) | default(
+        lease_hostname,
+        true
+      ),
+      'ssh_ok': ssh_check.stdout | trim == 'ok',
+      'interfaces': (ssh_nics.stdout | default('[]')) | from_json,
+      'disks': parsed_disks,
+      'memory_gb': (ssh_ram.stdout | int | default(0))
+    } ] }}"

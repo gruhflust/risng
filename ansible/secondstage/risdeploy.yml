@@ -1,0 +1,227 @@
+---
+- name: Build RISng second-stage target inventory from DHCP definitions
+  hosts: bootstrapvm
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../bootstrapvm/roles/dhcp/defaults/main.yml
+    - vars/risdeploy_components.yml
+  tasks:
+    - name: Select enabled RIS deploy targets
+      ansible.builtin.set_fact:
+        risdeploy_targets: >-
+          {{
+            (dhcp_static_hosts | default([]))
+            | selectattr('secondstage_enabled', 'defined')
+            | selectattr('secondstage_enabled')
+            | list
+          }}
+
+    - name: Remove stale SSH host keys for RIS deploy targets on control host
+      ansible.builtin.shell: |
+        ssh-keygen -f "$HOME/.ssh/known_hosts" -R "{{ item.ip }}" >/dev/null 2>&1 || true
+        ssh-keygen -f "$HOME/.ssh/known_hosts" -R "{{ item.name }}" >/dev/null 2>&1 || true
+      args:
+        executable: /bin/bash
+      loop: "{{ risdeploy_targets }}"
+      changed_when: false
+
+    - name: Register enabled RIS deploy targets as dynamic hosts
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        groups: risdeploy_targets
+        ansible_host: "{{ item.ip }}"
+        ansible_user: "{{ risdeploy_ssh_user }}"
+        ansible_password: "{{ risdeploy_ssh_password }}"
+        ansible_become: true
+        ansible_become_password: "{{ risdeploy_ssh_password }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        risdeploy_components: "{{ item.secondstage_components | default(risdeploy_default_components) }}"
+        risdeploy_role: "{{ item.boot_profile | default('unknown') }}"
+        risdeploy_login_user: "{{ item.login_user | default(item.user | default(risdeploy_default_login_user)) }}"
+      loop: "{{ risdeploy_targets }}"
+
+- name: Apply RISng second-stage components to selected clients
+  hosts: risdeploy_targets
+  gather_facts: false
+  vars_files:
+    - vars/risdeploy_components.yml
+    - vars/risdeploy_repo_catalog.yml
+  pre_tasks:
+    - name: Bootstrap local RISng repositories on second-stage client without Python
+      ansible.builtin.raw: |
+        mkdir -p /etc/yum.repos.d/disabled /etc/yum.repos.d/bootstrap-only
+        for f in /etc/yum.repos.d/*.repo; do
+          [ -e "$f" ] || continue
+          mv -f "$f" /etc/yum.repos.d/disabled/ 2>/dev/null || true
+        done
+        cat > /etc/yum.repos.d/risng-secondstage.repo <<'EOF'
+        [risng-ss-base]
+        name=RISng CentOS 7.8 Base
+        baseurl=http://{{ risdeploy_repo_host }}/centos/7/os/x86_64/
+        enabled=1
+        gpgcheck=0
+
+        [risng-ss-updates]
+        name=RISng CentOS 7.8 Updates
+        baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_updates_path }}
+        enabled=1
+        gpgcheck=0
+
+        [risng-ss-extras]
+        name=RISng CentOS 7.8 Extras
+        baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_extras_path }}
+        enabled=1
+        gpgcheck=0
+
+        [risng-ss-epel]
+        name=RISng EPEL 7
+        baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/epel/7/x86_64/
+        enabled=1
+        gpgcheck=0
+        EOF
+        cat > /etc/yum.repos.d/bootstrap-only/risng-bootstrap.repo <<'EOF'
+        [risng-bootstrap-base]
+        name=RISng Bootstrap Base
+        baseurl=http://{{ risdeploy_repo_host }}/centos/7/os/x86_64/
+        enabled=1
+        gpgcheck=0
+        EOF
+        yum clean all >/dev/null 2>&1 || true
+      changed_when: false
+
+    - name: Bootstrap Python 3 for optional later use
+      ansible.builtin.raw: >-
+        yum --setopt=reposdir=/etc/yum.repos.d/bootstrap-only --disablerepo='*'
+        --enablerepo=risng-bootstrap-base
+        -y install python3 libselinux-python
+      changed_when: false
+      failed_when: false
+
+    - name: Build effective component definitions on control host
+      ansible.builtin.set_fact:
+        risdeploy_component_defs: >-
+          {{
+            (risdeploy_components | default([]))
+            | map('extract', risdeploy_component_catalog)
+            | list
+          }}
+      delegate_to: localhost
+      delegate_facts: true
+
+  tasks:
+    - name: Clean yum metadata before second-stage install
+      ansible.builtin.raw: yum --disablerepo='*' --enablerepo=risng-ss-base clean all
+      changed_when: false
+
+    - name: Install yum groups required by selected components via raw yum
+      ansible.builtin.raw: >-
+        yum --disablerepo='*' --enablerepo=risng-ss-base -y groupinstall '{{ item }}'
+      loop: >-
+        {{
+          hostvars['localhost'].risdeploy_component_defs
+          | map(attribute='yum_groups')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+        }}
+      when: >-
+        (
+          hostvars['localhost'].risdeploy_component_defs
+          | map(attribute='yum_groups')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+          | length
+        ) > 0
+
+    - name: Install RPM packages required by selected components via raw yum
+      ansible.builtin.raw: >-
+        yum --disablerepo='*' --enablerepo=risng-ss-base -y install
+        {{
+          hostvars['localhost'].risdeploy_component_defs
+          | map(attribute='packages')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+          | join(' ')
+        }}
+      when: >-
+        (
+          hostvars['localhost'].risdeploy_component_defs
+          | map(attribute='packages')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+          | length
+        ) > 0
+
+    - name: Force GDM to use Xorg on graphical clients
+      ansible.builtin.raw: |
+        mkdir -p /etc/gdm
+        if [ -f /etc/gdm/custom.conf ]; then
+          sed -i 's/^#\?WaylandEnable=.*/WaylandEnable=false/' /etc/gdm/custom.conf
+        else
+          echo '[daemon]' > /etc/gdm/custom.conf
+          echo 'WaylandEnable=false' >> /etc/gdm/custom.conf
+        fi
+      when: "'graphics-gnome' in risdeploy_components"
+
+    - name: Ensure login user home and authority files exist for graphical session
+      ansible.builtin.raw: |
+        getent passwd {{ risdeploy_login_user }} >/dev/null 2>&1 || exit 0
+        home_dir=$(getent passwd {{ risdeploy_login_user }} | cut -d: -f6)
+        mkdir -p "$home_dir"
+        touch "$home_dir/.Xauthority" "$home_dir/.ICEauthority" "$home_dir/.dmrc"
+        chown {{ risdeploy_login_user }}:{{ risdeploy_login_user }} "$home_dir" "$home_dir/.Xauthority" "$home_dir/.ICEauthority" "$home_dir/.dmrc"
+        chmod 700 "$home_dir"
+        chmod 600 "$home_dir/.Xauthority" "$home_dir/.ICEauthority"
+        cat > "$home_dir/.dmrc" <<'EOF'
+        [Desktop]
+        Session=gnome-xorg
+        EOF
+      when: "'graphics-gnome' in risdeploy_components"
+
+    - name: Regenerate machine identity for freshly staged client
+      ansible.builtin.raw: |
+        rm -f /var/lib/dbus/machine-id
+        [ -s /etc/machine-id ] || rm -f /etc/machine-id
+        systemd-machine-id-setup >/dev/null 2>&1 || dbus-uuidgen --ensure=/etc/machine-id
+        ln -sf /etc/machine-id /var/lib/dbus/machine-id
+      when: "'graphics-gnome' in risdeploy_components"
+
+    - name: Restart GDM after graphical session fixes
+      ansible.builtin.raw: systemctl restart gdm
+      when: "'graphics-gnome' in risdeploy_components"
+
+    - name: Enable and start services required by selected components via systemctl
+      ansible.builtin.raw: systemctl enable {{ item }} && systemctl start {{ item }}
+      loop: >-
+        {{
+          hostvars['localhost'].risdeploy_component_defs
+          | map(attribute='services')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+        }}
+      when: >-
+        (
+          hostvars['localhost'].risdeploy_component_defs
+          | map(attribute='services')
+          | select('defined')
+          | list
+          | flatten
+          | unique
+          | length
+        ) > 0
+
+    - name: Set graphical.target when graphical component is selected
+      ansible.builtin.raw: systemctl set-default graphical.target
+      changed_when: false
+      when: "'graphics-gnome' in risdeploy_components"
+

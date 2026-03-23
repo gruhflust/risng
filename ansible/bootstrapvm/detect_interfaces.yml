@@ -1,0 +1,66 @@
+# detect_interfaces_v05 – robuste Interface-Erkennung ohne Cache-Fehler
+# Erkennt automatisch Internet- und PXE-NIC, filtert docker/veth/virbr raus
+
+- name: Detect internet interface (WAN) from default route
+  set_fact:
+    internetinterface: "{{ ansible_default_ipv4.interface }}"
+  when:
+    - internetinterface is not defined
+    - ansible_default_ipv4.interface is defined
+
+- name: Fallback detect internet interface via ip route
+  shell: ip route get 1.1.1.1 | awk '/dev/ {print $5; exit}'
+  register: ip_route_intf
+  changed_when: false
+  when: internetinterface is not defined
+
+- name: Set internetinterface from ip route result
+  set_fact:
+    internetinterface: "{{ ip_route_intf.stdout }}"
+  when:
+    - internetinterface is not defined
+    - ip_route_intf.stdout != ''
+
+- name: Fail if internetinterface not detected
+  fail:
+    msg: "Could not determine internetinterface. Define it in host_vars."
+  when: internetinterface is not defined
+
+
+- name: Detect candidate PXE interfaces (filtered list)
+  set_fact:
+    candidate_interfaces: >-
+      {{ ansible_interfaces
+         | difference(['lo'] + [internetinterface | default('')])
+         | reject('match', '^docker.*')
+         | reject('match', '^br-.*')
+         | reject('match', '^veth.*')
+         | reject('match', '^virbr.*')
+         | list }}
+  when: risng_lan_interface is not defined
+
+- name: Fallback to single NIC if no PXE interface detected
+  set_fact:
+    risng_lan_interface: "{{ internetinterface }}"
+  when:
+    - risng_lan_interface is not defined
+    - (candidate_interfaces | length | default(0)) == 0
+
+- name: Set risng_lan_interface from candidate list
+  set_fact:
+    risng_lan_interface: "{{ candidate_interfaces[0] }}"
+  when:
+    - risng_lan_interface is not defined
+    - (candidate_interfaces | length | default(0)) > 0
+- name: Set dns_interface to risng_lan_interface
+  set_fact:
+    dns_interface: "{{ risng_lan_interface }}"
+  when: dns_interface is not defined
+
+
+
+
+
+- name: Debug detected interfaces
+  debug:
+    msg: "→ Internet NIC: {{ internetinterface }}, PXE NIC: {{ risng_lan_interface }}"

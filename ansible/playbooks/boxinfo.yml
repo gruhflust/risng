@@ -1,0 +1,48 @@
+---
+- name: Sammle AVS-Informationen aus NetBox
+  hosts: localhost
+  gather_facts: false
+  vars:
+    boxinfo_script: "{{ lookup('env', 'HOME') }}/risng/python/boxinfo.py"
+    credential_suffixes:
+      - address
+      - user
+      - token
+  tasks:
+    - name: Prüfe vorhandensein des boxinfo Skripts
+      ansible.builtin.stat:
+        path: "{{ boxinfo_script }}"
+      register: boxinfo_script_stat
+
+    - name: Beende wenn das boxinfo Skript fehlt
+      ansible.builtin.fail:
+        msg: "Das Skript {{ boxinfo_script }} wurde nicht gefunden."
+      when: not boxinfo_script_stat.stat.exists
+
+    - name: Prüfe erforderliche NetBox Zugangsdaten-Dateien
+      ansible.builtin.stat:
+        path: "{{ lookup('env', 'HOME') }}/netbox.{{ item }}.md"
+      loop: "{{ credential_suffixes }}"
+      register: netbox_credentials
+
+    - name: Beende wenn Zugangsdaten-Dateien fehlen
+      ansible.builtin.fail:
+        msg: "Die Datei {{ item.stat.path }} fehlt."
+      when: not item.stat.exists
+      loop: "{{ netbox_credentials.results }}"
+
+    - name: Starte boxinfo Skript
+      ansible.builtin.command:
+        cmd: "{{ boxinfo_script }}"
+      register: boxinfo_output
+      changed_when: false
+      failed_when: boxinfo_output.rc != 0
+
+    - name: Zeige NetBox AVS Informationen an
+      ansible.builtin.debug:
+        msg: "{{ boxinfo_output.stdout_lines }}"
+
+    - name: Zeige etwaige Warnungen des boxinfo Skripts an
+      ansible.builtin.debug:
+        msg: "{{ boxinfo_output.stderr_lines }}"
+      when: boxinfo_output.stderr

@@ -1,0 +1,133 @@
+# roles/risng/tasks/install_tools.yml
+# installs additional tools inside the risng chroot
+
+- name: Task IR-51 - Ensure risng_packages is defined
+  ansible.builtin.set_fact:
+    risng_packages: "{{ risng_packages | default(tools_packages) }}"
+
+- name: Task IR-52 - Update apt cache in risng root
+  command: >
+    chroot {{ risng_workdir }} /bin/bash -c "apt-get update"
+
+- name: Task IR-53 - Check availability of live kernel packages inside risng rootfs
+  ansible.builtin.command: >
+    chroot {{ risng_workdir }} /bin/bash -c "apt-cache policy {{ item }} | awk -F': ' '/Candidate:/ {print $2}'"
+  register: risng_kernel_candidates
+  changed_when: false
+  failed_when: false
+  loop: "{{ risng_kernel_packages }}"
+  when: risng_kernel_packages | length > 0
+
+- name: Task IR-54 - Detect missing live kernel packages
+  ansible.builtin.set_fact:
+    risng_missing_kernel_packages: "{{ (
+      risng_kernel_candidates.results
+      | selectattr('stdout', 'equalto', '(none)')
+      | map(attribute='item')
+      | list
+      +
+      risng_kernel_candidates.results
+      | selectattr('stdout', 'equalto', '')
+      | map(attribute='item')
+      | list
+      +
+      risng_kernel_candidates.results
+      | selectattr('rc', 'ne', 0)
+      | map(attribute='item')
+      | list
+    ) | unique }}"
+  when: risng_kernel_candidates is defined
+
+- name: Task IR-55 - Fallback to generic kernel meta-packages when live kernel is unavailable
+  ansible.builtin.set_fact:
+    risng_kernel_packages:
+      - linux-image-amd64
+      - linux-headers-amd64
+    risng_kernel_packages_fallback: true
+  when: risng_missing_kernel_packages | default([]) | length > 0
+
+- name: Task IR-56 - Notify about kernel package selection
+  ansible.builtin.debug:
+    msg:
+      - "Using kernel packages: {{ risng_kernel_packages | join(', ') }}"
+      - "Reason: live kernel packages {{ risng_missing_kernel_packages | default([]) | join(', ') | default('none') }} unavailable"
+  when: risng_kernel_packages_fallback | default(false)
+
+- name: Task IR-57 - Prepare package list with live kernel
+  ansible.builtin.set_fact:
+    risng_packages: "{{ risng_kernel_packages + tools_packages }}"
+
+- name: Task IR-58 - Verify package candidates exist in risng rootfs
+  ansible.builtin.command: >
+    chroot {{ risng_workdir }} /bin/bash -c "apt-cache policy {{ item }} | awk -F': ' '/Candidate:/ {print $2}'"
+  register: risng_package_candidates
+  changed_when: false
+  failed_when: false
+  loop: "{{ risng_packages }}"
+
+- name: Task IR-59 - Collect missing package candidates
+  ansible.builtin.set_fact:
+    risng_missing_packages: "{{ (
+      risng_package_candidates.results
+      | selectattr('stdout', 'equalto', '(none)')
+      | map(attribute='item')
+      | list
+      +
+      risng_package_candidates.results
+      | selectattr('stdout', 'equalto', '')
+      | map(attribute='item')
+      | list
+      +
+      risng_package_candidates.results
+      | selectattr('rc', 'ne', 0)
+      | map(attribute='item')
+      | list
+    ) | unique }}"
+
+- name: Task IR-60 - Fail when required packages are unavailable
+  ansible.builtin.fail:
+    msg: "Missing packages inside risng chroot: {{
+      risng_missing_packages | join(', ')
+    }}"
+  when: risng_missing_packages | length > 0
+
+- name: Task IR-61 - Install additional tools
+  command: >
+    chroot {{ risng_workdir }} /bin/bash -c "DEBIAN_FRONTEND=noninteractive apt-get install -y {{ risng_packages | join(' ') }}"
+  register: risng_install_result
+  failed_when: false
+
+- name: Task IR-61a - Fallback to generic kernel meta-packages when install fails
+  ansible.builtin.set_fact:
+    risng_kernel_packages:
+      - linux-image-amd64
+      - linux-headers-amd64
+    risng_kernel_packages_fallback: true
+    risng_packages: "{{ risng_kernel_packages + tools_packages }}"
+  when:
+    - risng_install_result.rc != 0
+    - not risng_kernel_packages_fallback | default(false)
+
+- name: Task IR-61b - Retry installation with fallback kernel packages (if needed)
+  command: >
+    chroot {{ risng_workdir }} /bin/bash -c "DEBIAN_FRONTEND=noninteractive apt-get install -y {{ risng_packages | join(' ') }}"
+  register: risng_install_result_fallback
+  failed_when: false
+  when:
+    - risng_kernel_packages_fallback | default(false)
+    - risng_install_result.rc != 0
+
+- name: Task IR-62 - Determine final installation return code
+  ansible.builtin.set_fact:
+    risng_install_final_rc: "{{
+      risng_install_result_fallback.rc
+        | default(risng_install_result.rc | default(1))
+    }}"
+
+- name: Task IR-63 - Fail when risng package installation ultimately fails
+  ansible.builtin.fail:
+    msg: >-
+      Package installation inside risng chroot failed even after fallback to
+      generic kernel meta-packages. Please inspect apt output for details.
+  when:
+    - risng_install_final_rc | int != 0

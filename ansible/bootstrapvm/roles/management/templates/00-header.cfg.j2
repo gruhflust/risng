@@ -1,0 +1,13 @@
+# GRUB Header – created by management_v13
+# NOTE: No default/timer config here – handled by final grub.cfg
+insmod efi_gop
+insmod gfxterm
+insmod tftp
+insmod net
+insmod linux
+
+loadfont /boot/grub/unicode.pf2
+set gfxmode=800x600
+set gfxpayload=keep
+terminal_output gfxterm
+background_image /booting.png

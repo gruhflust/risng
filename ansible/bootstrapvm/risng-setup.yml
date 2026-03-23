@@ -1,0 +1,660 @@
+# pnt_setup_v26  – 3-phase PXE setup: update → image build → PXE serve
+###############################################################################
+- name: 00 Initial phase  System update and DNS healing
+  hosts: bootstrapvm
+  become: true
+  gather_facts: true   
+  
+  pre_tasks:
+    - name: 00.00 Enable NTP time sync (best effort)
+      ansible.builtin.command: timedatectl set-ntp true
+      changed_when: false
+      failed_when: false
+
+    - name: 00.00a Collect available services
+      ansible.builtin.service_facts:
+
+    - name: 00.00b Restart systemd-timesyncd when available
+      ansible.builtin.systemd:
+        name: systemd-timesyncd
+        state: restarted
+      when: "'systemd-timesyncd.service' in ansible_facts.services"
+      failed_when: false
+
+    - name: 00.00c Check NTP synchronization state (best effort)
+      ansible.builtin.command: timedatectl show -p NTPSynchronized --value
+      register: ntp_sync_state
+      changed_when: false
+      failed_when: false
+
+    - name: 00.00d Warn if system time is not yet synchronized
+      ansible.builtin.debug:
+        msg: "Warning: NTPSynchronized={{ ntp_sync_state.stdout | default('unknown') }}. Trying fallback wall-clock sync from HTTPS Date header."
+      when: (ntp_sync_state.stdout | default('no') | trim) != 'yes'
+
+    - name: 00.00e Get reference UTC time from deb.debian.org (fallback)
+      ansible.builtin.shell: |
+        python3 - <<'PY'
+        import urllib.request
+        from email.utils import parsedate_to_datetime
+        h = urllib.request.urlopen('https://deb.debian.org', timeout=10).headers.get('Date', '')
+        if not h:
+            raise SystemExit(1)
+        dt = parsedate_to_datetime(h).astimezone()
+        print(dt.strftime('%Y-%m-%d %H:%M:%S'))
+        PY
+      args:
+        executable: /bin/bash
+      register: reference_time
+      changed_when: false
+      failed_when: false
+      when: (ntp_sync_state.stdout | default('no') | trim) != 'yes'
+
+    - name: 00.00f Apply fallback system time when reference time is available
+      ansible.builtin.command: "timedatectl set-time '{{ reference_time.stdout | trim }}'"
+      changed_when: true
+      failed_when: false
+      when:
+        - (ntp_sync_state.stdout | default('no') | trim) != 'yes'
+        - (reference_time.stdout | default('') | trim) | length > 0
+
+    - name: 00.00g Show current system time status
+      ansible.builtin.command: timedatectl status
+      register: timedatectl_status
+      changed_when: false
+
+    - name: 00.00h Debug time status (for snapshot-resume drift)
+      ansible.builtin.debug:
+        var: timedatectl_status.stdout_lines
+
+    - import_tasks: "{{ playbook_dir }}/detect_interfaces.yml"
+
+    - name: 00.08 Ensure dedicated risng operator group exists (early)
+      ansible.builtin.group:
+        name: risng
+        state: present
+
+    - name: 00.08a Ensure dedicated risng operator user exists (early)
+      ansible.builtin.user:
+        name: risng
+        group: risng
+        shell: /bin/bash
+        create_home: true
+        state: present
+
+    - name: 00.08b Ensure risng user password is set for local graphical login
+      ansible.builtin.user:
+        name: risng
+        password: "{{ 'risng' | password_hash('sha512') }}"
+        update_password: always
+
+    - name: 00.08c Ensure risng is passwordless sudoer
+      ansible.builtin.copy:
+        dest: /etc/sudoers.d/90-risng
+        owner: root
+        group: root
+        mode: "0440"
+        content: |
+          risng ALL=(ALL) NOPASSWD:ALL
+
+    - name: 00.08d Check whether AccountsService is available
+      ansible.builtin.stat:
+        path: /var/lib/AccountsService
+      register: risng_accountsservice_root
+      changed_when: false
+
+    - name: 00.08e Ensure AccountsService users directory exists
+      ansible.builtin.file:
+        path: /var/lib/AccountsService/users
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: risng_accountsservice_root.stat.exists | default(false)
+
+    - name: 00.08f Ensure risng is visible on graphical login screen
+      ansible.builtin.copy:
+        dest: /var/lib/AccountsService/users/risng
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [User]
+          SystemAccount=false
+          Hidden=false
+      when: risng_accountsservice_root.stat.exists | default(false)
+
+    - name: 00.08g Ensure risng GNOME config directory exists
+      ansible.builtin.file:
+        path: /home/risng/.config
+        state: directory
+        owner: risng
+        group: risng
+        mode: "0755"
+
+    - name: 00.08h Mark GNOME initial setup as done for risng
+      ansible.builtin.file:
+        path: /home/risng/.config/gnome-initial-setup-done
+        state: touch
+        owner: risng
+        group: risng
+        mode: "0644"
+
+    - name: 00.09 Check whether minimal GNOME login stack is already present
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for pkg in gdm3 gnome-shell gnome-session; do
+          dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed" || exit 1
+        done
+      args:
+        executable: /bin/bash
+      register: risng_gnome_stack_check
+      changed_when: false
+      failed_when: false
+
+    - name: 00.09a Stop packagekit early to avoid apt lock while installing graphics stack
+      ansible.builtin.systemd:
+        name: packagekit
+        state: stopped
+      failed_when: false
+
+    - name: 00.09b Preseed gdm3 as default display manager before install
+      ansible.builtin.debconf:
+        name: gdm3
+        question: shared/default-x-display-manager
+        value: gdm3
+        vtype: select
+      when: risng_gnome_stack_check.rc != 0
+
+    - name: 00.09c Install fast minimal GNOME login stack early (for local login UX)
+      ansible.builtin.apt:
+        name:
+          - gdm3
+          - gnome-shell
+          - gnome-session
+          - gnome-terminal
+          - dbus-x11
+          - dconf-cli
+          - xserver-xorg
+        state: present
+        update_cache: true
+        cache_valid_time: 86400
+        lock_timeout: 120
+        dpkg_options: force-confdef,force-confold
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when: risng_gnome_stack_check.rc != 0
+
+    - name: 00.09d Ensure graphical.target is default
+      ansible.builtin.command: systemctl set-default graphical.target
+      changed_when: false
+
+    - name: 00.09e Ensure gdm3 is enabled for next boot (do not start during feuer console run)
+      ansible.builtin.systemd:
+        name: gdm3
+        enabled: true
+
+    - name: 00.09ea Ensure display-manager.service points to gdm3
+      ansible.builtin.file:
+        src: /lib/systemd/system/gdm3.service
+        dest: /etc/systemd/system/display-manager.service
+        state: link
+        force: true
+
+    - name: 00.09eb Verify default target after configuration
+      ansible.builtin.command: systemctl get-default
+      register: risng_default_target
+      changed_when: false
+
+    - name: 00.09ec Fail if default target is not graphical.target
+      ansible.builtin.fail:
+        msg: "Expected default target graphical.target, got {{ risng_default_target.stdout | default('unknown') }}"
+      when: (risng_default_target.stdout | default('')) != 'graphical.target'
+
+    - name: 00.09ed Verify gdm3 enablement state
+      ansible.builtin.command: systemctl is-enabled gdm3
+      register: risng_gdm3_enabled_state
+      changed_when: false
+
+    - name: 00.09ee Fail if gdm3 is not enabled for boot
+      ansible.builtin.fail:
+        msg: "Expected gdm3 enabled for boot, got state={{ risng_gdm3_enabled_state.stdout | default('unknown') }}"
+      when: (risng_gdm3_enabled_state.stdout | default('')) not in ['enabled', 'alias', 'static', 'indirect']
+
+    - name: 00.09f Note about deferred graphical login activation
+      ansible.builtin.debug:
+        msg: >-
+          gdm3 is configured for boot and display-manager.service is linked to gdm3, but not started during feuer to avoid interrupting the active console session.
+          Reboot to reach graphical login automatically.
+
+    # moved earlier: risng group/user bootstrap
+    # moved earlier: risng group/user bootstrap
+    # moved earlier: risng password bootstrap
+    # moved earlier: risng sudo bootstrap
+    # moved earlier: AccountsService + GNOME initial-setup bootstrap for risng
+
+    - name: 00.12 Ensure risng ~/.ssh directory exists
+      ansible.builtin.file:
+        path: /home/risng/.ssh
+        state: directory
+        owner: risng
+        group: risng
+        mode: "0700"
+
+    - name: 00.12a Probe controlhost user private key candidates (remote)
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "/home/{{ ansible_env.SUDO_USER | default('', true) }}/.ssh/id_ed25519"
+        - "{{ ssh_user_home }}/.ssh/id_ed25519"
+        - "/root/.ssh/id_ed25519"
+      register: risng_operator_privkey_stats
+      changed_when: false
+
+    - name: 00.12b Pick first available controlhost private key path
+      ansible.builtin.set_fact:
+        risng_operator_privkey_path: "{{ (risng_operator_privkey_stats.results | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list | first) | default('') }}"
+
+    - name: 00.12c Copy controlhost SSH private key to risng user (if available)
+      ansible.builtin.copy:
+        src: "{{ risng_operator_privkey_path }}"
+        dest: /home/risng/.ssh/id_ed25519
+        remote_src: true
+        owner: risng
+        group: risng
+        mode: "0600"
+      when: (risng_operator_privkey_path | default('') | length) > 0
+
+    - name: 00.12d Copy matching controlhost SSH public key to risng user (if available)
+      ansible.builtin.copy:
+        src: "{{ risng_operator_privkey_path }}.pub"
+        dest: /home/risng/.ssh/id_ed25519.pub
+        remote_src: true
+        owner: risng
+        group: risng
+        mode: "0644"
+      when: (risng_operator_privkey_path | default('') | length) > 0
+
+    - name: 00.12e Ensure risng SSH keypair exists on staging host (fallback generation)
+      ansible.builtin.command: >-
+        sudo -u risng -H bash -lc 'test -s /home/risng/.ssh/id_ed25519 && test -s /home/risng/.ssh/id_ed25519.pub || ssh-keygen -t ed25519 -a 100 -N "" -f /home/risng/.ssh/id_ed25519'
+      changed_when: true
+
+    - name: 00.13 Probe bootstrap invoker SSH public key candidates (controller context)
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+        - "{{ ssh_user_home }}/.ssh/id_rsa.pub"
+        - "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/id_ed25519.pub"
+        - "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/id_rsa.pub"
+        - "/root/.ssh/id_ed25519.pub"
+        - "/root/.ssh/id_rsa.pub"
+      register: risng_operator_pubkey_stats
+      changed_when: false
+      delegate_to: localhost
+      become: false
+
+    - name: 00.14 Read first available bootstrap invoker SSH public key
+      ansible.builtin.slurp:
+        src: "{{ (risng_operator_pubkey_stats.results | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list | first) }}"
+      register: risng_operator_pubkey_raw
+      when: (risng_operator_pubkey_stats.results | selectattr('stat.exists', 'equalto', true) | list | length) > 0
+      no_log: true
+      delegate_to: localhost
+      become: false
+
+    - name: 00.15 Authorize bootstrap invoker SSH key for risng user
+      ansible.posix.authorized_key:
+        user: risng
+        key: "{{ risng_operator_pubkey_raw.content | b64decode | trim }}"
+        state: present
+      when:
+        - risng_operator_pubkey_raw is defined
+        - risng_operator_pubkey_raw.content is defined
+
+    - name: 00.15a Fallback authorize risng self key when invoker key is missing
+      ansible.builtin.shell: |
+        set -euo pipefail
+        cat /home/risng/.ssh/id_ed25519.pub >> /home/risng/.ssh/authorized_keys
+        sort -u /home/risng/.ssh/authorized_keys -o /home/risng/.ssh/authorized_keys
+        chown risng:risng /home/risng/.ssh/authorized_keys
+        chmod 600 /home/risng/.ssh/authorized_keys
+      args:
+        executable: /bin/bash
+      when: risng_operator_pubkey_raw is not defined or risng_operator_pubkey_raw.content is not defined
+
+    - name: 00.15b Warn when bootstrap invoker SSH key was not found (self-key fallback used)
+      ansible.builtin.debug:
+        msg: >-
+          No readable bootstrap invoker SSH public key found; used /home/risng/.ssh/id_ed25519.pub fallback in authorized_keys.
+      when: risng_operator_pubkey_raw is not defined or risng_operator_pubkey_raw.content is not defined
+
+    - name: 00.16 Build candidate source paths for botrepo checkout
+      ansible.builtin.set_fact:
+        risng_botrepo_source_candidates:
+          - "{{ ssh_user_home }}/botrepo"
+          - "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo"
+          - "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo"
+          - "/root/botrepo"
+
+    - name: 00.17 Probe botrepo source candidates
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ risng_botrepo_source_candidates | unique }}"
+      register: risng_botrepo_source_candidate_stats
+      changed_when: false
+
+    - name: 00.18 Pick first existing botrepo source path
+      ansible.builtin.set_fact:
+        risng_botrepo_source_path: "{{ (risng_botrepo_source_candidate_stats.results | selectattr('stat.isdir', 'defined') | selectattr('stat.isdir', 'equalto', true) | map(attribute='item') | list | first) | default('') }}"
+
+    - name: 00.18a Normalize source path and guard against self-copy loops
+      ansible.builtin.set_fact:
+        risng_botrepo_source_path_effective: "{{ '' if (risng_botrepo_source_path | default('')) in ['/home/risng', '/home/risng/botrepo'] else (risng_botrepo_source_path | default('')) }}"
+
+    - name: 00.19 Ensure /home/risng/botrepo exists
+      ansible.builtin.file:
+        path: /home/risng/botrepo
+        state: directory
+        owner: risng
+        group: risng
+        mode: "0755"
+
+    - name: 00.20 Sync botrepo into /home/risng/botrepo (including .git) when source exists
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if command -v rsync >/dev/null 2>&1; then
+          rsync -a --delete "{{ risng_botrepo_source_path_effective }}/" "/home/risng/botrepo/"
+        else
+          rm -rf /home/risng/botrepo/*
+          cp -a "{{ risng_botrepo_source_path_effective }}/." "/home/risng/botrepo/"
+        fi
+        chown -R risng:risng /home/risng/botrepo
+      args:
+        executable: /bin/bash
+      when: (risng_botrepo_source_path_effective | default('') | length) > 0
+
+    - name: 00.21 Warn when no safe botrepo source path was found
+      ansible.builtin.debug:
+        msg: >-
+          No safe local botrepo source directory found for bootstrap copy.
+          Selected={{ risng_botrepo_source_path | default('UNSET') }}; checked={{ risng_botrepo_source_candidates | unique | join(', ') }}.
+          To avoid self-copy loops, /home/risng and /home/risng/botrepo are excluded as source.
+      when: (risng_botrepo_source_path_effective | default('') | length) == 0
+
+    - name: 00.21a Ensure /home/risng/risng symlink points to /home/risng/botrepo/risng_code
+      ansible.builtin.file:
+        src: /home/risng/botrepo/risng_code
+        dest: /home/risng/risng
+        owner: risng
+        group: risng
+        state: link
+        force: true
+
+    - name: 00.22 Ensure risng .bashrc links to RISng management template
+      ansible.builtin.file:
+        src: /home/risng/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2
+        dest: /home/risng/.bashrc
+        owner: risng
+        group: risng
+        state: link
+        force: true
+
+    - name: 00.23 Ensure risng .bash_profile sources .bashrc
+      ansible.builtin.copy:
+        dest: /home/risng/.bash_profile
+        owner: risng
+        group: risng
+        mode: "0644"
+        content: |
+          # managed by risng-setup
+          if [ -f "$HOME/.bashrc" ]; then
+            . "$HOME/.bashrc"
+          fi
+
+    - name: 00.24 Debug RISng user bootstrap summary
+      ansible.builtin.debug:
+        msg:
+          - "RISng effective ssh_user={{ ssh_user }} ssh_user_home={{ ssh_user_home }}"
+          - "RISng source path for botrepo sync(selected)={{ risng_botrepo_source_path | default('UNRESOLVED') }}"
+          - "RISng source path for botrepo sync(effective)={{ risng_botrepo_source_path_effective | default('UNRESOLVED') }}"
+          - "RISng bashrc link=/home/risng/.bashrc -> /home/risng/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
+
+
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+
+  roles:
+    - systemupdate
+
+###############################################################################
+- name: 01 Online phase  Build PXE export (internet mode)
+  hosts: bootstrapvm
+  become: true
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+
+  pre_tasks:
+    - import_tasks: detect_interfaces.yml
+
+    - name: 01.01 Bring up WAN NIC and disable PXE NIC
+      shell: |
+        ip link set {{ internetinterface }} up
+        ip addr flush dev {{ risng_lan_interface }} || true
+        ip link set {{ risng_lan_interface }} down || true
+      args:
+        executable: /bin/bash
+
+  roles:
+    - management
+    - tools
+    - webserver
+    - gopass
+    # - debian-live
+    # - netinstall
+    - risng
+    - risng_install
+
+  post_tasks:
+    - name: 01.99 Build feuer artifact checklist
+      ansible.builtin.set_fact:
+        risng_feuer_artifact_paths:
+          - path: "{{ risng_target | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/images/risng') }}/filesystem.squashfs"
+            label: "Live-RIS squashfs (boot option 1)"
+          - path: "{{ risng_target | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/images/risng') }}/vmlinuz"
+            label: "Live-RIS kernel"
+          - path: "{{ risng_target | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/images/risng') }}/initrd.img"
+            label: "Live-RIS initrd"
+          - path: "{{ spec_repo_root | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/centos/7/os/x86_64') }}/LiveOS/squashfs.img"
+            label: "CentOS installer stage2 squashfs"
+          - path: "{{ spec_repo_root | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/centos/7/os/x86_64') }}/images/pxeboot/vmlinuz"
+            label: "CentOS installer kernel"
+          - path: "{{ spec_repo_root | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/centos/7/os/x86_64') }}/images/pxeboot/initrd.img"
+            label: "CentOS installer initrd"
+
+    - name: 01.99a Collect feuer artifact stats
+      ansible.builtin.stat:
+        path: "{{ item.path }}"
+      loop: "{{ risng_feuer_artifact_paths }}"
+      register: risng_feuer_artifact_stats
+      changed_when: false
+
+    - name: 01.99b Print feuer artifact summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.item.label }} => {{ item.stat.path }} |
+          exists={{ item.stat.exists | default(false) }} |
+          size={{ item.stat.size | default(0) }}
+      loop: "{{ risng_feuer_artifact_stats.results }}"
+
+#
+###############################################################################
+- name: 02 Offline phase  Serve PXE (DHCP/DNS/TFTP)
+  hosts: bootstrapvm
+  become: true
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+
+  pre_tasks:
+    - import_tasks: "{{ playbook_dir }}/detect_interfaces.yml"
+
+    - name: 02.01 bring up PXE NIC with static IP
+      shell: |
+        ip addr flush dev {{ risng_lan_interface }} || true
+        ip addr add {{ dhcp_gateway }}/{{ dhcp_prefix }} dev {{ risng_lan_interface }}
+        ip link set {{ risng_lan_interface }} up
+      args:
+        executable: /bin/bash
+  
+  #  - name: 02.01 Deactivate WAN and bring up PXE NIC with static IP
+  #    shell: |
+  #      ip link set {{ internetinterface }} down || true
+  #      ip addr flush dev {{ risng_lan_interface }} || true
+  #      ip addr add {{ dhcp_gateway }}/{{ dhcp_prefix }} dev {{ risng_lan_interface }}
+  #      ip link set {{ risng_lan_interface }} up
+  #    args:
+  #      executable: /bin/bash
+
+
+
+  roles:
+    - pxe_assemble
+    - dns
+    - dhcp
+
+  post_tasks:
+    - import_role:
+        name: management
+        tasks_from: 20_persist_network.yml   # ensures NIC config survives reboot
+    - name: 02.97 Replace risng .bashrc with symlink to management template
+      ansible.builtin.file:
+        src: "{{ ssh_user_home }}/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
+        dest: "{{ ssh_user_home }}/.bashrc"
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        state: link
+        force: true
+
+    - name: 02.98 Ensure risng wallpaper directory exists
+      ansible.builtin.file:
+        path: "{{ ssh_user_home }}/.local/share/backgrounds"
+        state: directory
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: "0755"
+
+    - name: 02.98 Deploy risng wallpaper base image
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/roles/management/files/risng.background.png"
+        dest: "{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png"
+        owner: "{{ ssh_user }}"
+        group: "{{ ssh_user }}"
+        mode: "0644"
+
+    - name: 02.98 Determine deployed RISng commit with robust fallback to botrepo
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for repo in \
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo" \
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/risng" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/risng" \
+          "/home/risng/botrepo" \
+          "/home/risng/risng" \
+          "{{ ssh_user_home }}/botrepo" \
+          "{{ ssh_user_home }}/risng" \
+          "/root/botrepo"
+        do
+          [ -d "$repo/.git" ] || continue
+          if out="$(git -C "$repo" log -1 --pretty=format:%h 2>/dev/null)" && [ -n "$out" ]; then
+            echo "$out"
+            exit 0
+          fi
+        done
+        exit 0
+      args:
+        executable: /bin/bash
+      register: risng_git_commit
+      changed_when: false
+      failed_when: false
+
+    - name: 02.98 Determine deployed RISng branch with robust fallback to botrepo
+      ansible.builtin.shell: |
+        set -euo pipefail
+        for repo in \
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo" \
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/risng" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/risng" \
+          "/home/risng/botrepo" \
+          "/home/risng/risng" \
+          "{{ ssh_user_home }}/botrepo" \
+          "{{ ssh_user_home }}/risng" \
+          "/root/botrepo"
+        do
+          [ -d "$repo/.git" ] || continue
+          if out="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)" && [ -n "$out" ]; then
+            echo "$out"
+            exit 0
+          fi
+        done
+        exit 0
+      args:
+        executable: /bin/bash
+      register: risng_git_branch
+      changed_when: false
+      failed_when: false
+
+    - name: 02.98 Build risng wallpaper timestamp label (UTC)
+      ansible.builtin.command:
+        argv:
+          - date
+          - -u
+          - "+%F %H:%M:%S UTC"
+      register: risng_wallpaper_timestamp
+      changed_when: false
+
+    - name: 02.98 Compose risng wallpaper annotation label
+      ansible.builtin.set_fact:
+        risng_wallpaper_label: >-
+          Controlhost RISng - staged on {{ risng_wallpaper_timestamp.stdout | default('timestamp unavailable', true) }}
+          (git-commit: {{ risng_git_commit.stdout | default('unknown', true) | trim | default('unknown') }} [branch {{ risng_git_branch.stdout | default('unknown', true) | trim | default('unknown') }}])
+      changed_when: false
+
+    - name: 02.98 Annotate risng wallpaper with timestamp
+      ansible.builtin.command:
+        argv:
+          - mogrify
+          - -gravity
+          - north
+          - -pointsize
+          - "36"
+          - -fill
+          - "#FFFFFF"
+          - -undercolor
+          - "#000000B3"
+          - -annotate
+          - "+0+120"
+          - "{{ risng_wallpaper_label }}"
+          - "{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png"
+      become: true
+      become_user: "{{ ssh_user }}"
+      when:
+        - risng_wallpaper_label | default('') | length > 0
+
+    - name: 02.98 Apply risng wallpaper in GNOME
+      community.general.dconf:
+        key: /org/gnome/desktop/background/picture-uri
+        value: "'file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png'"
+        state: present
+      become: true
+      become_user: "{{ ssh_user }}"
+
+    - name: 02.98 Apply risng dark mode wallpaper in GNOME
+      community.general.dconf:
+        key: /org/gnome/desktop/background/picture-uri-dark
+        value: "'file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png'"
+        state: present
+      become: true
+      become_user: "{{ ssh_user }}"

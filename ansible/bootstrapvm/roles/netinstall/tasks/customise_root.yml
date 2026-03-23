@@ -1,0 +1,159 @@
+# Injects SSH key, resolv.conf, user setup, ssh host keys
+
+- name: 04 02 01 Create user
+  command: >
+    chroot {{ netinstall_workdir }} useradd -m -s /bin/bash {{ ssh_user }}
+  args:
+    creates: "{{ netinstall_workdir }}/home/{{ ssh_user }}"
+
+
+- name: 04 02 02 Create .ssh directory
+  file:
+    path: "{{ netinstall_workdir }}/home/{{ ssh_user }}/.ssh"
+    state: directory
+    owner: "{{ ssh_user }}"
+    group: "{{ ssh_user }}"
+    mode: "0700"
+
+- name: 04 02 03 Copy SSH public key
+  copy:
+    src: "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+    dest: "{{ netinstall_workdir }}/home/{{ ssh_user }}/.ssh/authorized_keys"
+    remote_src: true
+    owner: "{{ ssh_user }}"
+    group: "{{ ssh_user }}"
+    mode: "0600"
+
+- name: 04 02 04 Copy resolv.conf
+  copy:
+    src: /etc/resolv.conf
+    dest: "{{ netinstall_workdir }}/etc/resolv.conf"
+    remote_src: true
+    mode: "0644"
+
+- name: 04 02 05 Ensure ssh directory
+  file:
+    path: "{{ netinstall_workdir }}/etc/ssh"
+    state: directory
+    mode: "0755"
+
+- name: 04 02 06 Generate SSH host keys
+  community.crypto.openssh_keypair:
+    path: "{{ netinstall_workdir }}/etc/ssh/ssh_host_{{ item }}_key"
+    type: "{{ item }}"
+    mode: "0600"
+    force: false
+  loop: [rsa, ed25519, ecdsa]
+
+- name: 04 02 06b Inject fixed SSH hostkey (ed25519)
+  ansible.builtin.copy:
+    src: "{{ ssh_user_home }}/.ssh/id_ed25519"
+    dest: "{{ netinstall_workdir }}/etc/ssh/ssh_host_ed25519_key"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: 04 02 06c Inject fixed SSH hostkey (ed25519.pub)
+  ansible.builtin.copy:
+    src: "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+    dest: "{{ netinstall_workdir }}/etc/ssh/ssh_host_ed25519_key.pub"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0644"
+
+
+
+- name: 04 02 07 Enable systemd default target (multi-user)
+  file:
+    src: "/lib/systemd/system/multi-user.target"
+    dest: "{{ netinstall_workdir }}/etc/systemd/system/default.target"
+    state: link
+
+- name: 04 02 08 Enable SSH service by default
+  file:
+    src: "/lib/systemd/system/ssh.service"
+    dest: "{{ netinstall_workdir }}/etc/systemd/system/multi-user.target.wants/ssh.service"
+    state: link
+
+- name: 04 02 09 Set default hostname placeholder
+  copy:
+    dest: "{{ netinstall_workdir }}/etc/hostname"
+    content: "{{ netinstall_default_hostname }}\n"
+    mode: "0644"
+
+- name: 04 02 09a Install DHCP hostname helper script
+  copy:
+    src: "{{ role_path }}/../common/files/apply-dhcp-hostname.sh"
+    dest: "{{ netinstall_workdir }}/usr/local/sbin/apply-dhcp-hostname.sh"
+    mode: "0755"
+
+- name: 04 02 09b Install DHCP hostname systemd service
+  template:
+    src: "{{ role_path }}/../common/templates/apply-dhcp-hostname.service.j2"
+    dest: "{{ netinstall_workdir }}/etc/systemd/system/apply-dhcp-hostname.service"
+    mode: "0644"
+
+- name: 04 02 09c Enable DHCP hostname systemd service
+  file:
+    src: "../apply-dhcp-hostname.service"
+    dest: "{{ netinstall_workdir }}/etc/systemd/system/multi-user.target.wants/apply-dhcp-hostname.service"
+    state: link
+
+- name: 04 02 09d Create getty override directory
+  file:
+    path: "{{ netinstall_workdir }}/etc/systemd/system/getty@tty1.service.d"
+    state: directory
+    mode: "0755"
+
+#- name: 04 02 10 Enable autologin (tty1)
+#  copy:
+#    dest: "{{ netinstall_workdir }}/etc/systemd/system/getty@tty1.service.d/override.conf"
+#    content: |
+#      [Service]
+#      ExecStart=
+#      ExecStart=-/sbin/agetty --autologin {{ ssh_user }} --noclear %I $TERM
+#    mode: "0644"
+
+# 04 02 10b Enable autologin for root on tty2
+- name: 04 02 10b Enable autologin (tty1 for root)
+  copy:
+    dest: "{{ netinstall_workdir }}/etc/systemd/system/getty@tty1.service.d/override.conf"
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+    mode: "0644"
+
+- name: 04 02 10b Copy custom root .bashrc with IP prompt
+  copy:
+    src: "bashrc-root-netinstall"
+    dest: "{{ netinstall_workdir }}/root/.bashrc"
+    mode: "0644"
+
+- name: 04 02 11 Add sudoers file for {{ ssh_user }}
+  copy:
+    dest: "{{ netinstall_workdir }}/etc/sudoers.d/90-{{ ssh_user }}"
+    content: "{{ ssh_user }} ALL=(ALL) NOPASSWD:ALL"
+    mode: "0440"
+
+- name: 04 02 12 Copy SSH public key for root
+  copy:
+    src: "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+    dest: "{{ netinstall_workdir }}/root/.ssh/authorized_keys"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: 04 02 13 Enable root autologin on tty1 (optional override)
+  copy:
+    dest: "{{ netinstall_workdir }}/etc/systemd/system/getty@tty1.service.d/override.conf"
+    content: |
+      [Service]
+      ExecStart=
+      ExecStart=-/sbin/agetty --autologin root --noclear %I $TERM
+    mode: "0644"
+  when: netinstall_autologin_user == "root"
+

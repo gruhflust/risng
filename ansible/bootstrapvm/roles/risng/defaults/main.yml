@@ -1,0 +1,104 @@
+# risng_defaults_v6c
+# -------------------------------------------------------------------
+# Defaults for the risng role using live initrd and kernel
+# -------------------------------------------------------------------
+
+# Kernel and initrd copied from Debian Live ISO (not netboot.tar.gz)
+risng_kernel: "vmlinuz"
+risng_initrd: "initrd.img"
+
+# PXE-relative export path under TFTP root
+risng_target_relative: "images/risng"
+
+# PXE boot menu filenames
+risng_grub_filename: "10-risng.cfg"
+risng_pxelinux_filename: "10-risng.cfg"
+
+# PXE boot menu labels
+risng_label:       "Live-RIS (BIOS)"
+risng_grub_label:  "Live-RIS (UEFI)"
+
+# Default hostname used until DHCP supplies a specific value
+risng_default_hostname: risng-client
+
+# Fallback values from earlier versions (not used anymore)
+risng_url: "https://deb.debian.org/debian/dists/trixie/main/installer-amd64/current/images/netboot/netboot.tar.gz"
+risng_extract_dir: "{{ pxe_tmp_dir }}/risng"
+
+# Host to autologin on PXE boot
+risng_autologin_user: root
+
+# Debian base setup
+debian_codename: trixie
+debian_mirror_url: http://deb.debian.org/debian
+
+# ISO channel: follow testing-weekly builds for trixie to keep getisos aligned
+debian_live_iso_base_url: "{{ 'https://cdimage.debian.org/cdimage/weekly-live-builds/amd64/iso-hybrid' if debian_codename == 'trixie' else 'https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid' }}"
+debian_live_iso_flavors:
+  - gnome
+  - standard
+  - xfce
+  - kde
+  - cinnamon
+  - mate
+  - lxqt
+
+# Kernel packages matching the live ISO kernel (populated during build)
+risng_kernel_packages: []
+
+# Combined package list used for chroot installation (defaults to tools only)
+risng_packages: "{{ tools_packages }}"
+
+# Tool packages to be installed in risng chroot
+tools_packages:
+  - htop
+  - iotop
+  - iperf
+  - iperf3
+  - iftop
+  - iproute2
+  # - ifupdown2
+  - ncdu
+  - nmap
+  - screen
+  - tmux
+  - jq
+  - curl
+  - wget
+  - unzip
+  - netcat-openbsd
+  - vlan
+  - bridge-utils
+  - tree
+  - bash-completion
+  - parted
+  - lsof
+  - pciutils
+  - usbutils
+  - lshw
+  - whois
+  - bind9-dnsutils
+  - traceroute
+  - build-essential
+  - dkms
+  - kbd
+
+# -------------------------------------------------------------------
+# PXE boot temp files and ISO paths (keep off /tmp tmpfs by default)
+# -------------------------------------------------------------------
+pxe_tmp_dir: /var/tmp/pxe-build
+
+# Mountpoint for extracted Debian Live ISO contents
+debian_live_iso_mount: "{{ pxe_tmp_dir }}/iso-mount"
+debian_live_squash_mount: "{{ pxe_tmp_dir }}/iso-squashfs"
+
+# Final downloaded ISO path (persistent)
+iso_download_dir: "{{ pxe_tmp_dir }}/iso"
+debian_live_iso_path: "{{ iso_download_dir }}/debian-live.iso"
+debian_live_iso_filename: ""
+debian_live_iso_url: ""
+
+# Working directories (used by role)
+risng_workdir: "{{ pxe_tmp_dir }}/chroot"
+# Keep artifacts inside active TFTP root (must match pxe_tftp_dir).
+risng_target: "{{ pxe_tftp_dir }}/{{ risng_target_relative }}"

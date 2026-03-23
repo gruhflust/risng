@@ -1,0 +1,12 @@
+# roles/tools/meta/main.yml
+---
+galaxy_info:
+  role_name: tools
+  author: risng
+  description: Installs essential CLI tools for network diagnostics, disk ops, and performance tuning
+  license: MIT
+  min_ansible_version: "2.11"
+  platforms:
+    - name: Debian
+      versions: [12]
+dependencies: []

@@ -1,0 +1,105 @@
+# management_defaults_v06
+# -------------------------------------------------------------
+# Centralised defaults for ISO / tarball handling
+# -------------------------------------------------------------
+---
+# Scratch & export paths (avoid /tmp tmpfs exhaustion)
+pxe_tmp_dir:        "/var/tmp/pxe-build"
+pxe_tftp_dir:       "/var/lib/tftpboot"
+iso_download_dir:   "{{ pxe_tmp_dir }}/iso"
+pxe_tmp_owner:      "{{ ansible_user_id | default('root') }}"
+pxe_tmp_group:      "{{ ansible_user_id | default('root') }}"
+pxe_tmp_mode:       "0775"
+
+
+pxe_timeout:        100
+pxe_default_label:  live-ris
+pxe_menu_prefixes:  [10,20]     # weitere Präfixe hier ergänzen
+
+# Debian release to track (Debian 13 «trixie» by default)
+debian_release:     "{{ lookup('vars', 'debian_release_pin', default='trixie') }}"
+
+# ISO channels: default to testing-weekly builds for trixie to keep getisos aligned
+debian_live_iso_base_url: "{{ 'https://cdimage.debian.org/cdimage/weekly-live-builds/amd64/iso-hybrid' if debian_release == 'trixie' else 'https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid' }}"
+netinstall_iso_base_url: "{{ 'https://cdimage.debian.org/cdimage/weekly-builds/amd64/iso-cd' if debian_release == 'trixie' else 'https://cdimage.debian.org/debian-cd/current/amd64/iso-cd' }}"
+
+# -------------------- Live ISO ------------------------------------------------
+debian_live_iso_flavors:
+  - gnome
+  - standard
+  - xfce
+  - kde
+  - cinnamon
+  - mate
+  - lxqt
+debian_live_iso_filename: ""
+debian_live_iso_url: ""
+debian_live_iso_path: "{{ iso_download_dir }}/{{ debian_live_iso_filename | default('debian-live.iso') }}"
+
+# GRUB modules to include when assembling bootx64.efi (filtered to what exists)
+grub_mkimage_desired_modules:
+  - tftp
+  - efinet
+  - net
+  - configfile
+  - linux
+  - linuxefi
+  - normal
+  - echo
+  - cat
+  - ls
+  - search
+  - search_fs_file
+  - loopback
+  - squash4
+
+# -------------------- Net-install ISO ----------------------------------------
+netinstall_iso_filename: ""
+netinstall_iso_checksum: ""
+netinstall_iso_url: ""
+netinstall_iso_path: "{{ iso_download_dir }}/{{ netinstall_iso_filename | default('debian-netinst.iso') }}"
+
+# -------------------- Netboot tarball ----------------------------------------
+netboot_tarball_url:  "https://deb.debian.org/debian/dists/{{ debian_release }}/main/installer-amd64/current/images/netboot/netboot.tar.gz"
+netboot_tarball_path: "{{ iso_download_dir }}/debian-netboot.tar.gz"
+# -------------------- CentOS 7.8 ISO ---------------------------------------
+centos78_iso_filename: "CentOS-7-x86_64-DVD-2003.iso"
+centos78_iso_url:      "http://vault.centos.org/7.8.2003/isos/x86_64/{{ centos78_iso_filename }}"
+centos78_iso_path:     "{{ iso_download_dir }}/centos78.iso"
+
+
+
+# ---- Backward-compatibility (tasks still using »netinstall_tarball_*«) -------
+netinstall_tarball_url:  "{{ netboot_tarball_url }}"
+netinstall_tarball_path: "{{ netboot_tarball_path }}"
+
+# TFTP server IP used inside generated menus
+tftp_server_ip: "{{ dns_bootstrap_ip | default(bootstrap_ip) }}"
+
+# Limit TFTP block size for better BIOS PXE compatibility (notably iPXE/SeaBIOS legacy clients).
+tftp_blocksize: "1024"
+
+
+
+pxe_default_grub_entry: "Live-RIS (UEFI)"
+
+# -------------------- RISng repository staging -------------------------------
+# Clients should always consume RISng-local URLs. Only the staging host changes
+# between Internet/Vault and later Nexus-backed upstreams.
+risng_repo_root: "/srv/risng-repo"
+risng_repo_mode: "internet"
+risng_repo_upstream_baseurl: >-
+  {{ 'http://vault.centos.org' if risng_repo_mode == 'internet' else 'http://nexus.example.invalid/repository/centos7' }}
+risng_repo_sync_on_stage: false
+risng_repo_sync_interval: "12h"
+risng_repo_centos_os_path: "7.8.2003/os/x86_64"
+risng_repo_centos_updates_path: "7.8.2003/updates/x86_64"
+risng_repo_centos_extras_path: "7.8.2003/extras/x86_64"
+risng_repo_additional_repos:
+  - "{{ risng_repo_centos_updates_path }}"
+  - "{{ risng_repo_centos_extras_path }}"
+
+# Installation source strategy:
+# - mirror: consume mirrored repository trees from RISng (preferred)
+# - iso:    fall back to extracting the original DVD ISO locally
+spec_repo_source_mode: "mirror"
