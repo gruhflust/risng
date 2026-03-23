@@ -285,6 +285,18 @@
   args:
     creates: "{{ risng_target }}/filesystem.squashfs"
 
+- name: Task IR-75a - Verify live boot squashfs exists
+  ansible.builtin.stat:
+    path: "{{ risng_target }}/filesystem.squashfs"
+  register: risng_live_squashfs_stat
+
+- name: Task IR-75b - Fail if live boot squashfs is missing or empty
+  ansible.builtin.fail:
+    msg: "Expected live squashfs missing/empty at {{ risng_target }}/filesystem.squashfs"
+  when:
+    - not risng_live_squashfs_stat.stat.exists
+      or (risng_live_squashfs_stat.stat.size | default(0) | int) <= 0
+
 # -------------------------------------------------------------------
 # Step 5: Copy initrd and vmlinuz from Debian Live ISO or chroot kernel
 # -------------------------------------------------------------------

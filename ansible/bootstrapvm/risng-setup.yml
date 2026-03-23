@@ -136,8 +136,8 @@
       ansible.builtin.stat:
         path: "{{ item }}"
       loop:
-        - "/home/{{ lookup('ansible.builtin.env', 'SUDO_USER') | default('user', true) }}/.ssh/id_ed25519"
-        - "/home/user/.ssh/id_ed25519"
+        - "/home/{{ ansible_env.SUDO_USER | default('', true) }}/.ssh/id_ed25519"
+        - "{{ ssh_user_home }}/.ssh/id_ed25519"
         - "/root/.ssh/id_ed25519"
       register: risng_operator_privkey_stats
       changed_when: false
@@ -175,6 +175,8 @@
       ansible.builtin.stat:
         path: "{{ item }}"
       loop:
+        - "{{ ssh_user_home }}/.ssh/id_ed25519.pub"
+        - "{{ ssh_user_home }}/.ssh/id_rsa.pub"
         - "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/id_ed25519.pub"
         - "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/id_rsa.pub"
         - "/root/.ssh/id_ed25519.pub"
@@ -222,8 +224,9 @@
     - name: 00.16 Build candidate source paths for botrepo checkout
       ansible.builtin.set_fact:
         risng_botrepo_source_candidates:
+          - "{{ ssh_user_home }}/botrepo"
           - "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo"
-          - "/home/user/botrepo"
+          - "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo"
           - "/root/botrepo"
 
     - name: 00.17 Probe botrepo source candidates
@@ -410,7 +413,7 @@
     - name: 02.98 Determine deployed RISng commit with fallback to botrepo
       ansible.builtin.shell: |
         set -euo pipefail
-        for repo in "{{ ssh_user_home }}/risng" "{{ ssh_user_home }}/botrepo" "/home/user/botrepo" "/root/botrepo"; do
+        for repo in "{{ ssh_user_home }}/risng" "{{ ssh_user_home }}/botrepo" "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" "/root/botrepo"; do
           if [ -d "$repo/.git" ]; then
             git -C "$repo" log -1 --pretty=format:%h
             exit 0
@@ -426,7 +429,7 @@
     - name: 02.98 Determine deployed RISng branch with fallback to botrepo
       ansible.builtin.shell: |
         set -euo pipefail
-        for repo in "{{ ssh_user_home }}/risng" "{{ ssh_user_home }}/botrepo" "/home/user/botrepo" "/root/botrepo"; do
+        for repo in "{{ ssh_user_home }}/risng" "{{ ssh_user_home }}/botrepo" "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" "/root/botrepo"; do
           if [ -d "$repo/.git" ]; then
             git -C "$repo" rev-parse --abbrev-ref HEAD
             exit 0
