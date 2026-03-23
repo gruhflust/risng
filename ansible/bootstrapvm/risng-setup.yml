@@ -69,10 +69,10 @@
 
     - import_tasks: "{{ playbook_dir }}/detect_interfaces.yml"
 
-    - name: 00.09 Check whether GNOME graphics stack is already present
+    - name: 00.09 Check whether minimal GNOME login stack is already present
       ansible.builtin.shell: |
         set -euo pipefail
-        for pkg in gnome-shell gdm3 xserver-xorg; do
+        for pkg in gdm3 gnome-shell gnome-session; do
           dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed" || exit 1
         done
       args:
@@ -95,19 +95,19 @@
         vtype: select
       when: risng_gnome_stack_check.rc != 0
 
-    - name: 00.09c Install workstationprep-style minimal GNOME stack early (for local login UX)
+    - name: 00.09c Install fast minimal GNOME login stack early (for local login UX)
       ansible.builtin.apt:
         name:
+          - gdm3
           - gnome-shell
           - gnome-session
           - gnome-terminal
-          - task-gnome-desktop
-          - gdm3
           - dbus-x11
           - dconf-cli
           - xserver-xorg
         state: present
         update_cache: true
+        cache_valid_time: 86400
         dpkg_options: force-confdef,force-confold
       environment:
         DEBIAN_FRONTEND: noninteractive
