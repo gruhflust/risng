@@ -13,11 +13,6 @@ authconfig --enableshadow --passalgo=sha512
 selinux --disabled
 bootloader --location=mbr
 services --disabled="kdump"
-%include /tmp/risng-partitioning.ks
-services --enabled=sshd
-skipx
-firstboot --disable
-reboot
 
 
 %pre --log=/tmp/ks-pre.log
@@ -26,7 +21,6 @@ nmcli radio wifi off || true
 rfkill block wifi || true
 
 BOOTIF_MAC="$(sed -n 's/.*BOOTIF=01-\([0-9A-Fa-f-]*\).*/\1/p' /proc/cmdline | tr 'A-F' 'a-f' | tr '-' ':' | head -n1)"
-DISK_DEFAULT="sda"
 
 case "$BOOTIF_MAC" in
 {% for h in dhcp_static_hosts | default([]) %}
@@ -41,12 +35,18 @@ EOF
   *)
     cat >/tmp/risng-partitioning.ks <<EOF
 zerombr
-clearpart --all --initlabel --drives=${DISK_DEFAULT}
-autopart --type=lvm --ondisk=${DISK_DEFAULT}
+clearpart --all --initlabel
+autopart --type=lvm
 EOF
     ;;
 esac
 %end
+
+%include /tmp/risng-partitioning.ks
+services --enabled=sshd
+skipx
+firstboot --disable
+reboot
 
 %post --log=/root/ks-post.log
 set -euxo pipefail
