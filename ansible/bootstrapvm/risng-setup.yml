@@ -188,19 +188,44 @@
     - name: 00.09d Ensure graphical.target is default
       ansible.builtin.command: systemctl set-default graphical.target
       changed_when: false
-      failed_when: false
 
-    - name: 00.09e Ensure gdm3 is enabled (do not start during feuer console run)
-      ansible.builtin.service:
+    - name: 00.09e Ensure gdm3 is enabled for next boot (do not start during feuer console run)
+      ansible.builtin.systemd:
         name: gdm3
         enabled: true
-      failed_when: false
+
+    - name: 00.09ea Ensure display-manager.service points to gdm3
+      ansible.builtin.file:
+        src: /lib/systemd/system/gdm3.service
+        dest: /etc/systemd/system/display-manager.service
+        state: link
+        force: true
+
+    - name: 00.09eb Verify default target after configuration
+      ansible.builtin.command: systemctl get-default
+      register: risng_default_target
+      changed_when: false
+
+    - name: 00.09ec Fail if default target is not graphical.target
+      ansible.builtin.fail:
+        msg: "Expected default target graphical.target, got {{ risng_default_target.stdout | default('unknown') }}"
+      when: (risng_default_target.stdout | default('')) != 'graphical.target'
+
+    - name: 00.09ed Verify gdm3 enablement state
+      ansible.builtin.command: systemctl is-enabled gdm3
+      register: risng_gdm3_enabled_state
+      changed_when: false
+
+    - name: 00.09ee Fail if gdm3 is not enabled for boot
+      ansible.builtin.fail:
+        msg: "Expected gdm3 enabled for boot, got state={{ risng_gdm3_enabled_state.stdout | default('unknown') }}"
+      when: (risng_gdm3_enabled_state.stdout | default('')) not in ['enabled', 'alias', 'static', 'indirect']
 
     - name: 00.09f Note about deferred graphical login activation
       ansible.builtin.debug:
         msg: >-
-          gdm3 was enabled but not started during feuer to avoid interrupting the active console session.
-          Start it after feuer with 'sudo systemctl start gdm3' or reboot.
+          gdm3 is configured for boot and display-manager.service is linked to gdm3, but not started during feuer to avoid interrupting the active console session.
+          Reboot to reach graphical login automatically.
 
     # moved earlier: risng group/user bootstrap
     # moved earlier: risng group/user bootstrap
