@@ -28,7 +28,11 @@ sync_tree() {
     "$source_url/"
 }
 
-sync_tree "${UPSTREAM_BASE%/}/{{ risng_repo_centos_os_path }}" "$SPEC_ROOT"
+if [ "{{ spec_repo_source_mode | default('mirror') }}" = "mirror" ]; then
+  sync_tree "${UPSTREAM_BASE%/}/{{ risng_repo_centos_os_path }}" "$SPEC_ROOT"
+else
+  echo "spec_repo_source_mode={{ spec_repo_source_mode | default('mirror') }} -> keep existing SPEC_ROOT content, skip mirror overwrite"
+fi
 
 for extra_repo in {% for repo in risng_repo_additional_repos %}{{ repo | to_json }} {% endfor %}; do
   sync_tree "${UPSTREAM_BASE%/}/${extra_repo}" "$EXTRA_ROOT/${extra_repo}"
