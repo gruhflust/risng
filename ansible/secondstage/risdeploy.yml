@@ -186,46 +186,12 @@
         EOF
       when: "'graphics-gnome' in risdeploy_components"
 
-    - name: Build wallpaper annotation label on control host
-      ansible.builtin.set_fact:
-        risdeploy_wallpaper_label: >-
-          [{{ risdeploy_role }}] staged on {{ lookup('pipe', 'date -u +"%F %H:%M:%S UTC"') }}
-          {{ lookup('pipe', 'git -C ' ~ playbook_dir ~ '/../.. rev-parse --short HEAD') | trim }}
-      delegate_to: localhost
-      delegate_facts: true
-      when: "'graphics-gnome' in risdeploy_components"
-
-    - name: Ensure wallpaper directory exists for login user
+    - name: Regenerate machine identity for freshly staged client
       ansible.builtin.raw: |
-        getent passwd {{ risdeploy_login_user }} >/dev/null 2>&1 || exit 0
-        home_dir=$(getent passwd {{ risdeploy_login_user }} | cut -d: -f6)
-        mkdir -p "$home_dir/.local/share/backgrounds"
-        chown -R {{ risdeploy_login_user }}:{{ risdeploy_login_user }} "$home_dir/.local"
-      when: "'graphics-gnome' in risdeploy_components"
-
-    - name: Copy staged wallpaper image to login user home
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/../artifacts/BackgroundPic.png"
-        dest: "/home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png"
-        owner: "{{ risdeploy_login_user }}"
-        group: "{{ risdeploy_login_user }}"
-        mode: "0644"
-      when: "'graphics-gnome' in risdeploy_components"
-
-    - name: Annotate wallpaper with role timestamp and commit
-      ansible.builtin.raw: >-
-        mogrify -gravity north -pointsize 28 -fill '#FFFFFF' -undercolor '#000000B3'
-        -annotate +0+80 "{{ hostvars['localhost'].risdeploy_wallpaper_label }}"
-        /home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png
-      when: "'graphics-gnome' in risdeploy_components"
-
-    - name: Replace common CentOS/GNOME default wallpapers with staged image
-      ansible.builtin.raw: |
-        src="/home/{{ risdeploy_login_user }}/.local/share/backgrounds/BackgroundPic.png"
-        for target in           /usr/share/backgrounds/images/default.png           /usr/share/backgrounds/images/default.jpg           /usr/share/backgrounds/gnome/adwaita-day.jpg           /usr/share/backgrounds/gnome/adwaita-night.jpg           /usr/share/backgrounds/gnome/adwaita-lock.jpg           /usr/share/backgrounds/day.jpg           /usr/share/backgrounds/default.png; do
-          [ -e "$target" ] || continue
-          cp -f "$src" "$target"
-        done
+        rm -f /var/lib/dbus/machine-id
+        [ -s /etc/machine-id ] || rm -f /etc/machine-id
+        systemd-machine-id-setup >/dev/null 2>&1 || dbus-uuidgen --ensure=/etc/machine-id
+        ln -sf /etc/machine-id /var/lib/dbus/machine-id
       when: "'graphics-gnome' in risdeploy_components"
 
     - name: Restart GDM after graphical session fixes
