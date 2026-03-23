@@ -29,6 +29,7 @@
         ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         risdeploy_components: "{{ item.secondstage_components | default(risdeploy_default_components) }}"
         risdeploy_role: "{{ item.boot_profile | default('unknown') }}"
+        risdeploy_login_user: "{{ item.login_user | default(item.user | default(risdeploy_default_login_user)) }}"
       loop: "{{ risdeploy_targets }}"
 
 - name: Apply RISng second-stage components to selected clients
