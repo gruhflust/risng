@@ -117,6 +117,76 @@
         state: present
       when: risng_operator_pubkey_raw is defined
 
+    - name: 00.16 Build candidate source paths for RISng code checkout
+      ansible.builtin.set_fact:
+        risng_code_source_candidates:
+          - "/home/{{ lookup('ansible.builtin.env', 'SUDO_USER') | default('', true) }}/botrepo/risng_code"
+          - "/home/{{ lookup('ansible.builtin.env', 'SUDO_USER') | default('', true) }}/risng"
+          - "/home/{{ lookup('ansible.builtin.env', 'USER') | default('', true) }}/botrepo/risng_code"
+          - "/home/{{ lookup('ansible.builtin.env', 'USER') | default('', true) }}/risng"
+          - "/root/botrepo/risng_code"
+
+    - name: 00.17 Probe RISng code source candidates
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ risng_code_source_candidates | unique }}"
+      register: risng_code_source_candidate_stats
+      changed_when: false
+
+    - name: 00.18 Pick first existing RISng code source path
+      ansible.builtin.set_fact:
+        risng_code_source_path: "{{ (risng_code_source_candidate_stats.results | selectattr('stat.isdir', 'defined') | selectattr('stat.isdir', 'equalto', true) | map(attribute='item') | list | first) | default('') }}"
+
+    - name: 00.19 Ensure /home/risng/risng exists
+      ansible.builtin.file:
+        path: /home/risng/risng
+        state: directory
+        owner: risng
+        group: risng
+        mode: "0755"
+
+    - name: 00.20 Sync RISng code into /home/risng/risng when source exists
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if command -v rsync >/dev/null 2>&1; then
+          rsync -a --delete "{{ risng_code_source_path }}/" "/home/risng/risng/"
+        else
+          rm -rf /home/risng/risng/*
+          cp -a "{{ risng_code_source_path }}/." "/home/risng/risng/"
+        fi
+        chown -R risng:risng /home/risng/risng
+      args:
+        executable: /bin/bash
+      when: (risng_code_source_path | default('') | length) > 0
+
+    - name: 00.21 Warn when no RISng code source path was found
+      ansible.builtin.debug:
+        msg: >-
+          No local RISng code source directory found for bootstrap copy.
+          Checked: {{ risng_code_source_candidates | unique | join(', ') }}
+      when: (risng_code_source_path | default('') | length) == 0
+
+    - name: 00.22 Ensure risng .bashrc links to RISng management template
+      ansible.builtin.file:
+        src: /home/risng/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2
+        dest: /home/risng/.bashrc
+        owner: risng
+        group: risng
+        state: link
+        force: true
+
+    - name: 00.23 Ensure risng .bash_profile sources .bashrc
+      ansible.builtin.copy:
+        dest: /home/risng/.bash_profile
+        owner: risng
+        group: risng
+        mode: "0644"
+        content: |
+          # managed by risng-setup
+          if [ -f "$HOME/.bashrc" ]; then
+            . "$HOME/.bashrc"
+          fi
+
 
   vars_files:
     - ../host_vars/bootstrapvm.yml
