@@ -1,0 +1,89 @@
+---
+- name: Preview RISng second-stage actions (dry-run planner)
+  hosts: bootstrapvm
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../bootstrapvm/roles/dhcp/defaults/main.yml
+    - vars/risdeploy_components.yml
+    - vars/risdeploy_repo_catalog.yml
+
+  tasks:
+    - name: Select enabled RIS deploy targets
+      ansible.builtin.set_fact:
+        risdeploy_targets: >-
+          {{
+            (dhcp_static_hosts | default([]))
+            | selectattr('secondstage_enabled', 'defined')
+            | selectattr('secondstage_enabled')
+            | list
+          }}
+
+    - name: Build effective dry-run plan model
+      ansible.builtin.set_fact:
+        risdeploy_dryrun_plan:
+          generated_at_utc: "{{ lookup('pipe', 'date -u +%Y-%m-%dT%H:%M:%SZ') }}"
+          defaults:
+            ssh_user: "{{ risdeploy_ssh_user }}"
+            repo_host: "{{ risdeploy_repo_host }}"
+            default_components: "{{ risdeploy_default_components }}"
+          target_count: "{{ risdeploy_targets | length }}"
+          targets: |
+            {% set out = [] %}
+            {% for t in risdeploy_targets %}
+            {% set components = t.secondstage_components | default(risdeploy_default_components) %}
+            {% set groups = [] %}
+            {% set packages = [] %}
+            {% set services = [] %}
+            {% set repo_sets = [] %}
+            {% for c in components %}
+            {% set def = (risdeploy_component_catalog[c] if c in risdeploy_component_catalog else {}) %}
+            {% set _ = groups.extend(def.yum_groups | default([])) %}
+            {% set _ = packages.extend(def.packages | default([])) %}
+            {% set _ = services.extend(def.services | default([])) %}
+            {% set _ = repo_sets.extend(def.required_repo_sets | default([])) %}
+            {% endfor %}
+            {% set _ = out.append({
+              'name': t.name | default('unnamed'),
+              'ip': t.ip | default(''),
+              'mac': t.mac | default(''),
+              'boot_profile': t.boot_profile | default(dhcp_default_boot_profile | default('n/a')),
+              'secondstage_enabled': t.secondstage_enabled | default(false),
+              'components': components,
+              'yum_groups': groups | unique | list,
+              'packages': packages | unique | list,
+              'services': services | unique | list,
+              'required_repo_sets': repo_sets | unique | list,
+            }) %}
+            {% endfor %}
+            {{ out }}
+
+    - name: Show compact dry-run summary
+      ansible.builtin.debug:
+        msg:
+          - "risdeploy-dryrun targets={{ risdeploy_dryrun_plan.target_count }}"
+          - "repo_host={{ risdeploy_dryrun_plan.defaults.repo_host }} ssh_user={{ risdeploy_dryrun_plan.defaults.ssh_user }}"
+
+    - name: Show per-target dry-run details
+      ansible.builtin.debug:
+        msg:
+          - "target={{ item.name }} ip={{ item.ip }} mac={{ item.mac }}"
+          - "components={{ item.components | join(', ') if (item.components | length > 0) else 'none' }}"
+          - "yum_groups={{ item.yum_groups | join(', ') if (item.yum_groups | length > 0) else 'none' }}"
+          - "packages={{ item.packages | join(', ') if (item.packages | length > 0) else 'none' }}"
+          - "services={{ item.services | join(', ') if (item.services | length > 0) else 'none' }}"
+          - "required_repo_sets={{ item.required_repo_sets | join(', ') if (item.required_repo_sets | length > 0) else 'none' }}"
+      loop: "{{ risdeploy_dryrun_plan.targets }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Persist dry-run plan report as YAML
+      ansible.builtin.copy:
+        dest: "{{ lookup('ansible.builtin.env', 'HOME') }}/risdeploy-dryrun-plan.yml"
+        mode: "0644"
+        content: |
+          {{ risdeploy_dryrun_plan | to_nice_yaml(indent=2) }}
+
+    - name: Print dry-run plan report location
+      ansible.builtin.debug:
+        msg: "Wrote dry-run plan to {{ lookup('ansible.builtin.env', 'HOME') }}/risdeploy-dryrun-plan.yml"

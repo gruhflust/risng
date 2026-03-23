@@ -38,7 +38,8 @@ The initial component is:
    - `secondstage_enabled: true`
    - `secondstage_components:`
 2. run `feuer` on RISng so the required package sets are mirrored locally
-3. run `risdeploy` to install the selected components on matching clients
+3. run `risdeploy-dryrun` to preview exactly what would be applied per client (MAC/IP/components/packages/services)
+4. run `risdeploy` to install the selected components on matching clients
 
 ## Transparency
 
