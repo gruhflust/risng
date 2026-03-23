@@ -2,76 +2,91 @@
 PLAY [Build RISng second-stage target inventory from DHCP definitions] *********
 
 TASK [Select enabled RIS deploy targets] ***************************************
-Monday 23 March 2026  13:56:26 +0100 (0:00:00.028)       0:00:00.028 ********** 
+Monday 23 March 2026  14:36:53 +0100 (0:00:00.026)       0:00:00.026 ********** 
 [0;32mok: [bootstrapvm][0m
 
 TASK [Register enabled RIS deploy targets as dynamic hosts] ********************
-Monday 23 March 2026  13:56:26 +0100 (0:00:00.070)       0:00:00.098 ********** 
+Monday 23 March 2026  14:36:53 +0100 (0:00:00.072)       0:00:00.099 ********** 
 [0;33mchanged: [bootstrapvm] => (item={'name': 'icocmd01', 'mac': 'c0:7c:d1:31:53:95', 'ip': '10.228.229.200', 'boot_profile': 'iCMD', 'secondstage_enabled': True, 'secondstage_components': ['graphics-gnome'], 'install_slot': 'A', 'install_slots': {'A': {'root_part': 'sda2'}, 'B': {'root_part': 'sda3'}}})[0m
 [0;33mchanged: [bootstrapvm] => (item={'name': 'icocmd02', 'mac': '00:50:56:ba:c8:11', 'ip': '10.228.229.201', 'boot_profile': 'iCMD', 'secondstage_enabled': True, 'secondstage_components': ['graphics-gnome'], 'install_slot': 'A', 'install_slots': {'A': {'root_part': 'sda2'}, 'B': {'root_part': 'sda3'}}})[0m
 
 PLAY [Apply RISng second-stage components to selected clients] *****************
 
 TASK [Bootstrap local RISng repositories on second-stage client without Python] ***
-Monday 23 March 2026  13:56:26 +0100 (0:00:00.083)       0:00:00.182 ********** 
+Monday 23 March 2026  14:36:53 +0100 (0:00:00.089)       0:00:00.188 ********** 
 [0;32mok: [icocmd01][0m
 [0;31m[ERROR]: Task failed: Failed to connect to the host via ssh: ssh: connect to host 10.228.229.201 port 22: No route to host[0m
-[0;31mOrigin: /home/risng/risng/ansible/secondstage/risdeploy.yml:40:7[0m
+[0;31mOrigin: /home/risng/risng/ansible/secondstage/risdeploy.yml:42:7[0m
 [0;31m[0m
-[0;31m38     - vars/risdeploy_repo_catalog.yml[0m
-[0;31m39   pre_tasks:[0m
-[0;31m40     - name: Bootstrap local RISng repositories on second-stage client without Python[0m
+[0;31m40     - vars/risdeploy_repo_catalog.yml[0m
+[0;31m41   pre_tasks:[0m
+[0;31m42     - name: Bootstrap local RISng repositories on second-stage client without Python[0m
 [0;31m         ^ column 7[0m
 [0;31m[0m
 [1;31mfatal: [icocmd02]: UNREACHABLE! => {"changed": false, "msg": "Task failed: Failed to connect to the host via ssh: ssh: connect to host 10.228.229.201 port 22: No route to host", "unreachable": true}[0m
 
 TASK [Bootstrap Python 3 for optional later use] *******************************
-Monday 23 March 2026  13:56:29 +0100 (0:00:03.098)       0:00:03.280 ********** 
+Monday 23 March 2026  14:36:57 +0100 (0:00:03.125)       0:00:03.314 ********** 
 [0;32mok: [icocmd01][0m
 
 TASK [Build effective component definitions on control host] *******************
-Monday 23 March 2026  13:56:35 +0100 (0:00:05.626)       0:00:08.907 ********** 
+Monday 23 March 2026  14:36:57 +0100 (0:00:00.253)       0:00:03.567 ********** 
 [0;32mok: [icocmd01 -> localhost][0m
 
 TASK [Clean yum metadata before second-stage install] **************************
-Monday 23 March 2026  13:56:35 +0100 (0:00:00.074)       0:00:08.981 ********** 
+Monday 23 March 2026  14:36:57 +0100 (0:00:00.072)       0:00:03.640 ********** 
 [0;32mok: [icocmd01][0m
 
 TASK [Install yum groups required by selected components via raw yum] **********
-Monday 23 March 2026  13:56:35 +0100 (0:00:00.182)       0:00:09.164 ********** 
+Monday 23 March 2026  14:36:57 +0100 (0:00:00.177)       0:00:03.817 ********** 
 [0;36mskipping: [icocmd01][0m
 
 TASK [Install RPM packages required by selected components via raw yum] ********
-Monday 23 March 2026  13:56:35 +0100 (0:00:00.058)       0:00:09.223 ********** 
+Monday 23 March 2026  14:36:57 +0100 (0:00:00.060)       0:00:03.877 ********** 
 [0;33mchanged: [icocmd01][0m
 
 TASK [Force GDM to use Xorg on graphical clients] ******************************
-Monday 23 March 2026  13:57:28 +0100 (0:00:53.384)       0:01:02.607 ********** 
-[0;31m[ERROR]: Task failed: Action failed: non-zero return code[0m
-[0;31mOrigin: /home/risng/risng/ansible/secondstage/risdeploy.yml:152:7[0m
+Monday 23 March 2026  14:36:58 +0100 (0:00:01.316)       0:00:05.194 ********** 
+[0;33mchanged: [icocmd01][0m
+
+TASK [Ensure login user home and authority files exist for graphical session] ***
+Monday 23 March 2026  14:36:59 +0100 (0:00:00.058)       0:00:05.252 ********** 
+[0;33mchanged: [icocmd01][0m
+
+TASK [Build wallpaper annotation label on control host] ************************
+Monday 23 March 2026  14:36:59 +0100 (0:00:00.058)       0:00:05.311 ********** 
+[0;32mok: [icocmd01 -> localhost][0m
+
+TASK [Deploy staged wallpaper image to login user] *****************************
+Monday 23 March 2026  14:36:59 +0100 (0:00:00.069)       0:00:05.381 ********** 
+[0;31m[ERROR]: Task failed: Unable to execute ssh command line on a controller: [Errno 7] Argument list too long: b'ssh'[0m
+[0;31mOrigin: /home/risng/risng/ansible/secondstage/risdeploy.yml:189:7[0m
 [0;31m[0m
-[0;31m150         ) > 0[0m
-[0;31m151[0m
-[0;31m152     - name: Force GDM to use Xorg on graphical clients[0m
+[0;31m187       when: "'graphics-gnome' in risdeploy_components"[0m
+[0;31m188[0m
+[0;31m189     - name: Deploy staged wallpaper image to login user[0m
 [0;31m          ^ column 7[0m
 [0;31m[0m
-[0;31mfatal: [icocmd01]: FAILED! => {"changed": true, "msg": "non-zero return code", "rc": 1, "stderr": "Shared connection to 10.228.229.200 closed.\r\n", "stderr_lines": ["Shared connection to 10.228.229.200 closed."], "stdout": "bash: line 8: warning: here-document at line 4 delimited by end-of-file (wanted `EOF')\r\nbash: -c: line 9: syntax error: unexpected end of file\r\n", "stdout_lines": ["bash: line 8: warning: here-document at line 4 delimited by end-of-file (wanted `EOF')", "bash: -c: line 9: syntax error: unexpected end of file"]}[0m
+[0;31mfatal: [icocmd01]: FAILED! => {"changed": false, "msg": "Task failed: Unable to execute ssh command line on a controller: [Errno 7] Argument list too long: b'ssh'"}[0m
 
 PLAY RECAP *********************************************************************
 [0;33mbootstrapvm[0m                : [0;32mok=2   [0m [0;33mchanged=1   [0m unreachable=0    failed=0    skipped=0    rescued=0    ignored=0   
-[0;31micocmd01[0m                   : [0;32mok=5   [0m [0;33mchanged=1   [0m unreachable=0    [0;31mfailed=1   [0m [0;36mskipped=1   [0m rescued=0    ignored=0   
+[0;31micocmd01[0m                   : [0;32mok=8   [0m [0;33mchanged=3   [0m unreachable=0    [0;31mfailed=1   [0m [0;36mskipped=1   [0m rescued=0    ignored=0   
 [0;31micocmd02[0m                   : ok=0    changed=0    [1;31munreachable=1   [0m failed=0    skipped=0    rescued=0    ignored=0   
 
 
 TASKS RECAP ********************************************************************
-Monday 23 March 2026  13:57:29 +0100 (0:00:00.053)       0:01:02.660 ********** 
+Monday 23 March 2026  14:36:59 +0100 (0:00:00.135)       0:00:05.517 ********** 
 =============================================================================== 
-Install RPM packages required by selected components via raw yum ------- 53.38s
-Bootstrap Python 3 for optional later use ------------------------------- 5.63s
-Bootstrap local RISng repositories on second-stage client without Python --- 3.10s
+Bootstrap local RISng repositories on second-stage client without Python --- 3.13s
+Install RPM packages required by selected components via raw yum -------- 1.32s
+Bootstrap Python 3 for optional later use ------------------------------- 0.25s
 Clean yum metadata before second-stage install -------------------------- 0.18s
-Register enabled RIS deploy targets as dynamic hosts -------------------- 0.08s
-Build effective component definitions on control host ------------------- 0.07s
+Deploy staged wallpaper image to login user ----------------------------- 0.14s
+Register enabled RIS deploy targets as dynamic hosts -------------------- 0.09s
 Select enabled RIS deploy targets --------------------------------------- 0.07s
+Build effective component definitions on control host ------------------- 0.07s
+Build wallpaper annotation label on control host ------------------------ 0.07s
 Install yum groups required by selected components via raw yum ---------- 0.06s
-Force GDM to use Xorg on graphical clients ------------------------------ 0.05s
+Ensure login user home and authority files exist for graphical session --- 0.06s
+Force GDM to use Xorg on graphical clients ------------------------------ 0.06s
