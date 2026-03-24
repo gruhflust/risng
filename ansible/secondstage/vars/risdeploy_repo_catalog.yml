@@ -58,6 +58,7 @@ risdeploy_component_catalog:
       - mesa-libGL
       - mesa-libEGL
       - dbus-x11
+      - openssh-clients
       - dejavu-sans-fonts
       - dejavu-sans-mono-fonts
       - dejavu-serif-fonts
