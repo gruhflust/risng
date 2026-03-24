@@ -643,18 +643,37 @@
       when:
         - risng_wallpaper_label | default('') | length > 0
 
-    - name: 02.98 Apply risng wallpaper in GNOME
+    - name: 02.98 Seed system-wide GNOME wallpaper defaults for staged risng user sessions
+      ansible.builtin.copy:
+        dest: /etc/dconf/db/local.d/00-risng-background
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [org/gnome/desktop/background]
+          picture-uri='file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png'
+          picture-uri-dark='file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png'
+
+    - name: 02.98 Compile staged GNOME dconf defaults
+      ansible.builtin.command:
+        argv:
+          - dconf
+          - update
+
+    - name: 02.98 Apply risng wallpaper in GNOME user dconf
       community.general.dconf:
         key: /org/gnome/desktop/background/picture-uri
         value: "'file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png'"
         state: present
       become: true
       become_user: "{{ ssh_user }}"
+      failed_when: false
 
-    - name: 02.98 Apply risng dark mode wallpaper in GNOME
+    - name: 02.98 Apply risng dark mode wallpaper in GNOME user dconf
       community.general.dconf:
         key: /org/gnome/desktop/background/picture-uri-dark
         value: "'file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png'"
         state: present
       become: true
       become_user: "{{ ssh_user }}"
+      failed_when: false
