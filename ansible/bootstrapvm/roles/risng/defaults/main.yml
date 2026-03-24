@@ -66,6 +66,7 @@ tools_packages:
   - curl
   - wget
   - unzip
+  - openssh-clients
   - netcat-openbsd
   - vlan
   - bridge-utils
