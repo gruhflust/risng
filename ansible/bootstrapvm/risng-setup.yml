@@ -643,6 +643,18 @@
       when:
         - risng_wallpaper_label | default('') | length > 0
 
+    - name: 02.98 Ensure system dconf directories exist for staged GNOME defaults
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - /etc/dconf
+        - /etc/dconf/db
+        - /etc/dconf/db/local.d
+
     - name: 02.98 Seed system-wide GNOME wallpaper defaults for staged risng user sessions
       ansible.builtin.copy:
         dest: /etc/dconf/db/local.d/00-risng-background
@@ -659,6 +671,7 @@
         argv:
           - dconf
           - update
+      failed_when: false
 
     - name: 02.98 Apply risng wallpaper in GNOME user dconf
       community.general.dconf:
