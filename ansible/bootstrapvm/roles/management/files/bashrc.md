@@ -47,8 +47,6 @@ esac
 # Auto-detect RISng checkout path
 if [ -d "$HOME/risng" ]; then
     RISNG_DIR="$HOME/risng"
-elif [ -d "$HOME/risng" ]; then
-    RISNG_DIR="$HOME/risng"
 elif [ -d "$HOME/botrepo/risng_code" ]; then
     RISNG_DIR="$HOME/botrepo/risng_code"
 else
