@@ -543,15 +543,15 @@
         group: "{{ ssh_user }}"
         mode: "0644"
 
-    - name: 02.98 Determine deployed RISng commit with robust fallback to botrepo
+    - name: 02.98 Determine deployed RISng commit from real repo paths
       ansible.builtin.shell: |
         set -euo pipefail
         for repo in \
-          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo/risng_code" \
-          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo/risng_code" \
-          "/home/risng/botrepo/risng_code" \
-          "{{ ssh_user_home }}/botrepo/risng_code" \
-          "/root/botrepo/risng_code"
+          "{{ ssh_user_home }}/risng" \
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/risng" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/risng" \
+          "/root/risng" \
+          "{{ ssh_user_home }}/botrepo/risng_code"
         do
           [ -d "$repo/.git" ] || continue
           if out="$(git -C "$repo" log -1 --pretty=format:%h 2>/dev/null)" && [ -n "$out" ]; then
