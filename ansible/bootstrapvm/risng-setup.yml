@@ -382,7 +382,6 @@
           Selected={{ risng_botrepo_source_path | default('UNSET') }}; checked={{ risng_botrepo_source_candidates | unique | join(', ') }}.
           To avoid self-copy loops, /home/risng and /home/risng/botrepo are excluded as source.
       when: (risng_botrepo_source_path_effective | default('') | length) == 0
-        force: true
 
     - name: 00.22 Ensure risng .bashrc links to RISng management template
       ansible.builtin.file:
