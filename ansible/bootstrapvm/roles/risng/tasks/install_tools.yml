@@ -91,9 +91,9 @@
     }}"
   when: risng_missing_packages | length > 0
 
-- name: Task IR-61 - Install additional tools
+- name: Task IR-61 - Install additional tools with fresh apt metadata
   command: >
-    chroot {{ risng_workdir }} /bin/bash -c "DEBIAN_FRONTEND=noninteractive apt-get install -y {{ risng_packages | join(' ') }}"
+    chroot {{ risng_workdir }} /bin/bash -c "rm -rf /var/lib/apt/lists/* && apt-get clean && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y {{ risng_packages | join(' ') }}"
   register: risng_install_result
   failed_when: false
 
@@ -108,9 +108,9 @@
     - risng_install_result.rc != 0
     - not risng_kernel_packages_fallback | default(false)
 
-- name: Task IR-61b - Retry installation with fallback kernel packages (if needed)
+- name: Task IR-61b - Retry installation with fallback kernel packages and fresh apt metadata
   command: >
-    chroot {{ risng_workdir }} /bin/bash -c "DEBIAN_FRONTEND=noninteractive apt-get install -y {{ risng_packages | join(' ') }}"
+    chroot {{ risng_workdir }} /bin/bash -c "rm -rf /var/lib/apt/lists/* && apt-get clean && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y {{ risng_packages | join(' ') }}"
   register: risng_install_result_fallback
   failed_when: false
   when:
