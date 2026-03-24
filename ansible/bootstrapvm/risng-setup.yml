@@ -566,18 +566,24 @@
       changed_when: false
       failed_when: false
 
-    - name: 02.98 Determine deployed RISng branch with robust fallback to botrepo
+    - name: 02.98 Determine deployed RISng branch from real repo paths
       ansible.builtin.shell: |
         set -euo pipefail
         for repo in \
-          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo/risng_code" \
-          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo/risng_code" \
-          "/home/risng/botrepo/risng_code" \
-          "{{ ssh_user_home }}/botrepo/risng_code" \
-          "/root/botrepo/risng_code"
+          "{{ ssh_user_home }}/risng" \
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/risng" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/risng" \
+          "/root/risng" \
+          "{{ ssh_user_home }}/botrepo/risng_code"
         do
           [ -d "$repo/.git" ] || continue
-          if out="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)" && [ -n "$out" ]; then
+          out="$(git -C "$repo" branch --show-current 2>/dev/null || true)"
+          if [ -n "$out" ]; then
+            echo "$out"
+            exit 0
+          fi
+          out="$(git -C "$repo" symbolic-ref --short HEAD 2>/dev/null || true)"
+          if [ -n "$out" ]; then
             echo "$out"
             exit 0
           fi
