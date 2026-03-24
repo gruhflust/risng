@@ -71,6 +71,27 @@
   register: risdeploy_bootstrap_rpms
   when: risdeploy_enabled_components | default([]) | length > 0
 
+- name: 16_05aa Validate openssh-clients RPM is present in locally staged repos
+  ansible.builtin.shell: |
+    set -euo pipefail
+    find "{{ spec_repo_root }}" "{{ pxe_tftp_dir }}/kickstart/repos/{{ risng_repo_centos_updates_path }}" "{{ pxe_tftp_dir }}/kickstart/repos/{{ risng_repo_centos_extras_path }}" \
+      -type f -name 'openssh-clients-*.rpm' | head -n1
+  args:
+    executable: /bin/bash
+  register: risdeploy_openssh_clients_rpm
+  changed_when: false
+  failed_when: false
+  when: risdeploy_enabled_components | default([]) | length > 0
+
+- name: 16_05ab Fail early when openssh-clients RPM is missing from locally staged repos
+  ansible.builtin.fail:
+    msg: >-
+      SecondStage repo provisioning on RISng is incomplete. Missing locally staged RPM for openssh-clients,
+      required for SCP-capable client deployments.
+  when:
+    - risdeploy_enabled_components | default([]) | length > 0
+    - (risdeploy_openssh_clients_rpm.stdout | default('') | trim) == ''
+
 - name: 16_05a Fail early when SecondStage bootstrap packages are missing locally
   ansible.builtin.fail:
     msg: >-

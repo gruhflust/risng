@@ -28,6 +28,8 @@
       - wget
       - createrepo-c
       - nginx
+      - openssh-client
+      - sshpass
     state: present
     update_cache: true
 
