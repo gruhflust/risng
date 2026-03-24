@@ -46,7 +46,7 @@ Diese aktualisierte Planung basiert vollständig auf den extrahierten Informatio
   - `yum: name=xpra state=present` (RIS-REQ-5267).
   - `yum: name={{ item }} state=present` für motif, xorg-x11-fonts (RIS-REQ-5016, RIS-REQ-5017).
   - `yum: name={{ item }} state=present` für firefox 3.0, JDK 1.6.0_2, JRE 1.4.2_09, Ingres 10.1 (RIS-REQ-5128, RIS-REQ-5125, RIS-REQ-5126, RIS-REQ-5127).
-  - `copy: src=firefox_profile dest=/home/dms/.mozilla` mit md5sum-Prüfung (RIS-REQ-5178, RIS-REQ-5179).
+  - `copy: src=firefox_profile dest=/home/dms/.mozilla` md5sum: 034199fadf4988ffbb9895475711c48a, containing list "firefox_profile-RIS_5.10-03-contents.md5" mit md5sums aller im tar archive enthaltenen Dateien (RIS-REQ-5178, RIS-REQ-5179).
   - `yum: name=genisoimage state=present` (RIS-REQ-0173).
   - `yum: name=squashfs-tools state=present` (RIS-REQ-0173).
   - `yum: name=amtterm state=present` (für Install Server und SMWS) (RIS-REQ-0079, RIS-REQ-0579).
@@ -72,7 +72,19 @@ Diese aktualisierte Planung basiert vollständig auf den extrahierten Informatio
 **Vollständige Tasks pro Rolle**:
 - `role_proprietary_all`:
   - `yum: name={{ item }} state=present` für dfshwstatus (>= 0.9.1.1), dfshwmib (>= 2.6), dfshwagent (>= 0.9.1.1), dfssmimib (>= 1.2), python-netsnmpagent (>= 0.5.3) (RIS-REQ-0540).
-  - `copy: src=dfshwagent.conf.template dest=/etc/dfshwagent.conf.template` mit md5sum (abhängig von Hardware, z.B. RIS-REQ-5211 für PowerEdge R720) (RIS-REQ-0541, RIS-REQ-0542).
+  - `copy: src=dfshwagent.conf.template dest=/etc/dfshwagent.conf.template` mit Hardware-spezifischen md5sums:
+    - PowerEdge R720 (drf): md5sum 8fa1557a0b801545b7d13c235ee720dd (RIS-REQ-5211)
+    - PowerEdge R740 (drf): md5sum b52918dd1fced4d8ac179159a8130b69 (RIS-REQ-5212)
+    - PowerEdge R720 (corrp/fdps): md5sum cb2f9206946b6f252984d64b2156e451 (RIS-REQ-5213)
+    - PowerEdge R740 (corrp/fdps): md5sum 152af5cca259ad19cd43286b7bf30f46 (RIS-REQ-5214)
+    - PowerEdge R720 (install): md5sum 141814e1ee2ecde2a0cdde20ed5eddb1 (RIS-REQ-5215)
+    - PowerEdge R740 (install): md5sum 69c2a5c9ac19447db79d04f0e770ff35 (RIS-REQ-5216)
+    - Precision 7820 Tower (icwp): md5sum c7bbdcf20721df7f269180196a73b8fc (RIS-REQ-5219)
+    - Precision R7610 (icwp): md5sum 9999d0c98d78660adff8bf8c9fcbb19f (RIS-REQ-5220)
+    - Precision 7820 Tower (cmd/fdo): md5sum b24d7e72d6d4347c4fbd82eca13de9ff (RIS-REQ-5221)
+    - Precision R7610 (cmd/fdo): md5sum 7480a303793960ff5e8c19315febef45 (RIS-REQ-5222)
+    - SMWS (Mayflower G1820TE): md5sum 26d224f2082ccdc328a34925b8ebf68f, Content: '{"sensors": []}' (RIS-REQ-5225)
+    - Empty Known HW (atg, epp, fls, isar, itg, smp): md5sum 26d224f2082ccdc328a34925b8ebf68f, Content: '{"sensors": []}' (RIS-REQ-5227)
   - `file: path=/root/.config state=directory mode=0755` (RIS-REQ-0544).
   - `modprobe: name=coretemp state=present` (RIS-REQ-0545).
   - `service: name=lm_sensors enabled=yes` (RIS-REQ-0546).
@@ -98,16 +110,22 @@ Diese aktualisierte Planung basiert vollständig auf den extrahierten Informatio
 
 **Vollständige Tasks pro Rolle**:
 - `role_shellscripts_workstations`:
-  - `copy: src=f_remove_virtual_interfaces.sh dest=/root/bin/f_remove_virtual_interfaces.sh` mit md5sum (RIS-REQ-0512).
-  - `copy: src=query_iptables.sh dest=/root/bin/query_iptables.sh` mit md5sum (RIS-REQ-0513).
-  - `copy: src=f_copy_kernel_logs.sh dest=/root/bin/f_copy_kernel_logs.sh` mit md5sum (RIS-REQ-0514).
-  - `lineinfile: path=/etc/sudoers line='user ALL=(root) NOPASSWD: /root/bin/query_iptables.sh'` etc. (RIS-REQ-0183, RIS-REQ-0184, RIS-REQ-0185).
+  - `copy: src=f_remove_virtual_interfaces.sh dest=/root/bin/f_remove_virtual_interfaces.sh` md5sum: 3b7a96388c87d1e73b178d1e0c60d82f (RIS-REQ-0512).
+  - `copy: src=query_iptables.sh dest=/root/bin/query_iptables.sh` md5sum: f8aa2fa2bd2f426f36430bcf801d33b4 (RIS-REQ-0513).
+  - `copy: src=f_copy_kernel_logs.sh dest=/root/bin/f_copy_kernel_logs.sh` md5sum: 0e84e7164de732b012f1220f31625458 (RIS-REQ-0514).
+  - `lineinfile: path=/etc/sudoers line='nor ALL=(root) NOPASSWD: /root/bin/query_iptables.sh'` (RIS-REQ-0183).
+  - `lineinfile: path=/etc/sudoers line='nor ALL=(root) NOPASSWD: /root/bin/f_remove_virtual_interfaces.sh'` (RIS-REQ-0184).
+  - `lineinfile: path=/etc/sudoers line='nor ALL=(root) NOPASSWD: /root/bin/f_copy_kernel_logs.sh'` (RIS-REQ-0185).
 
 - `role_shellscripts_amt`:
-  - `copy: src=amt.sh dest=/opt/plattform/amt/amt.sh mode=0550 owner=root group=root` mit md5sum (RIS-REQ-5113, RIS-REQ-5114).
-  - `copy: src=MicroLMS dest=/opt/plattform/amt/MicroLMS mode=0550 owner=root group=root` mit md5sum (RIS-REQ-5113).
-  - `copy: src=amt_mei dest=/opt/plattform/amt/amt_mei mode=0550 owner=root group=root` mit md5sum (RIS-REQ-5114).
-  - `copy: src=amt_con dest=/opt/plattform/amt/amt_con mode=0550 owner=root group=root` mit md5sum (RIS-REQ-5114).
+  - **Für Precision 7820 Tower** (RIS-REQ-5113):
+    - `copy: src=amt.sh dest=/opt/plattform/amt/amt.sh mode=0554 owner=root group=root` md5sum: feeae9634d86791653c1a12af520e609.
+    - `copy: src=MicroLMS dest=/opt/plattform/amt/MicroLMS mode=0554 owner=root group=root` md5sum: 5723a605fbab8772de3b4b6cd137a0b3.
+    - `copy: src=ReadMe.txt dest=/opt/plattform/amt/ReadMe.txt mode=0444 owner=root group=root` md5sum: 45220749cc205f630a0f48f4822e78ca.
+  - **Für Precision T7600, R7610, Tower 7810** (RIS-REQ-5114):
+    - `copy: src=amt.sh dest=/opt/plattform/amt/amt.sh mode=0550 owner=root group=root` md5sum: 88aa30653e34bfb4469d3462c0c856e3.
+    - `copy: src=amt_con dest=/opt/plattform/amt/amt_con mode=0550 owner=root group=root` md5sum: b7afc18922f6b72887e3a9e734233bdc.
+    - `copy: src=amt_mei dest=/opt/plattform/amt/amt_mei mode=0550 owner=root group=root` md5sum: 2c547008879ab46b43f4309efcd60429.
 
 ## 4. Playbook: Sonstiges (playbook_misc.yml)
 **Zweck**: Vollständige Installation von MIBs, Konfigurationen usw.
@@ -121,32 +139,45 @@ Diese aktualisierte Planung basiert vollständig auf den extrahierten Informatio
 **Vollständige Tasks pro Rolle**:
 - `role_misc_all`:
   - `copy: src=libnetsnmp dest=/usr/local` (RIS-REQ-0164).
-  - `template: src=icas.conf.j2 dest=/etc/icas.conf` (RIS-REQ-0161).
-  - `template: src=rc.config.j2 dest=/etc/rc.config` (RIS-REQ-0160).
-  - `copy: src=icas_environment.sh dest=/etc/profile.d/icas_environment.sh` mit md5sum (RIS-REQ-0169).
-  - `yum_repository: name=EPEL url=...` (RIS-REQ-0570, RIS-REQ-5268).
-  - `yum_repository: name=SysMan url=...` (RIS-REQ-5093, RIS-REQ-5199).
+  - `template: src=icas.conf.j2 dest=/etc/icas.conf` mit Variablen role und icas_install (RIS-REQ-0161).
+  - `template: src=rc.config.j2 dest=/etc/rc.config` mit Inhalt: INIT_RUNLEVEL3_LIST="", DESKTOP="GNOME", SET_PERFORMANCE="CWP DRF FDPS LP CMD FDO", ICASUSERNAME="nor", PROJECT="icas", ORACLE_VERSION="12.2.0", P1_TYPE="FDPS" (RIS-REQ-0160).
+  - `copy: src=icas_environment.sh dest=/etc/profile.d/icas_environment.sh` Version 2.2.6 (created 2023-11-27) (RIS-REQ-0169).
+  - `yum_repository: name=epel` für EPEL (RH 7) Repository - Pakete: gparted, htop, iftop, keepassx2, lsyncd, ntfs-3g, perl-Tk, rlwrap (RIS-REQ-0570).
+  - `yum_repository: name=xpra url=https://xpra.org/trac/wiki/Download#Linux` für XPRA Repository - Paket: xpra (RIS-REQ-0571).
+  - `yum_repository: name=SysMan url=http://icoback3/data/smrepo state=absent` (disabled) auf Rollen dms und smws (RIS-REQ-5092).
 
 - `role_misc_workstations`:
-  - `copy: src=CMS_ICAS_MIB.mib dest=/usr/share/snmp/mibs/CMS_ICAS_MIB.mib` mit md5sum, mode=0664, owner=root group=root (RIS-REQ-0030).
+  - `copy: src=CMS_ICAS_MIB.mib dest=/usr/share/snmp/mibs/CMS_ICAS_MIB.mib` md5sum: 0b56d8bc0ead0de0185c3bdf4dc003e7, mode=0664, owner=root group=root (RIS-REQ-0030) auf Rollen cmd, corrp, drf, fdo, fdps, icwp.
 
 ## Empfohlene Ausführungsreihenfolge und Validierung (unverändert)
 Diese Planung ist nun vollständig – ein LLM-Assistent kann sie direkt in YAML umsetzen. Wenn zusätzliche Details benötigt werden, gib Bescheid!
 
-## Legacy: Disserver-Rollen (nicht mehr vorbereitet)
-Da die Rolle disserver als Legacy betrachtet wird und nicht mehr vorbereitet wird, sind alle zugehörigen Tasks hier zusammengefasst und werden nicht in den aktiven Playbooks ausgeführt.
+## Legacy: Disserver-Rollen (Verlagerung auf RISng Controlhost)
+
+Da die Rolle disserver als Legacy betrachtet wird, werden alle zugehörigen Aufgaben nicht mehr auf der Disserver-Maschine selbst ausgeführt. Stattdessen werden diese auf dem **RISng Controlhost im Projekt** verlagert und dort als lokale Verwaltungsaufgaben implementiert.
+
+**Verlagerung der Perl-Skripte und Management-Aufgaben:**
+- `bios_update.pl` → `/opt/RISng/controlhost/scripts/` (RIS-REQ-5037)
+- `bios_check.pl` → `/opt/RISng/controlhost/scripts/` (RIS-REQ-5038)
+- `prepare_raid` → `/opt/RISng/controlhost/scripts/` (RIS-REQ-0528)
+- `bios_update` (Bootloader) → `/opt/RISng/controlhost/boot_images/` (RIS-REQ-5040)
+- `fd10_R7610A14.iso` → `/opt/RISng/controlhost/firmware_images/` (RIS-REQ-5039)
+
+Die Paketinstallationen (ramt, asterix, docker, dis-diff-patch, sshil, Dell-Firmware) und NFS-Mount-Konfigurationen werden nicht mehr als Ansible-Tasks ausgeführt, sondern als Referenzmaterial für historische Dokumentation archiviert.
+
+### Frühere Disserver-Tasks (archiviert):
 
 ### Aus Playbook: Common Linux
 - `role_common_linux_disserver`: Wie oben, plus spezifische für disserver.
 
 ### Aus Playbook: Proprietär
 - `role_proprietary_disserver`:
-  - `yum: name=ramt-1.1.0-0.noarch state=present` mit sha1sum-Prüfung (RIS-REQ-0563).
-  - `yum: name=asterix-1.8.0.x86_64 state=present` (nur Repository) (RIS-REQ-5024).
+  - `yum: name=ramt-1.1.0-0.noarch state=present` sha1sum: d26d327ef76efd825bbdc74f936e879e (RIS-REQ-0563).
+  - `yum: name=asterix-1.8.0.x86_64 state=present` (nur im Repository, nicht installiert) (RIS-REQ-5024).
   - `yum: name=docker state=present` (RIS-REQ-5046).
   - `yum: name=dis-diff-patch state=present` (RIS-REQ-5090).
   - `yum: name=sshil state=present` (RIS-REQ-5088).
-  - `yum: name={{ item }} state=present` für Dell-Firmware (RIS-REQ-0537).
+  - `yum: name={{ item }} state=present` für Dell-Firmware-RPMs (Version 16.10.00, 22.02.25, etc.) (RIS-REQ-0537).
 
 ### Aus Playbook: Shellscripte
 - `role_shellscripts_disserver`:
