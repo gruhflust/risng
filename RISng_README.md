@@ -65,7 +65,7 @@ Dieser installiert nur die notwendige Basisausstattung:
 - SSH-Zugriff
 - `ansible`, `git`, `rsync`
 - lokales `botrepo` im Home von `risng`
-- `~/risng` als Symlink auf `~/botrepo/risng_code`
+- RISng-Code liegt unter `~/botrepo/risng_code`
 - `.bashrc` verlinkt auf die RISng-Management-Bashrc
 
 Danach ist die Maschine bereit für den ersten `feuer`-Lauf.

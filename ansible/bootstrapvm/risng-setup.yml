@@ -382,19 +382,11 @@
           Selected={{ risng_botrepo_source_path | default('UNSET') }}; checked={{ risng_botrepo_source_candidates | unique | join(', ') }}.
           To avoid self-copy loops, /home/risng and /home/risng/botrepo are excluded as source.
       when: (risng_botrepo_source_path_effective | default('') | length) == 0
-
-    - name: 00.21a Ensure /home/risng/risng symlink points to /home/risng/botrepo/risng_code
-      ansible.builtin.file:
-        src: /home/risng/botrepo/risng_code
-        dest: /home/risng/risng
-        owner: risng
-        group: risng
-        state: link
         force: true
 
     - name: 00.22 Ensure risng .bashrc links to RISng management template
       ansible.builtin.file:
-        src: /home/risng/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2
+        src: /home/risng/botrepo/risng_code/ansible/bootstrapvm/roles/management/templates/bashrc.j2
         dest: /home/risng/.bashrc
         owner: risng
         group: risng
@@ -419,7 +411,7 @@
           - "RISng effective ssh_user={{ ssh_user }} ssh_user_home={{ ssh_user_home }}"
           - "RISng source path for botrepo sync(selected)={{ risng_botrepo_source_path | default('UNRESOLVED') }}"
           - "RISng source path for botrepo sync(effective)={{ risng_botrepo_source_path_effective | default('UNRESOLVED') }}"
-          - "RISng bashrc link=/home/risng/.bashrc -> /home/risng/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
+          - "RISng bashrc link=/home/risng/.bashrc -> /home/risng/botrepo/risng_code/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
 
 
   vars_files:
@@ -556,15 +548,11 @@
       ansible.builtin.shell: |
         set -euo pipefail
         for repo in \
-          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo" \
-          "{{ lookup('ansible.builtin.env', 'HOME') }}/risng" \
-          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
-          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/risng" \
-          "/home/risng/botrepo" \
-          "/home/risng/risng" \
-          "{{ ssh_user_home }}/botrepo" \
-          "{{ ssh_user_home }}/risng" \
-          "/root/botrepo"
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo/risng_code" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo/risng_code" \
+          "/home/risng/botrepo/risng_code" \
+          "{{ ssh_user_home }}/botrepo/risng_code" \
+          "/root/botrepo/risng_code"
         do
           [ -d "$repo/.git" ] || continue
           if out="$(git -C "$repo" log -1 --pretty=format:%h 2>/dev/null)" && [ -n "$out" ]; then
@@ -583,15 +571,11 @@
       ansible.builtin.shell: |
         set -euo pipefail
         for repo in \
-          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo" \
-          "{{ lookup('ansible.builtin.env', 'HOME') }}/risng" \
-          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
-          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/risng" \
-          "/home/risng/botrepo" \
-          "/home/risng/risng" \
-          "{{ ssh_user_home }}/botrepo" \
-          "{{ ssh_user_home }}/risng" \
-          "/root/botrepo"
+          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo/risng_code" \
+          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo/risng_code" \
+          "/home/risng/botrepo/risng_code" \
+          "{{ ssh_user_home }}/botrepo/risng_code" \
+          "/root/botrepo/risng_code"
         do
           [ -d "$repo/.git" ] || continue
           if out="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)" && [ -n "$out" ]; then
