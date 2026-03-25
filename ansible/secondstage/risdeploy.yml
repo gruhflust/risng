@@ -198,6 +198,22 @@
         ln -sf /etc/machine-id /var/lib/dbus/machine-id
       when: "'graphics-gnome' in risdeploy_components"
 
+    - name: Enforce sane default monospace font via system dconf profile
+      ansible.builtin.raw: |
+        mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+        cat > /etc/dconf/profile/user <<'EOF'
+        user-db:user
+        system-db:local
+        EOF
+        cat > /etc/dconf/db/local.d/00-risng-fonts <<'EOF'
+        [org/gnome/desktop/interface]
+        monospace-font-name='Monospace 11'
+        document-font-name='Sans 11'
+        font-name='Sans 11'
+        EOF
+        dconf update || true
+      when: "'graphics-gnome' in risdeploy_components"
+
     - name: Restart GDM after graphical session fixes
       ansible.builtin.raw: systemctl restart gdm
       when: "'graphics-gnome' in risdeploy_components"
