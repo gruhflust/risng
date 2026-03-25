@@ -164,6 +164,7 @@ dhcp_static_hosts:
     secondstage_enabled: true
     secondstage_components:
       - graphics-gnome
+      - common-linux-monitoring-base
     # Optional install-slot marker for operational overview / dryrun output
     install_slot: "A"
     # Optional slot map for future dual-slot workflows
@@ -188,6 +189,7 @@ dhcp_static_hosts:
     secondstage_enabled: true
     secondstage_components:
       - graphics-gnome
+      - common-linux-monitoring-base
     # Optional install-slot marker for operational overview / dryrun output
     install_slot: "A"
     # Optional slot map for future dual-slot workflows
@@ -212,6 +214,7 @@ dhcp_static_hosts:
     secondstage_enabled: true
     secondstage_components:
       - graphics-gnome
+      - common-linux-monitoring-base
     # Optional install-slot marker for operational overview / dryrun output
     install_slot: "A"
     # Optional slot map for future dual-slot workflows

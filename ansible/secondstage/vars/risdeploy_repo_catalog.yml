@@ -60,3 +60,24 @@ risdeploy_component_catalog:
       - dbus-x11
     services:
       - gdm
+
+  common-linux-monitoring-base:
+    description: "Install Common-Linux monitoring and diagnostics baseline packages from RISng local repos."
+    purpose: "Covers RIS-REQ-0021/0023/0024/0026/0029 package baseline on staged CentOS clients."
+    required_repo_sets:
+      - centos7-base
+      - centos7-updates
+      - centos7-extras
+    packages:
+      - net-snmp
+      - net-snmp-agent-libs
+      - net-snmp-libs
+      - net-snmp-utils
+      - collectl
+      - tk
+      - wireshark
+      - wireshark-gnome
+      - perl-XML-Parser
+      - perl-XML-Twig
+      - perl-IO-Compress
+    services: []
