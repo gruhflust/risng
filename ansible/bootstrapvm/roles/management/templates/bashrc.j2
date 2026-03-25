@@ -116,6 +116,8 @@ if [ -x /usr/bin/dircolors ]; then
 
     # 01a Nur ISO-Downloads vorziehen (identische Tasks wie im Setup)
     alias getisos='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/getisos.yml" "$HOME/getisos.log"'
+    # 01b Nur SecondStage Paket-Repos vorziehen (lokale RPM-Caches auf RISng)
+    alias getrispackets='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/getrispackets.yml" "$HOME/getrispackets.log"'
 
     alias repair-dhcp='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/repair-dhcp.yml" "$HOME/repair-dhcp.log"'
 
