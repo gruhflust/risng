@@ -111,12 +111,12 @@
 
   tasks:
     - name: Clean yum metadata before second-stage install
-      ansible.builtin.raw: yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras,risng-ss-epel clean all
+      ansible.builtin.raw: yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras clean all
       changed_when: false
 
     - name: Install yum groups required by selected components via raw yum
       ansible.builtin.raw: >-
-        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras,risng-ss-epel -y groupinstall '{{ item }}'
+        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras -y groupinstall '{{ item }}'
       loop: >-
         {{
           hostvars['localhost'].risdeploy_component_defs
@@ -139,7 +139,7 @@
 
     - name: Install RPM packages required by selected components via raw yum
       ansible.builtin.raw: >-
-        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras,risng-ss-epel -y install
+        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras -y install
         {{
           hostvars['localhost'].risdeploy_component_defs
           | map(attribute='packages')
