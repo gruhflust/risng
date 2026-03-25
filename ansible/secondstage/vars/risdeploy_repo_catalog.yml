@@ -6,7 +6,7 @@ risdeploy_repo_sets:
   centos7-base:
     source: "CentOS Vault 7.8.2003 os/x86_64"
     source_url: "https://vault.centos.org/7.8.2003/os/x86_64/"
-    local_path: "{{ spec_repo_root }}"
+    local_path: "{{ spec_repo_root | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/centos/7/os/x86_64') }}"
     purpose: "Base operating system packages required for all installed CentOS 7.8 clients."
     mode: "iso-sync"
 
