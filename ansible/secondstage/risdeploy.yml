@@ -67,18 +67,21 @@
         baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_updates_path }}
         enabled=1
         gpgcheck=0
+        skip_if_unavailable=1
 
         [risng-ss-extras]
         name=RISng CentOS 7.8 Extras
         baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_extras_path }}
         enabled=1
         gpgcheck=0
+        skip_if_unavailable=1
 
         [risng-ss-epel]
         name=RISng EPEL 7
         baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/epel/7/x86_64/
         enabled=1
         gpgcheck=0
+        skip_if_unavailable=1
         EOF
         cat > /etc/yum.repos.d/bootstrap-only/risng-bootstrap.repo <<'EOF'
         [risng-bootstrap-base]
@@ -113,6 +116,7 @@
     - name: Clean yum metadata before second-stage install
       ansible.builtin.raw: yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras clean all
       changed_when: false
+      failed_when: false
 
     - name: Install yum groups required by selected components via raw yum
       ansible.builtin.raw: >-
