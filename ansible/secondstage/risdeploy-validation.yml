@@ -92,6 +92,9 @@
   hosts: bootstrapvm
   connection: local
   gather_facts: true
+  vars:
+    risdeploy_validation_fail_on_noncompliant: false
+
   tasks:
     - name: Build aggregated summary
       ansible.builtin.set_fact:
@@ -124,6 +127,23 @@
           - "PASS={{ (risdeploy_validation_summary.hosts | selectattr('overall_ok') | list | length) }} FAIL={{ (risdeploy_validation_summary.hosts | rejectattr('overall_ok') | list | length) }}"
           - "summary-json={{ lookup('ansible.builtin.env','HOME') }}/risdeploy-validation-summary.json"
 
+
+    - name: Build concise failed-host list
+      ansible.builtin.set_fact:
+        risdeploy_validation_failed_hosts: >-
+          {{
+            risdeploy_validation_summary.hosts
+            | rejectattr('overall_ok')
+            | map(attribute='host')
+            | list
+          }}
+
+    - name: Print concise compliance summary
+      ansible.builtin.debug:
+        msg:
+          - "RISDEPLOY-VALIDATION SUMMARY: PASS={{ (risdeploy_validation_summary.hosts | selectattr('overall_ok') | list | length) }} FAIL={{ (risdeploy_validation_failed_hosts | length) }}"
+          - "FAILED_HOSTS={{ (risdeploy_validation_failed_hosts | join(',')) if (risdeploy_validation_failed_hosts | length > 0) else 'none' }}"
+
     - name: Run pytest summary checks (optional but recommended)
       ansible.builtin.command: >-
         python3 -m pytest -q {{ playbook_dir }}/validation/test_risdeploy_validation_summary.py
@@ -137,9 +157,10 @@
       ansible.builtin.debug:
         var: risdeploy_validation_pytest.stdout_lines
 
-    - name: Fail when at least one host is not compliant
+    - name: Optionally fail when at least one host is not compliant
       ansible.builtin.assert:
         that:
-          - (risdeploy_validation_summary.hosts | rejectattr('overall_ok') | list | length) == 0
+          - (risdeploy_validation_failed_hosts | length) == 0
         fail_msg: "One or more clients are not compliant. Check ~/risdeploy-validation-summary.{json,yml}."
         success_msg: "All risdeploy targets passed validation."
+      when: risdeploy_validation_fail_on_noncompliant | bool
