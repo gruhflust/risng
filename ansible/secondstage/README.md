@@ -40,6 +40,7 @@ The initial component is:
 2. run `feuer` on RISng so the required package sets are mirrored locally
 3. run `risdeploy-dryrun` to preview exactly what would be applied per client (MAC/IP/components/packages/services)
 4. run `risdeploy` to install the selected components on matching clients
+5. run `risdeploy-validation` to get a compact PASS/FAIL summary and optional pytest gate for the achieved client state
 
 ## Transparency
 

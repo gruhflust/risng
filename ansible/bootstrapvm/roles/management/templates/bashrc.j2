@@ -125,6 +125,8 @@ if [ -x /usr/bin/dircolors ]; then
     alias risdeploy='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/secondstage/risdeploy.yml" "$HOME/risdeploy.log"'
     # 01c Dry-run planner for second-stage deployment (no client changes)
     alias risdeploy-dryrun='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/secondstage/risdeploy-dryrun.yml" "$HOME/risdeploy-dryrun.log"'
+    # 01d Validation summary for second-stage deployment state (includes optional pytest gate)
+    alias risdeploy-validation='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/secondstage/risdeploy-validation.yml" "$HOME/risdeploy-validation.log"'
 
     # 02 Re-enable PXE NIC and restart TFTP/DHCP services
     alias iron='git -C "$RISNG_DIR" pull'
