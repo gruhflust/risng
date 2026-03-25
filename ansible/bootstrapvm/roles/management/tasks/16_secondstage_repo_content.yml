@@ -136,4 +136,5 @@
             - name: {{ pkg }}
               purpose: "part of component {{ component }}"
           {% endfor %}
+      {% endfor %}
   when: risdeploy_enabled_components | default([]) | length > 0
