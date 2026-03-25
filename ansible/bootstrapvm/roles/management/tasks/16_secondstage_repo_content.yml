@@ -65,7 +65,7 @@
   when:
     - risdeploy_repo_sets[item].mode == 'http-mirror'
 
-- name: 16_05 Validate bootstrap packages required for SecondStage exist locally
+- name: 16_05 Probe optional bootstrap RPM cache hints (non-fatal)
   ansible.builtin.stat:
     path: "{{ item.path }}"
   loop:
@@ -75,15 +75,15 @@
   register: risdeploy_bootstrap_rpms
   when: risdeploy_enabled_components | default([]) | length > 0
 
-- name: 16_05a Fail early when SecondStage bootstrap packages are missing locally
-  ansible.builtin.fail:
+- name: 16_05a Warn when optional bootstrap RPM hints are missing
+  ansible.builtin.debug:
     msg: >-
-      SecondStage package provisioning on RISng is incomplete. Missing bootstrap RPMs:
-      {{ risdeploy_bootstrap_rpms.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}
+      Optional bootstrap RPM hints missing on RISng:
+      {{ risdeploy_bootstrap_rpms.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}.
+      Continuing because component deployment currently relies on locally published repos and raw-yum flow.
   when:
     - risdeploy_enabled_components | default([]) | length > 0
     - (risdeploy_bootstrap_rpms.results | rejectattr('stat.exists') | list | length) > 0
-
 
 - name: 16_05b Validate published repodata for mirrored SecondStage repos
   ansible.builtin.stat:
