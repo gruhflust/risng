@@ -689,18 +689,16 @@
       when:
         - risng_wallpaper_label | default('') | length > 0
 
-    - name: 02.98 Apply risng wallpaper in GNOME
-      community.general.dconf:
-        key: /org/gnome/desktop/background/picture-uri
-        value: "'file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png'"
-        state: present
+    - name: 02.98 Apply risng wallpaper in GNOME via gsettings (psutil-free)
+      ansible.builtin.shell: |
+        set -euo pipefail
+        if command -v gsettings >/dev/null 2>&1; then
+          dbus-launch gsettings set org.gnome.desktop.background picture-uri "file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png" || true
+          dbus-launch gsettings set org.gnome.desktop.background picture-uri-dark "file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png" || true
+        fi
+      args:
+        executable: /bin/bash
       become: true
       become_user: "{{ ssh_user }}"
-
-    - name: 02.98 Apply risng dark mode wallpaper in GNOME
-      community.general.dconf:
-        key: /org/gnome/desktop/background/picture-uri-dark
-        value: "'file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png'"
-        state: present
-      become: true
-      become_user: "{{ ssh_user }}"
+      changed_when: false
+      failed_when: false
