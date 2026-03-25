@@ -6,6 +6,10 @@
   ansible.builtin.include_vars:
     file: "{{ risng_code_dir | default(playbook_dir ~ '/../') }}/secondstage/vars/risdeploy_repo_catalog.yml"
 
+- name: 16_00a Normalize effective local paths for secondstage staging
+  ansible.builtin.set_fact:
+    risng_spec_repo_root_effective: "{{ spec_repo_root | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/centos/7/os/x86_64') }}"
+
 - name: 16_01 Build enabled SecondStage component list from DHCP host definitions
   ansible.builtin.set_fact:
     risdeploy_enabled_components: >-
@@ -65,8 +69,8 @@
   ansible.builtin.stat:
     path: "{{ item.path }}"
   loop:
-    - { name: 'python3', path: '{{ spec_repo_root }}/Packages/python3-3.6.8-18.el7.x86_64.rpm' }
-    - { name: 'libselinux-python', path: '{{ spec_repo_root }}/Packages/libselinux-python-2.5-15.el7.x86_64.rpm' }
+    - { name: 'python3', path: '{{ risng_spec_repo_root_effective }}/Packages/python3-3.6.8-18.el7.x86_64.rpm' }
+    - { name: 'libselinux-python', path: '{{ risng_spec_repo_root_effective }}/Packages/libselinux-python-2.5-15.el7.x86_64.rpm' }
     - { name: 'epel-release', path: '{{ pxe_tftp_dir }}/kickstart/repos/epel/7/x86_64/Packages/e/epel-release-7-14.noarch.rpm' }
   register: risdeploy_bootstrap_rpms
   when: risdeploy_enabled_components | default([]) | length > 0
