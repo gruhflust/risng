@@ -58,6 +58,8 @@ risdeploy_component_catalog:
       - mesa-libGL
       - mesa-libEGL
       - dbus-x11
+      - dejavu-sans-mono-fonts
+      - liberation-mono-fonts
     services:
       - gdm
 

@@ -207,9 +207,13 @@
         EOF
         cat > /etc/dconf/db/local.d/00-risng-fonts <<'EOF'
         [org/gnome/desktop/interface]
-        monospace-font-name='Monospace 11'
+        monospace-font-name='DejaVu Sans Mono 11'
         document-font-name='Sans 11'
         font-name='Sans 11'
+
+        [org/gnome/terminal/legacy/profiles:/:default]
+        use-system-font=false
+        font='DejaVu Sans Mono 11'
         EOF
         dconf update || true
       when: "'graphics-gnome' in risdeploy_components"
