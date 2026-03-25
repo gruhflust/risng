@@ -7,11 +7,11 @@ Diese Matrix ist das verbindliche Traceability-Artefakt für die 1:n-Zuordnung R
 
 | RIS-REQ | Status | Commits (1:n) | Umsetzungsartefakte (Dateien/Rollen) | Validierung |
 |---|---|---|---|---|
-| RIS-REQ-0021 | IN_PROGRESS | c2c158a | ansible/secondstage/vars/risdeploy_repo_catalog.yml; ansible/secondstage/risdeploy.yml; ansible/bootstrapvm/roles/dhcp/defaults/main.yml | syntax-check risdeploy/risng-setup passed; runtime validation pending |
-| RIS-REQ-0023 | IN_PROGRESS | c2c158a | ansible/secondstage/vars/risdeploy_repo_catalog.yml; ansible/secondstage/risdeploy.yml; ansible/bootstrapvm/roles/dhcp/defaults/main.yml | syntax-check risdeploy/risng-setup passed; runtime validation pending |
-| RIS-REQ-0024 | IN_PROGRESS | c2c158a | ansible/secondstage/vars/risdeploy_repo_catalog.yml; ansible/secondstage/risdeploy.yml; ansible/bootstrapvm/roles/dhcp/defaults/main.yml | syntax-check risdeploy/risng-setup passed; runtime validation pending |
-| RIS-REQ-0026 | IN_PROGRESS | c2c158a | ansible/secondstage/vars/risdeploy_repo_catalog.yml; ansible/secondstage/risdeploy.yml; ansible/bootstrapvm/roles/dhcp/defaults/main.yml | syntax-check risdeploy/risng-setup passed; runtime validation pending |
-| RIS-REQ-0029 | IN_PROGRESS | c2c158a | ansible/secondstage/vars/risdeploy_repo_catalog.yml; ansible/secondstage/risdeploy.yml; ansible/bootstrapvm/roles/dhcp/defaults/main.yml | syntax-check risdeploy/risng-setup passed; runtime validation pending |
+| RIS-REQ-0021 | IN_PROGRESS | c2c158a, 50dbdba, ea77294, c0af51f | ansible/secondstage/vars/risdeploy_repo_catalog.yml; ansible/secondstage/risdeploy.yml | syntax-check passed; client runtime test checklist added (see Information/Agent-Tasks/RISng-Change01_Client-Test-Checklist.md) |
+| RIS-REQ-0023 | IN_PROGRESS | c2c158a, 50dbdba, ea77294, c0af51f | ansible/secondstage/vars/risdeploy_repo_catalog.yml; ansible/secondstage/risdeploy.yml | syntax-check passed; client runtime test checklist added (see Information/Agent-Tasks/RISng-Change01_Client-Test-Checklist.md) |
+| RIS-REQ-0024 | IN_PROGRESS | c2c158a, 50dbdba, ea77294, c0af51f | ansible/secondstage/vars/risdeploy_repo_catalog.yml; ansible/secondstage/risdeploy.yml | syntax-check passed; client runtime test checklist added (see Information/Agent-Tasks/RISng-Change01_Client-Test-Checklist.md) |
+| RIS-REQ-0026 | IN_PROGRESS | c2c158a, 50dbdba, ea77294, c0af51f | ansible/secondstage/vars/risdeploy_repo_catalog.yml; ansible/secondstage/risdeploy.yml | syntax-check passed; client runtime test checklist added (see Information/Agent-Tasks/RISng-Change01_Client-Test-Checklist.md) |
+| RIS-REQ-0029 | IN_PROGRESS | c2c158a, 50dbdba, ea77294, c0af51f | ansible/secondstage/vars/risdeploy_repo_catalog.yml; ansible/secondstage/risdeploy.yml | syntax-check passed; client runtime test checklist added (see Information/Agent-Tasks/RISng-Change01_Client-Test-Checklist.md) |
 | RIS-REQ-0030 | OPEN |  |  |  |
 | RIS-REQ-0079 | OPEN |  |  |  |
 | RIS-REQ-0160 | OPEN |  |  |  |
