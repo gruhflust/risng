@@ -95,11 +95,12 @@
   register: risdeploy_repodata_paths
   when: risdeploy_enabled_components | default([]) | length > 0
 
-- name: 16_05c Fail early when mirrored SecondStage repodata is missing
-  ansible.builtin.fail:
+- name: 16_05c Warn when mirrored SecondStage repodata is missing (non-fatal in getrispackets)
+  ansible.builtin.debug:
     msg: >-
       SecondStage repo publishing on RISng is incomplete. Missing repodata for:
-      {{ risdeploy_repodata_paths.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}
+      {{ risdeploy_repodata_paths.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}.
+      Continuing to allow staged troubleshooting; risdeploy will use available local repos only.
   when:
     - risdeploy_enabled_components | default([]) | length > 0
     - (risdeploy_repodata_paths.results | rejectattr('stat.exists') | list | length) > 0
