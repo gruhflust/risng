@@ -383,7 +383,35 @@
           To avoid self-copy loops, /home/risng and /home/risng/botrepo are excluded as source.
       when: (risng_botrepo_source_path_effective | default('') | length) == 0
 
-    - name: 00.21a Ensure /home/risng/risng symlink points to /home/risng/botrepo/risng_code
+    - name: 00.21a Inspect /home/risng/risng path state
+      ansible.builtin.stat:
+        path: /home/risng/risng
+        follow: false
+      register: risng_home_link_target
+
+    - name: 00.21aa List existing /home/risng/risng directory entries (when not symlink)
+      ansible.builtin.find:
+        paths: /home/risng/risng
+        file_type: any
+        hidden: true
+        recurse: false
+      register: risng_home_link_target_entries
+      when:
+        - risng_home_link_target.stat.exists | default(false)
+        - risng_home_link_target.stat.isdir | default(false)
+        - not (risng_home_link_target.stat.islnk | default(false))
+
+    - name: 00.21ab Remove empty legacy /home/risng/risng directory before symlink conversion
+      ansible.builtin.file:
+        path: /home/risng/risng
+        state: absent
+      when:
+        - risng_home_link_target.stat.exists | default(false)
+        - risng_home_link_target.stat.isdir | default(false)
+        - not (risng_home_link_target.stat.islnk | default(false))
+        - (risng_home_link_target_entries.files | default([]) | length) == 0
+
+    - name: 00.21ac Ensure /home/risng/risng symlink points to /home/risng/botrepo/risng_code
       ansible.builtin.file:
         src: /home/risng/botrepo/risng_code
         dest: /home/risng/risng
@@ -391,6 +419,24 @@
         group: risng
         state: link
         force: true
+      when: >-
+        not (
+          (risng_home_link_target.stat.exists | default(false))
+          and (risng_home_link_target.stat.isdir | default(false))
+          and not (risng_home_link_target.stat.islnk | default(false))
+          and ((risng_home_link_target_entries.files | default([]) | length) > 0)
+        )
+
+    - name: 00.21ad Keep existing non-empty /home/risng/risng directory (skip symlink conversion)
+      ansible.builtin.debug:
+        msg: >-
+          Keeping existing non-empty directory /home/risng/risng as-is to avoid destructive conversion.
+          Symlink conversion is skipped for this run.
+      when:
+        - risng_home_link_target.stat.exists | default(false)
+        - risng_home_link_target.stat.isdir | default(false)
+        - not (risng_home_link_target.stat.islnk | default(false))
+        - (risng_home_link_target_entries.files | default([]) | length) > 0
 
     - name: 00.22 Ensure risng .bashrc links to RISng management template
       ansible.builtin.file:
