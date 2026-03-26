@@ -2,6 +2,7 @@ from flask import Flask, render_template_string, request, redirect, jsonify
 import json
 import re
 import subprocess
+import socket
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -160,6 +161,32 @@ def parse_install_progress_ips():
     return progress
 
 
+
+
+def infer_role_from_hostname(hostname: str) -> str:
+    h = (hostname or '').lower()
+    if 'cmd' in h:
+        return 'iCMD'
+    if 'cwp' in h:
+        return 'iCWP'
+    if 'fdo' in h:
+        return 'iFDO'
+    if 'fdps' in h:
+        return 'FDPS'
+    if 'corrp' in h:
+        return 'CORRP'
+    return 'iCWP'
+
+
+def ssh_reachable(ip: str, timeout: float = 0.35) -> bool:
+    if not ip:
+        return False
+    try:
+        with socket.create_connection((ip, 22), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
 def run_apply_async():
     subprocess.Popen(['ansible-playbook', UPDATE_PLAYBOOK])
 
@@ -204,15 +231,18 @@ def index():
         s2 = secondstage.get(mac, {})
         d = load_discovery(mac)
         ip = meta.get('ip') or s2.get('ip') or l.get('ip', '') or st.get('ip', '')
+        role_effective = meta.get('role') or s2.get('boot_profile') or infer_role_from_hostname(meta.get('name') or s2.get('name') or l.get('hostname', '') or st.get('hostname', ''))
         status = 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else ('LEASED' if mac in leases else 'CONFIGURED'))
         if ip and ip in install_progress:
             status = install_progress[ip]
+        elif ssh_reachable(ip):
+            status = 'INSTALLED'
 
         rows.append({
             'mac': mac,
             'ip': ip,
             'hostname': meta.get('name') or s2.get('name') or l.get('hostname', '') or st.get('hostname', ''),
-            'role': meta.get('role', ''),
+            'role': role_effective,
             'secondstage_enabled': bool(s2.get('secondstage_enabled')),
             'components': ','.join(s2.get('secondstage_components', [])) if isinstance(s2.get('secondstage_components', []), list) else '',
             'hw': d.get('hardware', d if isinstance(d, dict) else {}),
@@ -231,7 +261,7 @@ def index():
                 'secondstage_enabled': False,
                 'components': '',
                 'hw': {},
-                'status': pstatus,
+                'status': ('INSTALLED' if ssh_reachable(ip) else pstatus),
             })
 
     diagnostics = {
@@ -282,10 +312,17 @@ TEMPLATE = """{% raw %}
 <h1>RISng Web UI – Discovery & Assignment</h1>
 <p>Unknown PXE clients can post hardware inventory to <code>/api/discovery</code>. Assigning a role updates DHCP + secondstage target registry and triggers DHCP apply.</p>
 <p><b>Diagnostics:</b> leases={{ diagnostics.lease_count }} static_hosts={{ diagnostics.static_host_count }} discovery={{ diagnostics.discovery_count }} mapped={{ diagnostics.mapped_count }} files={{ diagnostics.lease_files }}</p>
+<style>
+  table { border-collapse: collapse; }
+  td, th { border: 1px solid #777; }
+  tr.status-configured td:first-child { background: #0f5132; color: #fff; font-weight: 600; }
+  tr.status-install_running td:first-child, tr.status-stage2_fetch td:first-child { background: #0b5ed7; color: #fff; font-weight: 600; }
+  tr.status-installed td:first-child { background: #8fd19e; color: #000; font-weight: 600; }
+</style>
 <table border="1" cellpadding="6" cellspacing="0">
 <tr><th>Status</th><th>MAC</th><th>IP</th><th>Hostname</th><th>Role</th><th>SecondStage</th><th>HW Info</th><th>Assign/Update</th></tr>
 {% for r in rows %}
-<tr>
+<tr class="status-{{ r.status | lower }}">
   <td>{{ r.status }}</td>
   <td>{{ r.mac }}</td>
   <td>{{ r.ip }}</td>
