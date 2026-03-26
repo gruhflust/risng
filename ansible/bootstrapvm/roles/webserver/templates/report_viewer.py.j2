@@ -25,8 +25,9 @@ STATE_FILE = Path('/var/lib/tftpboot/runtime/webui_state.json')
 LOG_DIR = Path('/var/lib/tftpboot/runtime/webui_logs')
 VALIDATION_SUMMARY = Path('{{ ssh_user_home }}/risdeploy-validation-summary.json')
 
-ROLES = ["iCWP", "iFDO", "iCMD", "FDPS", "CORRP", "live-ris"]
+ROLES = ["iCWP", "iFDO", "iCMD", "FDPS", "CORRP", "live-ris", "localdisk"]
 DEFAULT_COMPONENTS = ["graphics-gnome", "common-linux-monitoring-base"]
+AUTO_LOCALBOOT_ON_SUCCESS = True
 
 
 def now_iso():
@@ -83,7 +84,7 @@ def save_state(data):
     save_json(STATE_FILE, data)
 
 
-def launch_job(job_name: str, command: str):
+def launch_job(job_name: str, command: str, context: dict | None = None):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"{job_name}-{int(time.time())}.log"
     with open(log_path, 'ab') as lf:
@@ -96,6 +97,7 @@ def launch_job(job_name: str, command: str):
         'log_path': str(log_path),
         'status': 'RUNNING',
         'command': command,
+        'context': context or {},
     }
     save_state(state)
 
@@ -115,6 +117,22 @@ def refresh_job_state():
         if job.get('status') == 'RUNNING':
             job['status'] = 'FINISHED'
             job['finished_at'] = now_iso()
+
+    # post-process: after assign+deploy success, set host to localdisk profile
+    ctx = job.get('context', {}) if isinstance(job.get('context', {}), dict) else {}
+    if AUTO_LOCALBOOT_ON_SUCCESS and job.get('name') == 'assign-deploy' and job.get('status') == 'FINISHED' and not ctx.get('post_processed'):
+        ip = ctx.get('target_ip', '')
+        mac = ctx.get('target_mac', '')
+        ok = bool(load_validation_index().get(ip))
+        if ok and mac:
+            m = load_map()
+            if mac in m:
+                m[mac]['role'] = 'localdisk'
+                save_map(m)
+                update = resolve_playbook('bootstrapvm/update-dhcp-hosts.yml')
+                launch_job('post-deploy-localboot', f"ansible-playbook {update}", {'source': 'assign-deploy', 'target_mac': mac, 'target_ip': ip})
+        ctx['post_processed'] = True
+        job['context'] = ctx
     state['job'] = job
     save_state(state)
     return state
@@ -135,12 +153,12 @@ def run_apply_async():
     launch_job('assign-apply', f"ansible-playbook {update}")
 
 
-def run_assign_deploy_async():
+def run_assign_deploy_async(target_mac: str, target_ip: str):
     update = resolve_playbook('bootstrapvm/update-dhcp-hosts.yml')
     deploy = resolve_playbook('secondstage/risdeploy.yml')
     validate = resolve_playbook('secondstage/risdeploy-validation.yml')
     cmd = f"ansible-playbook {update} && ansible-playbook {deploy} && ansible-playbook {validate}"
-    launch_job('assign-deploy', cmd)
+    launch_job('assign-deploy', cmd, {'target_mac': target_mac, 'target_ip': target_ip, 'post_processed': False})
 
 
 def parse_static_hosts():
@@ -393,7 +411,7 @@ def assign_deploy():
     }
     save_secondstage_targets(s2)
 
-    run_assign_deploy_async()
+    run_assign_deploy_async(mac, ip)
     return redirect('/')
 
 @app.route('/assign', methods=['POST'])
@@ -434,7 +452,7 @@ TEMPLATE = """{% raw %}
 <h1>RISng Web UI – Discovery & Assignment</h1>
 <p>Unknown PXE clients can post hardware inventory to <code>/api/discovery</code>. Assigning a role updates DHCP + secondstage target registry and triggers DHCP apply.</p>
 <p><b>Diagnostics:</b> leases={{ diagnostics.lease_count }} static_hosts={{ diagnostics.static_host_count }} discovery={{ diagnostics.discovery_count }} mapped={{ diagnostics.mapped_count }} files={{ diagnostics.lease_files }}</p>
-<p><b>Job:</b> {% if job %}{{ job.name }} | {{ job.status }} | log={{ job.log_path }}{% else %}none{% endif %}</p>
+<p><b>Job:</b> {% if job %}{{ job.name }} | {{ job.status }} | target={{ job.context.target_ip if job.context else '' }} | log={{ job.log_path }}{% else %}none{% endif %}</p>
 <style>
   table { border-collapse: collapse; }
   td, th { border: 1px solid #777; }
