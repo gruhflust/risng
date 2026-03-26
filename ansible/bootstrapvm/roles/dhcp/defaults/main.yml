@@ -43,6 +43,9 @@ dhcp_boot_profiles:
   spec:
     uefi: "bootx64.efi"
     bios: "pxelinux.0"
+  localdisk:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
 
 # Menu targets used for per-host preselection/highlighting.
 # BIOS labels must match LABEL entries in pxelinux fragments.
@@ -72,6 +75,9 @@ dhcp_boot_menu_defaults:
   spec:
     bios_label: "icwp"
     uefi_menuentry: "CentOS 7.8 AutoInstall (iCWP)"
+  localdisk:
+    bios_label: "localdisk"
+    uefi_menuentry: "Boot from local disk"
 
 
 dhcp_static_hosts:
