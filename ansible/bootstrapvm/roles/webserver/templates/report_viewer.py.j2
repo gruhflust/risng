@@ -187,6 +187,21 @@ def run_assign_deploy_async(target_mac: str, target_ip: str):
     launch_job('assign-deploy', cmd, {'target_mac': target_mac, 'target_ip': target_ip, 'post_processed': False}, cwd=root)
 
 
+
+
+def delete_host_records(mac: str):
+    m = load_map()
+    if mac in m:
+        del m[mac]
+        save_map(m)
+    s2 = load_secondstage_targets()
+    if mac in s2:
+        del s2[mac]
+        save_secondstage_targets(s2)
+    d = DISCOVERY_DIR / f"{mac}.json"
+    if d.exists():
+        d.unlink()
+
 def parse_static_hosts():
     items = {}
     if not STATIC_HOSTS_FILE.exists():
@@ -410,6 +425,64 @@ def index():
 
 
 
+
+
+@app.route('/set_boot', methods=['POST'])
+def set_boot():
+    mac = request.form.get('mac', '').strip().lower()
+    mode = request.form.get('mode', '').strip().lower()
+    ip = request.form.get('ip', '').strip()
+    name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
+    role_hint = request.form.get('role_hint', '').strip() or 'iCMD'
+
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return 'invalid mac', 400
+    if mode not in ('pxe', 'localdisk'):
+        return 'invalid mode', 400
+
+    role = 'localdisk' if mode == 'localdisk' else role_hint
+    if role not in ROLES:
+        role = 'iCMD'
+
+    m = load_map()
+    m[mac] = {'role': role, 'ip': ip, 'name': name}
+    save_map(m)
+
+    s2 = load_secondstage_targets()
+    cur = s2.get(mac, {})
+    s2[mac] = {
+        'name': name,
+        'mac': mac,
+        'ip': ip,
+        'boot_profile': role,
+        'secondstage_enabled': bool(cur.get('secondstage_enabled', role != 'live-ris')),
+        'secondstage_components': cur.get('secondstage_components', DEFAULT_COMPONENTS),
+        'updated_at': now_iso(),
+    }
+    save_secondstage_targets(s2)
+
+    run_apply_async()
+    if mode == 'pxe':
+        request_reboot_best_effort(ip)
+    return redirect('/')
+
+
+@app.route('/delete_host', methods=['POST'])
+def delete_host():
+    mac = request.form.get('mac', '').strip().lower()
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return 'invalid mac', 400
+    delete_host_records(mac)
+    run_apply_async()
+    return redirect('/')
+
+
+@app.route('/reboot', methods=['POST'])
+def reboot_host():
+    ip = request.form.get('ip', '').strip()
+    request_reboot_best_effort(ip)
+    return redirect('/')
+
 @app.route('/assign_deploy', methods=['POST'])
 def assign_deploy():
     mac = request.form.get('mac', '').strip().lower()
@@ -496,7 +569,7 @@ TEMPLATE = """{% raw %}
   tr.status-boot_local_set td:first-child { background: #ffe08a; color: #000; font-weight: 700; }
 </style>
 <table border="1" cellpadding="6" cellspacing="0">
-<tr><th>Status</th><th>MAC</th><th>IP</th><th>Hostname</th><th>Role</th><th>SecondStage</th><th>HW Info</th><th>Assign/Update</th></tr>
+<tr><th>Status</th><th>MAC</th><th>IP</th><th>Hostname</th><th>Role</th><th>SecondStage</th><th>HW Info</th><th>Assign/Update</th><th>Actions</th></tr>
 {% for r in rows %}
 <tr class="status-{{ r.status | lower }}">
   <td>{{ r.status }}</td>
@@ -523,6 +596,24 @@ TEMPLATE = """{% raw %}
       <label><input type="checkbox" name="secondstage_enabled" {% if r.secondstage_enabled %}checked{% endif %}/> secondstage</label>
       <button type="submit">Assign + Apply</button>
       <button formaction="/assign_deploy" formmethod="post" type="submit">Assign + Deploy</button>
+    </form>
+  </td>
+  <td>
+    <form action="/set_boot" method="post" style="margin-bottom:4px;">
+      <input type="hidden" name="mac" value="{{ r.mac }}"/>
+      <input type="hidden" name="ip" value="{{ r.ip }}"/>
+      <input type="hidden" name="name" value="{{ r.hostname }}"/>
+      <input type="hidden" name="role_hint" value="{{ r.role if r.role else 'iCMD' }}"/>
+      <button name="mode" value="pxe" type="submit">Set PXE</button>
+      <button name="mode" value="localdisk" type="submit">Set Local Disk</button>
+    </form>
+    <form action="/reboot" method="post" style="display:inline;">
+      <input type="hidden" name="ip" value="{{ r.ip }}"/>
+      <button type="submit">Reboot</button>
+    </form>
+    <form action="/delete_host" method="post" style="display:inline;" onsubmit="return confirm('Delete host entry?');">
+      <input type="hidden" name="mac" value="{{ r.mac }}"/>
+      <button type="submit">Delete</button>
     </form>
   </td>
 </tr>
