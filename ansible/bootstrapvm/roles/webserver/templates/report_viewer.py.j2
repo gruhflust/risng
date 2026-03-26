@@ -11,6 +11,7 @@ LEASES_FILES = [Path('/var/lib/dhcp/dhcpd.leases'), Path('/var/lib/dhcp/dhcpd.le
 MAP_FILE = Path('/etc/risng/mac_role_map.json')
 DISCOVERY_DIR = Path('/var/lib/tftpboot/runtime/discovery')
 SECONDSTAGE_TARGETS_FILE = Path('/etc/risng/secondstage_targets.json')
+STATIC_HOSTS_FILE = Path('/etc/dhcp/static-hosts.conf')
 NGINX_ACCESS_LOG = Path('/var/log/nginx/risng-pxe.access.log')
 UPDATE_PLAYBOOK = "{{ ssh_user_home }}/botrepo/risng/ansible/bootstrapvm/update-dhcp-hosts.yml"
 
@@ -51,6 +52,35 @@ def load_secondstage_targets():
 def save_secondstage_targets(data):
     save_json(SECONDSTAGE_TARGETS_FILE, data)
 
+
+
+
+def parse_static_hosts():
+    items = {}
+    if not STATIC_HOSTS_FILE.exists():
+        return items
+    current = {}
+    for raw in STATIC_HOSTS_FILE.read_text(errors='ignore').splitlines():
+        line = raw.strip()
+        if line.startswith('host ') and line.endswith('{'):
+            current = {'name': line.split()[1]}
+            continue
+        if line.startswith('hardware ethernet '):
+            current['mac'] = line.split()[2].rstrip(';').lower()
+            continue
+        if line.startswith('fixed-address '):
+            current['ip'] = line.split()[1].rstrip(';')
+            continue
+        if line == '}':
+            mac = current.get('mac')
+            if mac:
+                items[mac] = {
+                    'mac': mac,
+                    'ip': current.get('ip', ''),
+                    'hostname': current.get('name', ''),
+                }
+            current = {}
+    return items
 
 def parse_leases():
     # Robust parser tolerant to partially-written lease files.
@@ -159,27 +189,29 @@ def index():
     role_map = load_map()
     secondstage = load_secondstage_targets()
     leases = {l['mac']: l for l in parse_leases()}
+    static_hosts = parse_static_hosts()
     install_progress = parse_install_progress_ips()
     rows = []
 
-    known_macs = set(leases.keys()) | set(role_map.keys()) | set(secondstage.keys())
+    known_macs = set(leases.keys()) | set(static_hosts.keys()) | set(role_map.keys()) | set(secondstage.keys())
     for d in list_discovery_files():
         known_macs.add(d['mac'])
 
     for mac in sorted(known_macs):
         l = leases.get(mac, {})
+        st = static_hosts.get(mac, {})
         meta = role_map.get(mac, {})
         s2 = secondstage.get(mac, {})
         d = load_discovery(mac)
-        ip = meta.get('ip') or s2.get('ip') or l.get('ip', '')
-        status = 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else 'LEASED')
+        ip = meta.get('ip') or s2.get('ip') or l.get('ip', '') or st.get('ip', '')
+        status = 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else ('LEASED' if mac in leases else 'CONFIGURED'))
         if ip and ip in install_progress:
             status = install_progress[ip]
 
         rows.append({
             'mac': mac,
             'ip': ip,
-            'hostname': meta.get('name') or s2.get('name') or l.get('hostname', ''),
+            'hostname': meta.get('name') or s2.get('name') or l.get('hostname', '') or st.get('hostname', ''),
             'role': meta.get('role', ''),
             'secondstage_enabled': bool(s2.get('secondstage_enabled')),
             'components': ','.join(s2.get('secondstage_components', [])) if isinstance(s2.get('secondstage_components', []), list) else '',
@@ -187,9 +219,25 @@ def index():
             'status': status,
         })
 
+
+    known_ips = {r['ip'] for r in rows if r.get('ip')}
+    for ip, pstatus in install_progress.items():
+        if ip not in known_ips:
+            rows.append({
+                'mac': 'n/a',
+                'ip': ip,
+                'hostname': '',
+                'role': '',
+                'secondstage_enabled': False,
+                'components': '',
+                'hw': {},
+                'status': pstatus,
+            })
+
     diagnostics = {
         'lease_files': [str(p) for p in LEASES_FILES if p.exists()],
         'lease_count': len(leases),
+        'static_host_count': len(static_hosts),
         'discovery_count': len(list_discovery_files()),
         'mapped_count': len(role_map),
     }
@@ -233,7 +281,7 @@ TEMPLATE = """{% raw %}
 <html><body style="font-family: sans-serif;">
 <h1>RISng Web UI – Discovery & Assignment</h1>
 <p>Unknown PXE clients can post hardware inventory to <code>/api/discovery</code>. Assigning a role updates DHCP + secondstage target registry and triggers DHCP apply.</p>
-<p><b>Diagnostics:</b> leases={{ diagnostics.lease_count }} discovery={{ diagnostics.discovery_count }} mapped={{ diagnostics.mapped_count }} files={{ diagnostics.lease_files }}</p>
+<p><b>Diagnostics:</b> leases={{ diagnostics.lease_count }} static_hosts={{ diagnostics.static_host_count }} discovery={{ diagnostics.discovery_count }} mapped={{ diagnostics.mapped_count }} files={{ diagnostics.lease_files }}</p>
 <table border="1" cellpadding="6" cellspacing="0">
 <tr><th>Status</th><th>MAC</th><th>IP</th><th>Hostname</th><th>Role</th><th>SecondStage</th><th>HW Info</th><th>Assign/Update</th></tr>
 {% for r in rows %}
