@@ -59,3 +59,21 @@ This manifest documents for each enabled component:
 - explicit packages
 
 The goal is to keep the package supply chain understandable and later renderable into human-readable package lists.
+
+## GUI discovery integration (RISng-Change01-GUI)
+The RISng web UI service (`risng-webui`) now supports unknown client discovery:
+
+- API endpoint: `POST /api/discovery` (JSON payload with `mac`, `hostname`, `ip`, `hardware`)
+- Discovery file store: `/var/lib/tftpboot/runtime/discovery/<mac>.json`
+- Assignment writes:
+  - `/etc/risng/mac_role_map.json` (PXE role mapping)
+  - `/etc/risng/secondstage_targets.json` (risdeploy target registry)
+
+A helper script is published for live clients at:
+`/var/lib/tftpboot/runtime/discovery/discovery-client.sh`
+
+Example usage on a live client:
+```bash
+bash /var/lib/tftpboot/runtime/discovery/discovery-client.sh <RISNG_SERVER_IP>
+```
+
