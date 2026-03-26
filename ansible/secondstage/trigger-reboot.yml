@@ -1,0 +1,35 @@
+---
+- name: Stage1/Stage2 helper - trigger reboot on selected client
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/risdeploy_components.yml
+  vars:
+    target_ip: ""
+  tasks:
+    - name: Ensure target_ip is provided
+      ansible.builtin.assert:
+        that:
+          - target_ip | length > 6
+        fail_msg: "target_ip missing, call with -e target_ip=<ip>"
+
+    - name: Register target host for reboot
+      ansible.builtin.add_host:
+        name: reboot_target
+        ansible_host: "{{ target_ip }}"
+        ansible_user: "{{ risdeploy_ssh_user }}"
+        ansible_password: "{{ risdeploy_ssh_password }}"
+        ansible_connection: paramiko
+        ansible_become: true
+        ansible_become_password: "{{ risdeploy_ssh_password }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+- name: Reboot target host
+  hosts: reboot_target
+  gather_facts: false
+  tasks:
+    - name: Trigger reboot
+      ansible.builtin.reboot:
+        msg: "RISng UI triggered reboot"
+        reboot_timeout: 30
+        connect_timeout: 5
