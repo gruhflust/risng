@@ -7,10 +7,11 @@ from datetime import datetime, timezone
 
 app = Flask(__name__)
 
-LEASES_FILE = Path('/var/lib/dhcp/dhcpd.leases')
+LEASES_FILES = [Path('/var/lib/dhcp/dhcpd.leases'), Path('/var/lib/dhcp/dhcpd.leases~')]
 MAP_FILE = Path('/etc/risng/mac_role_map.json')
 DISCOVERY_DIR = Path('/var/lib/tftpboot/runtime/discovery')
 SECONDSTAGE_TARGETS_FILE = Path('/etc/risng/secondstage_targets.json')
+NGINX_ACCESS_LOG = Path('/var/log/nginx/risng-pxe.access.log')
 UPDATE_PLAYBOOK = "{{ ssh_user_home }}/botrepo/risng/ansible/bootstrapvm/update-dhcp-hosts.yml"
 
 ROLES = ["iCWP", "iFDO", "iCMD", "FDPS", "CORRP", "live-ris"]
@@ -52,23 +53,39 @@ def save_secondstage_targets(data):
 
 
 def parse_leases():
+    # Robust parser tolerant to partially-written lease files.
     items = {}
-    if not LEASES_FILE.exists():
-        return []
-    current = {}
-    for line in LEASES_FILE.read_text(errors='ignore').splitlines():
-        line = line.strip()
-        if line.startswith('lease '):
-            current = {'ip': line.split()[1]}
-        elif line.startswith('hardware ethernet '):
-            current['mac'] = line.split()[2].rstrip(';').lower()
-        elif line.startswith('client-hostname '):
-            current['hostname'] = line.split(' ', 1)[1].strip().strip(';').strip('"')
-        elif line == '}':
-            mac = current.get('mac')
-            if mac:
-                items[mac] = {'mac': mac, 'ip': current.get('ip', ''), 'hostname': current.get('hostname', '')}
-            current = {}
+    lease_re = re.compile(r'^lease\s+([0-9.]+)\s+\{')
+    mac_re = re.compile(r'^hardware\s+ethernet\s+([0-9a-f:]{17});', re.IGNORECASE)
+    host_re = re.compile(r'^client-hostname\s+"(.*)";')
+
+    for lf in LEASES_FILES:
+        if not lf.exists():
+            continue
+        current = {}
+        for raw in lf.read_text(errors='ignore').splitlines():
+            line = raw.strip()
+            m = lease_re.match(line)
+            if m:
+                current = {'ip': m.group(1)}
+                continue
+            m = mac_re.match(line)
+            if m:
+                current['mac'] = m.group(1).lower()
+                continue
+            m = host_re.match(line)
+            if m:
+                current['hostname'] = m.group(1)
+                continue
+            if line == '}':
+                mac = current.get('mac')
+                if mac:
+                    items[mac] = {
+                        'mac': mac,
+                        'ip': current.get('ip', ''),
+                        'hostname': current.get('hostname', ''),
+                    }
+                current = {}
     return sorted(items.values(), key=lambda x: x.get('mac', ''))
 
 
@@ -92,6 +109,25 @@ def list_discovery_files():
         data = load_discovery(mac)
         out.append({'mac': mac, 'hw': data})
     return out
+
+
+def parse_install_progress_ips():
+    # Very lightweight progress signal from nginx access log
+    progress = {}
+    if not NGINX_ACCESS_LOG.exists():
+        return progress
+    lines = NGINX_ACCESS_LOG.read_text(errors='ignore').splitlines()[-2000:]
+    for ln in lines:
+        # format contains: <ip> - - [..] "GET /path HTTP/1.1"
+        parts = ln.split(' ', 3)
+        if len(parts) < 4:
+            continue
+        ip = parts[0]
+        if '/kickstart/' in ln:
+            progress[ip] = 'INSTALL_RUNNING'
+        elif '/centos/7/os/x86_64/' in ln and progress.get(ip) != 'INSTALL_RUNNING':
+            progress[ip] = 'STAGE2_FETCH'
+    return progress
 
 
 def run_apply_async():
@@ -123,6 +159,7 @@ def index():
     role_map = load_map()
     secondstage = load_secondstage_targets()
     leases = {l['mac']: l for l in parse_leases()}
+    install_progress = parse_install_progress_ips()
     rows = []
 
     known_macs = set(leases.keys()) | set(role_map.keys()) | set(secondstage.keys())
@@ -134,17 +171,29 @@ def index():
         meta = role_map.get(mac, {})
         s2 = secondstage.get(mac, {})
         d = load_discovery(mac)
+        ip = meta.get('ip') or s2.get('ip') or l.get('ip', '')
+        status = 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else 'LEASED')
+        if ip and ip in install_progress:
+            status = install_progress[ip]
+
         rows.append({
             'mac': mac,
-            'ip': meta.get('ip') or s2.get('ip') or l.get('ip', ''),
+            'ip': ip,
             'hostname': meta.get('name') or s2.get('name') or l.get('hostname', ''),
             'role': meta.get('role', ''),
             'secondstage_enabled': bool(s2.get('secondstage_enabled')),
             'components': ','.join(s2.get('secondstage_components', [])) if isinstance(s2.get('secondstage_components', []), list) else '',
             'hw': d.get('hardware', d if isinstance(d, dict) else {}),
-            'status': 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else 'LEASED'),
+            'status': status,
         })
-    return render_template_string(TEMPLATE, rows=rows, roles=ROLES)
+
+    diagnostics = {
+        'lease_files': [str(p) for p in LEASES_FILES if p.exists()],
+        'lease_count': len(leases),
+        'discovery_count': len(list_discovery_files()),
+        'mapped_count': len(role_map),
+    }
+    return render_template_string(TEMPLATE, rows=rows, roles=ROLES, diagnostics=diagnostics)
 
 
 @app.route('/assign', methods=['POST'])
@@ -184,6 +233,7 @@ TEMPLATE = """{% raw %}
 <html><body style="font-family: sans-serif;">
 <h1>RISng Web UI – Discovery & Assignment</h1>
 <p>Unknown PXE clients can post hardware inventory to <code>/api/discovery</code>. Assigning a role updates DHCP + secondstage target registry and triggers DHCP apply.</p>
+<p><b>Diagnostics:</b> leases={{ diagnostics.lease_count }} discovery={{ diagnostics.discovery_count }} mapped={{ diagnostics.mapped_count }} files={{ diagnostics.lease_files }}</p>
 <table border="1" cellpadding="6" cellspacing="0">
 <tr><th>Status</th><th>MAC</th><th>IP</th><th>Hostname</th><th>Role</th><th>SecondStage</th><th>HW Info</th><th>Assign/Update</th></tr>
 {% for r in rows %}
