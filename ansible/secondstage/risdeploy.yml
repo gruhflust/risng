@@ -26,6 +26,42 @@
       loop: "{{ risdeploy_targets }}"
       changed_when: false
 
+
+    - name: Collect SSH host key via target IP (best effort)
+      ansible.builtin.shell: "ssh-keyscan -T 5 -t ed25519,rsa {{ item.ip }} 2>/dev/null | head -n 1"
+      args:
+        executable: /bin/bash
+      loop: "{{ risdeploy_targets }}"
+      register: risdeploy_known_host_ip_scan
+      changed_when: false
+      failed_when: false
+
+    - name: Register target IP host key in known_hosts
+      ansible.builtin.known_hosts:
+        path: "{{ lookup('ansible.builtin.env','HOME') }}/.ssh/known_hosts"
+        name: "{{ item.item.ip }}"
+        key: "{{ item.stdout }}"
+        state: present
+      loop: "{{ risdeploy_known_host_ip_scan.results | default([]) }}"
+      when: (item.stdout | default('') | trim) | length > 0
+
+    - name: Collect SSH host key via target hostname (best effort)
+      ansible.builtin.shell: "ssh-keyscan -T 5 -t ed25519,rsa {{ item.name }} 2>/dev/null | head -n 1"
+      args:
+        executable: /bin/bash
+      loop: "{{ risdeploy_targets }}"
+      register: risdeploy_known_host_name_scan
+      changed_when: false
+      failed_when: false
+
+    - name: Register target hostname key in known_hosts
+      ansible.builtin.known_hosts:
+        path: "{{ lookup('ansible.builtin.env','HOME') }}/.ssh/known_hosts"
+        name: "{{ item.item.name }}"
+        key: "{{ item.stdout }}"
+        state: present
+      loop: "{{ risdeploy_known_host_name_scan.results | default([]) }}"
+      when: (item.stdout | default('') | trim) | length > 0
     - name: Register enabled RIS deploy targets as dynamic hosts
       ansible.builtin.add_host:
         name: "{{ item.name }}"
