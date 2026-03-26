@@ -2,6 +2,8 @@ from flask import Flask, render_template_string, request, redirect, jsonify
 import json
 import re
 import subprocess
+import os
+import time
 import socket
 from pathlib import Path
 from datetime import datetime, timezone
@@ -14,7 +16,14 @@ DISCOVERY_DIR = Path('/var/lib/tftpboot/runtime/discovery')
 SECONDSTAGE_TARGETS_FILE = Path('/etc/risng/secondstage_targets.json')
 STATIC_HOSTS_FILE = Path('/etc/dhcp/static-hosts.conf')
 NGINX_ACCESS_LOG = Path('/var/log/nginx/risng-pxe.access.log')
-UPDATE_PLAYBOOK = "{{ ssh_user_home }}/botrepo/risng/ansible/bootstrapvm/update-dhcp-hosts.yml"
+PLAYBOOK_ROOT_CANDIDATES = [
+    '{{ ssh_user_home }}/risng/ansible',
+    '{{ ssh_user_home }}/botrepo/risng/ansible',
+    '/home/risng/risng/ansible',
+]
+STATE_FILE = Path('/var/lib/tftpboot/runtime/webui_state.json')
+LOG_DIR = Path('/var/lib/tftpboot/runtime/webui_logs')
+VALIDATION_SUMMARY = Path('{{ ssh_user_home }}/risdeploy-validation-summary.json')
 
 ROLES = ["iCWP", "iFDO", "iCMD", "FDPS", "CORRP", "live-ris"]
 DEFAULT_COMPONENTS = ["graphics-gnome", "common-linux-monitoring-base"]
@@ -54,6 +63,84 @@ def save_secondstage_targets(data):
     save_json(SECONDSTAGE_TARGETS_FILE, data)
 
 
+
+
+
+
+def resolve_playbook(relpath: str) -> str:
+    for root in PLAYBOOK_ROOT_CANDIDATES:
+        cand = Path(root) / relpath
+        if cand.exists():
+            return str(cand)
+    return str(Path(PLAYBOOK_ROOT_CANDIDATES[0]) / relpath)
+
+
+def load_state():
+    return load_json(STATE_FILE, {})
+
+
+def save_state(data):
+    save_json(STATE_FILE, data)
+
+
+def launch_job(job_name: str, command: str):
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOG_DIR / f"{job_name}-{int(time.time())}.log"
+    with open(log_path, 'ab') as lf:
+        proc = subprocess.Popen(['bash', '-lc', command], stdout=lf, stderr=lf, env={**os.environ, 'HOME': '{{ ssh_user_home }}'})
+    state = load_state()
+    state['job'] = {
+        'name': job_name,
+        'pid': proc.pid,
+        'started_at': now_iso(),
+        'log_path': str(log_path),
+        'status': 'RUNNING',
+        'command': command,
+    }
+    save_state(state)
+
+
+def refresh_job_state():
+    state = load_state()
+    job = state.get('job')
+    if not job:
+        return state
+    pid = int(job.get('pid', 0) or 0)
+    if pid <= 0:
+        return state
+    try:
+        os.kill(pid, 0)
+        job['status'] = 'RUNNING'
+    except OSError:
+        if job.get('status') == 'RUNNING':
+            job['status'] = 'FINISHED'
+            job['finished_at'] = now_iso()
+    state['job'] = job
+    save_state(state)
+    return state
+
+
+def load_validation_index():
+    data = load_json(VALIDATION_SUMMARY, {})
+    out = {}
+    for h in data.get('hosts', []):
+        ip = h.get('ip', '')
+        if ip:
+            out[ip] = bool(h.get('overall_ok'))
+    return out
+
+
+def run_apply_async():
+    update = resolve_playbook('bootstrapvm/update-dhcp-hosts.yml')
+    launch_job('assign-apply', f"ansible-playbook {update}")
+
+
+def run_assign_deploy_async():
+    update = resolve_playbook('bootstrapvm/update-dhcp-hosts.yml')
+    deploy = resolve_playbook('secondstage/risdeploy.yml')
+    validate = resolve_playbook('secondstage/risdeploy-validation.yml')
+    cmd = f"ansible-playbook {update} && ansible-playbook {deploy} && ansible-playbook {validate}"
+    launch_job('assign-deploy', cmd)
 
 
 def parse_static_hosts():
@@ -187,9 +274,6 @@ def ssh_reachable(ip: str, timeout: float = 0.35) -> bool:
     except Exception:
         return False
 
-def run_apply_async():
-    subprocess.Popen(['ansible-playbook', UPDATE_PLAYBOOK])
-
 
 @app.route('/api/discovery', methods=['POST'])
 def api_discovery():
@@ -218,6 +302,8 @@ def index():
     leases = {l['mac']: l for l in parse_leases()}
     static_hosts = parse_static_hosts()
     install_progress = parse_install_progress_ips()
+    state = refresh_job_state()
+    validation_index = load_validation_index()
     rows = []
 
     known_macs = set(leases.keys()) | set(static_hosts.keys()) | set(role_map.keys()) | set(secondstage.keys())
@@ -235,8 +321,10 @@ def index():
         status = 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else ('LEASED' if mac in leases else 'CONFIGURED'))
         if ip and ip in install_progress:
             status = install_progress[ip]
-        elif ssh_reachable(ip):
+        elif ip and validation_index.get(ip):
             status = 'INSTALLED'
+        elif ssh_reachable(ip):
+            status = 'POST_INSTALL'
 
         rows.append({
             'mac': mac,
@@ -271,8 +359,42 @@ def index():
         'discovery_count': len(list_discovery_files()),
         'mapped_count': len(role_map),
     }
-    return render_template_string(TEMPLATE, rows=rows, roles=ROLES, diagnostics=diagnostics)
+    return render_template_string(TEMPLATE, rows=rows, roles=ROLES, diagnostics=diagnostics, job=state.get('job', {}))
 
+
+
+
+@app.route('/assign_deploy', methods=['POST'])
+def assign_deploy():
+    mac = request.form.get('mac', '').strip().lower()
+    role = request.form.get('role', '').strip()
+    ip = request.form.get('ip', '').strip()
+    name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
+    enable_secondstage = request.form.get('secondstage_enabled', 'on') == 'on'
+
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return 'invalid mac', 400
+    if role not in ROLES:
+        return 'invalid role', 400
+
+    data = load_map()
+    data[mac] = {'role': role, 'ip': ip, 'name': name}
+    save_map(data)
+
+    s2 = load_secondstage_targets()
+    s2[mac] = {
+        'name': name,
+        'mac': mac,
+        'ip': ip,
+        'boot_profile': role,
+        'secondstage_enabled': bool(enable_secondstage and role != 'live-ris'),
+        'secondstage_components': DEFAULT_COMPONENTS,
+        'updated_at': now_iso(),
+    }
+    save_secondstage_targets(s2)
+
+    run_assign_deploy_async()
+    return redirect('/')
 
 @app.route('/assign', methods=['POST'])
 def assign():
@@ -308,16 +430,19 @@ def assign():
 
 
 TEMPLATE = """{% raw %}
-<html><body style="font-family: sans-serif;">
+<html><head><meta http-equiv="refresh" content="5"></head><body style="font-family: sans-serif;">
 <h1>RISng Web UI – Discovery & Assignment</h1>
 <p>Unknown PXE clients can post hardware inventory to <code>/api/discovery</code>. Assigning a role updates DHCP + secondstage target registry and triggers DHCP apply.</p>
 <p><b>Diagnostics:</b> leases={{ diagnostics.lease_count }} static_hosts={{ diagnostics.static_host_count }} discovery={{ diagnostics.discovery_count }} mapped={{ diagnostics.mapped_count }} files={{ diagnostics.lease_files }}</p>
+<p><b>Job:</b> {% if job %}{{ job.name }} | {{ job.status }} | log={{ job.log_path }}{% else %}none{% endif %}</p>
 <style>
   table { border-collapse: collapse; }
   td, th { border: 1px solid #777; }
   tr.status-configured td:first-child { background: #0f5132; color: #fff; font-weight: 600; }
   tr.status-install_running td:first-child, tr.status-stage2_fetch td:first-child { background: #0b5ed7; color: #fff; font-weight: 600; }
   tr.status-installed td:first-child { background: #8fd19e; color: #000; font-weight: 600; }
+  tr.status-leased td:nth-child(3) { background: #8fd19e; }
+  tr.status-post_install td:first-child { background: #cde8ff; color: #000; font-weight: 600; }
 </style>
 <table border="1" cellpadding="6" cellspacing="0">
 <tr><th>Status</th><th>MAC</th><th>IP</th><th>Hostname</th><th>Role</th><th>SecondStage</th><th>HW Info</th><th>Assign/Update</th></tr>
@@ -346,6 +471,7 @@ TEMPLATE = """{% raw %}
       </select>
       <label><input type="checkbox" name="secondstage_enabled" {% if r.secondstage_enabled %}checked{% endif %}/> secondstage</label>
       <button type="submit">Assign + Apply</button>
+      <button formaction="/assign_deploy" formmethod="post" type="submit">Assign + Deploy</button>
     </form>
   </td>
 </tr>
