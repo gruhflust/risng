@@ -164,6 +164,7 @@ dhcp_static_hosts:
     secondstage_enabled: true
     secondstage_components:
       - graphics-gnome
+      - common-linux-monitoring-base
     # Optional install-slot marker for operational overview / dryrun output
     install_slot: "A"
     # Optional slot map for future dual-slot workflows
@@ -188,6 +189,7 @@ dhcp_static_hosts:
     secondstage_enabled: true
     secondstage_components:
       - graphics-gnome
+      - common-linux-monitoring-base
     # Optional install-slot marker for operational overview / dryrun output
     install_slot: "A"
     # Optional slot map for future dual-slot workflows
@@ -205,7 +207,30 @@ dhcp_static_hosts:
     #   - part / --fstype=xfs --size=51200 --ondisk=sda
     #   - part swap --size=4096 --ondisk=sda
 
-
+  - name: risclient # Auf Säule 3
+    mac: "00:50:56:ba:47:c0"
+    ip: "10.228.229.202"
+    boot_profile: iCMD
+    secondstage_enabled: true
+    secondstage_components:
+      - graphics-gnome
+      - common-linux-monitoring-base
+    # Optional install-slot marker for operational overview / dryrun output
+    install_slot: "A"
+    # Optional slot map for future dual-slot workflows
+    install_slots:
+      A:
+        root_part: "sda2"
+      B:
+        root_part: "sda3"
+    # Optional per-client kickstart partition override.
+    # If omitted, default is: first disk (sda) full autopart.
+    # kickstart_partitioning:
+    #   - zerombr
+    #   - clearpart --all --initlabel --drives=sda
+    #   - part /boot --fstype=xfs --size=1024 --ondisk=sda
+    #   - part / --fstype=xfs --size=51200 --ondisk=sda
+    #   - part swap --size=4096 --ondisk=sda
 
 # Optional role mapping written by RISng web UI
 dhcp_mac_role_map_file: "/etc/risng/mac_role_map.json"

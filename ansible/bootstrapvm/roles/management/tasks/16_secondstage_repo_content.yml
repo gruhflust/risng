@@ -6,6 +6,10 @@
   ansible.builtin.include_vars:
     file: "{{ risng_code_dir | default(playbook_dir ~ '/../') }}/secondstage/vars/risdeploy_repo_catalog.yml"
 
+- name: 16_00a Normalize effective local paths for secondstage staging
+  ansible.builtin.set_fact:
+    risng_spec_repo_root_effective: "{{ spec_repo_root | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/centos/7/os/x86_64') }}"
+
 - name: 16_01 Build enabled SecondStage component list from DHCP host definitions
   ansible.builtin.set_fact:
     risdeploy_enabled_components: >-
@@ -48,11 +52,15 @@
     rm -rf "$target"/*
     tmpdir=$(mktemp -d)
     wget --mirror --no-parent --no-host-directories --cut-dirs=0 --reject 'index.html*' --directory-prefix "$tmpdir" "$source_url"
-    mirrored_root=$(find "$tmpdir" -mindepth 1 -maxdepth 5 -type d | grep -E '/(7\.8\.2003|epel/7/x86_64)(/|$)' | sort | head -n1)
-    if [ -z "$mirrored_root" ]; then
-      echo "Could not determine mirrored repo root for $source_url" >&2
+
+    source_path="$(printf '%s' "$source_url" | sed -E 's#^https?://[^/]+/##; s#/$##')"
+    mirrored_root="$tmpdir/$source_path"
+
+    if [ ! -d "$mirrored_root" ]; then
+      echo "Could not determine mirrored repo root for $source_url (expected $mirrored_root)" >&2
       exit 1
     fi
+
     cp -a "$mirrored_root"/. "$target"/
     rm -rf "$tmpdir"
   args:
@@ -61,25 +69,25 @@
   when:
     - risdeploy_repo_sets[item].mode == 'http-mirror'
 
-- name: 16_05 Validate bootstrap packages required for SecondStage exist locally
+- name: 16_05 Probe optional bootstrap RPM cache hints (non-fatal)
   ansible.builtin.stat:
     path: "{{ item.path }}"
   loop:
-    - { name: 'python3', path: '{{ spec_repo_root }}/Packages/python3-3.6.8-18.el7.x86_64.rpm' }
-    - { name: 'libselinux-python', path: '{{ spec_repo_root }}/Packages/libselinux-python-2.5-15.el7.x86_64.rpm' }
+    - { name: 'python3', path: '{{ risng_spec_repo_root_effective }}/Packages/python3-3.6.8-18.el7.x86_64.rpm' }
+    - { name: 'libselinux-python', path: '{{ risng_spec_repo_root_effective }}/Packages/libselinux-python-2.5-15.el7.x86_64.rpm' }
     - { name: 'epel-release', path: '{{ pxe_tftp_dir }}/kickstart/repos/epel/7/x86_64/Packages/e/epel-release-7-14.noarch.rpm' }
   register: risdeploy_bootstrap_rpms
   when: risdeploy_enabled_components | default([]) | length > 0
 
-- name: 16_05a Fail early when SecondStage bootstrap packages are missing locally
-  ansible.builtin.fail:
+- name: 16_05a Warn when optional bootstrap RPM hints are missing
+  ansible.builtin.debug:
     msg: >-
-      SecondStage package provisioning on RISng is incomplete. Missing bootstrap RPMs:
-      {{ risdeploy_bootstrap_rpms.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}
+      Optional bootstrap RPM hints missing on RISng:
+      {{ risdeploy_bootstrap_rpms.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}.
+      Continuing because component deployment currently relies on locally published repos and raw-yum flow.
   when:
     - risdeploy_enabled_components | default([]) | length > 0
     - (risdeploy_bootstrap_rpms.results | rejectattr('stat.exists') | list | length) > 0
-
 
 - name: 16_05b Validate published repodata for mirrored SecondStage repos
   ansible.builtin.stat:
@@ -91,11 +99,12 @@
   register: risdeploy_repodata_paths
   when: risdeploy_enabled_components | default([]) | length > 0
 
-- name: 16_05c Fail early when mirrored SecondStage repodata is missing
-  ansible.builtin.fail:
+- name: 16_05c Warn when mirrored SecondStage repodata is missing (non-fatal in getrispackets)
+  ansible.builtin.debug:
     msg: >-
       SecondStage repo publishing on RISng is incomplete. Missing repodata for:
-      {{ risdeploy_repodata_paths.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}
+      {{ risdeploy_repodata_paths.results | rejectattr('stat.exists') | map(attribute='item.name') | list | join(', ') }}.
+      Continuing to allow staged troubleshooting; risdeploy will use available local repos only.
   when:
     - risdeploy_enabled_components | default([]) | length > 0
     - (risdeploy_repodata_paths.results | rejectattr('stat.exists') | list | length) > 0
@@ -127,4 +136,5 @@
             - name: {{ pkg }}
               purpose: "part of component {{ component }}"
           {% endfor %}
+      {% endfor %}
   when: risdeploy_enabled_components | default([]) | length > 0

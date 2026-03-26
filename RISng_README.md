@@ -84,6 +84,7 @@ Danach ist die Maschine bereit für den ersten `feuer`-Lauf.
 |-------|---------|
 | `feuer` | baut RISng-Staging, PXE-Dienste und Installationspfad auf |
 | `getisos` | lädt die für den Build benötigten ISO-Artefakte vorab herunter |
+| `getrispackets` | staged SecondStage-RPM-Repos lokal auf RISng vor (`getrispackets.log`) |
 | `repair-dhcp` | repariert DHCP-Konfiguration nach Netzwerk-/Interface-Wechsel |
 
 ## Detailliertere technische Dokumentation

@@ -19,13 +19,54 @@
 
     - name: Remove stale SSH host keys for RIS deploy targets on control host
       ansible.builtin.shell: |
-        ssh-keygen -f "$HOME/.ssh/known_hosts" -R "{{ item.ip }}" >/dev/null 2>&1 || true
-        ssh-keygen -f "$HOME/.ssh/known_hosts" -R "{{ item.name }}" >/dev/null 2>&1 || true
+        KNOWN="$HOME/.ssh/known_hosts"
+        [ -f "$KNOWN" ] || exit 0
+        for h in "{{ item.ip }}" "[{{ item.ip }}]:22" "{{ item.name }}" "[{{ item.name }}]:22"; do
+          ssh-keygen -f "$KNOWN" -R "$h" >/dev/null 2>&1 || true
+        done
       args:
         executable: /bin/bash
       loop: "{{ risdeploy_targets }}"
       changed_when: false
 
+
+    - name: Collect SSH host key via target IP (best effort)
+      ansible.builtin.shell: "ssh-keyscan -T 5 -t ed25519,rsa {{ item.ip }} 2>/dev/null | grep -v '^#' | head -n 1"
+      args:
+        executable: /bin/bash
+      loop: "{{ risdeploy_targets }}"
+      register: risdeploy_known_host_ip_scan
+      changed_when: false
+      failed_when: false
+
+    - name: Register target IP host key in known_hosts
+      ansible.builtin.known_hosts:
+        path: "{{ lookup('ansible.builtin.env','HOME') }}/.ssh/known_hosts"
+        name: "{{ item.item.ip }}"
+        key: "{{ item.stdout }}"
+        state: present
+      loop: "{{ risdeploy_known_host_ip_scan.results | default([]) }}"
+      when: (item.stdout | default('') | trim) | length > 0
+      failed_when: false
+
+    - name: Collect SSH host key via target hostname (best effort)
+      ansible.builtin.shell: "ssh-keyscan -T 5 -t ed25519,rsa {{ item.name }} 2>/dev/null | grep -v '^#' | head -n 1"
+      args:
+        executable: /bin/bash
+      loop: "{{ risdeploy_targets }}"
+      register: risdeploy_known_host_name_scan
+      changed_when: false
+      failed_when: false
+
+    - name: Register target hostname key in known_hosts
+      ansible.builtin.known_hosts:
+        path: "{{ lookup('ansible.builtin.env','HOME') }}/.ssh/known_hosts"
+        name: "{{ item.item.name }}"
+        key: "{{ item.stdout }}"
+        state: present
+      loop: "{{ risdeploy_known_host_name_scan.results | default([]) }}"
+      when: (item.stdout | default('') | trim) | length > 0
+      failed_when: false
     - name: Register enabled RIS deploy targets as dynamic hosts
       ansible.builtin.add_host:
         name: "{{ item.name }}"
@@ -67,18 +108,21 @@
         baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_updates_path }}
         enabled=1
         gpgcheck=0
+        skip_if_unavailable=1
 
         [risng-ss-extras]
         name=RISng CentOS 7.8 Extras
         baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/{{ risng_repo_centos_extras_path }}
         enabled=1
         gpgcheck=0
+        skip_if_unavailable=1
 
         [risng-ss-epel]
         name=RISng EPEL 7
         baseurl=http://{{ risdeploy_repo_host }}/kickstart/repos/epel/7/x86_64/
         enabled=1
         gpgcheck=0
+        skip_if_unavailable=1
         EOF
         cat > /etc/yum.repos.d/bootstrap-only/risng-bootstrap.repo <<'EOF'
         [risng-bootstrap-base]
@@ -111,12 +155,13 @@
 
   tasks:
     - name: Clean yum metadata before second-stage install
-      ansible.builtin.raw: yum --disablerepo='*' --enablerepo=risng-ss-base clean all
+      ansible.builtin.raw: yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras clean all
       changed_when: false
+      failed_when: false
 
     - name: Install yum groups required by selected components via raw yum
       ansible.builtin.raw: >-
-        yum --disablerepo='*' --enablerepo=risng-ss-base -y groupinstall '{{ item }}'
+        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras -y groupinstall '{{ item }}'
       loop: >-
         {{
           hostvars['localhost'].risdeploy_component_defs
@@ -139,7 +184,7 @@
 
     - name: Install RPM packages required by selected components via raw yum
       ansible.builtin.raw: >-
-        yum --disablerepo='*' --enablerepo=risng-ss-base -y install
+        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras -y install
         {{
           hostvars['localhost'].risdeploy_component_defs
           | map(attribute='packages')
@@ -192,6 +237,26 @@
         [ -s /etc/machine-id ] || rm -f /etc/machine-id
         systemd-machine-id-setup >/dev/null 2>&1 || dbus-uuidgen --ensure=/etc/machine-id
         ln -sf /etc/machine-id /var/lib/dbus/machine-id
+      when: "'graphics-gnome' in risdeploy_components"
+
+    - name: Enforce sane default monospace font via system dconf profile
+      ansible.builtin.raw: |
+        mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
+        cat > /etc/dconf/profile/user <<'EOF'
+        user-db:user
+        system-db:local
+        EOF
+        cat > /etc/dconf/db/local.d/00-risng-fonts <<'EOF'
+        [org/gnome/desktop/interface]
+        monospace-font-name='DejaVu Sans Mono 11'
+        document-font-name='Sans 11'
+        font-name='Sans 11'
+
+        [org/gnome/terminal/legacy/profiles:/:default]
+        use-system-font=false
+        font='DejaVu Sans Mono 11'
+        EOF
+        dconf update || true
       when: "'graphics-gnome' in risdeploy_components"
 
     - name: Restart GDM after graphical session fixes

@@ -6,7 +6,7 @@ risdeploy_repo_sets:
   centos7-base:
     source: "CentOS Vault 7.8.2003 os/x86_64"
     source_url: "https://vault.centos.org/7.8.2003/os/x86_64/"
-    local_path: "{{ spec_repo_root }}"
+    local_path: "{{ spec_repo_root | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/centos/7/os/x86_64') }}"
     purpose: "Base operating system packages required for all installed CentOS 7.8 clients."
     mode: "iso-sync"
 
@@ -58,5 +58,28 @@ risdeploy_component_catalog:
       - mesa-libGL
       - mesa-libEGL
       - dbus-x11
+      - dejavu-sans-mono-fonts
+      - liberation-mono-fonts
     services:
       - gdm
+
+  common-linux-monitoring-base:
+    description: "Install Common-Linux monitoring and diagnostics baseline packages from RISng local repos."
+    purpose: "Covers RIS-REQ-0021/0023/0024/0026/0029 package baseline on staged CentOS clients."
+    required_repo_sets:
+      - centos7-base
+      - centos7-updates
+      - centos7-extras
+    packages:
+      - net-snmp
+      - net-snmp-agent-libs
+      - net-snmp-libs
+      - net-snmp-utils
+      - collectl
+      - tk
+      - wireshark
+      - wireshark-gnome
+      - perl-XML-Parser
+      - perl-XML-Twig
+      - perl-IO-Compress
+    services: []

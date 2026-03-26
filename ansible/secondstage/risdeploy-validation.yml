@@ -1,0 +1,166 @@
+---
+- name: Build RISng validation target inventory from DHCP definitions
+  hosts: bootstrapvm
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../bootstrapvm/roles/dhcp/defaults/main.yml
+    - vars/risdeploy_components.yml
+  tasks:
+    - name: Select enabled RIS deploy targets
+      ansible.builtin.set_fact:
+        risdeploy_targets: >-
+          {{
+            (dhcp_static_hosts | default([]))
+            | selectattr('secondstage_enabled', 'defined')
+            | selectattr('secondstage_enabled')
+            | list
+          }}
+
+    - name: Register enabled RIS deploy targets as dynamic hosts (validation)
+      ansible.builtin.add_host:
+        name: "{{ item.name }}"
+        groups: risdeploy_validation_targets
+        ansible_host: "{{ item.ip }}"
+        ansible_user: "{{ risdeploy_ssh_user }}"
+        ansible_password: "{{ risdeploy_ssh_password }}"
+        ansible_become: true
+        ansible_become_password: "{{ risdeploy_ssh_password }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        risdeploy_components: "{{ item.secondstage_components | default(risdeploy_default_components) }}"
+      loop: "{{ risdeploy_targets }}"
+
+- name: Validate RIS deploy state on selected clients
+  hosts: risdeploy_validation_targets
+  gather_facts: false
+  vars_files:
+    - vars/risdeploy_repo_catalog.yml
+  tasks:
+    - name: Build expected package list from selected components
+      ansible.builtin.set_fact:
+        risdeploy_validation_expected_packages: >-
+          {{
+            (risdeploy_components | default([]))
+            | map('extract', risdeploy_component_catalog)
+            | map(attribute='packages')
+            | select('defined')
+            | list
+            | flatten
+            | unique
+          }}
+
+    - name: Check required RPMs
+      ansible.builtin.raw: |
+        missing=""
+        for p in {{ risdeploy_validation_expected_packages | join(' ') }}; do
+          rpm -q "$p" >/dev/null 2>&1 || missing="$missing $p"
+        done
+        if [ -n "$missing" ]; then
+          echo "MISSING:${missing# }"
+          exit 1
+        fi
+        echo "OK"
+      register: risdeploy_validation_pkg_check
+      changed_when: false
+      failed_when: false
+
+    - name: Check collectl executable
+      ansible.builtin.raw: "collectl -h >/dev/null 2>&1"
+      register: risdeploy_validation_collectl
+      changed_when: false
+      failed_when: false
+
+    - name: Check wireshark executable
+      ansible.builtin.raw: "wireshark --version >/dev/null 2>&1"
+      register: risdeploy_validation_wireshark
+      changed_when: false
+      failed_when: false
+
+    - name: Build per-host validation status
+      ansible.builtin.set_fact:
+        risdeploy_validation_status:
+          host: "{{ inventory_hostname }}"
+          ip: "{{ ansible_host | default(inventory_hostname) }}"
+          expected_packages: "{{ risdeploy_validation_expected_packages }}"
+          packages_ok: "{{ (risdeploy_validation_pkg_check.rc | int) == 0 }}"
+          missing_packages: "{{ (risdeploy_validation_pkg_check.stdout | regex_search('MISSING:(.*)', '\\1') | first | default('') | trim).split() if (risdeploy_validation_pkg_check.rc | int) != 0 else [] }}"
+          collectl_ok: "{{ (risdeploy_validation_collectl.rc | int) == 0 }}"
+          wireshark_ok: "{{ (risdeploy_validation_wireshark.rc | int) == 0 }}"
+          overall_ok: "{{ ((risdeploy_validation_pkg_check.rc | int) == 0) and ((risdeploy_validation_collectl.rc | int) == 0) and ((risdeploy_validation_wireshark.rc | int) == 0) }}"
+
+- name: Summarize validation and run pytest report
+  hosts: bootstrapvm
+  connection: local
+  gather_facts: true
+  vars:
+    risdeploy_validation_fail_on_noncompliant: false
+
+  tasks:
+    - name: Build aggregated summary
+      ansible.builtin.set_fact:
+        risdeploy_validation_summary:
+          generated_at: "{{ ansible_date_time.iso8601 }}"
+          target_count: "{{ groups['risdeploy_validation_targets'] | default([]) | length }}"
+          hosts: >-
+            {{
+              (groups['risdeploy_validation_targets'] | default([]))
+              | map('extract', hostvars, 'risdeploy_validation_status')
+              | list
+            }}
+
+    - name: Write validation summary JSON
+      ansible.builtin.copy:
+        dest: "{{ lookup('ansible.builtin.env','HOME') }}/risdeploy-validation-summary.json"
+        mode: "0644"
+        content: "{{ risdeploy_validation_summary | to_nice_json }}"
+
+    - name: Write validation summary YAML
+      ansible.builtin.copy:
+        dest: "{{ lookup('ansible.builtin.env','HOME') }}/risdeploy-validation-summary.yml"
+        mode: "0644"
+        content: "{{ risdeploy_validation_summary | to_nice_yaml(indent=2) }}"
+
+    - name: Print short summary
+      ansible.builtin.debug:
+        msg:
+          - "risdeploy-validation targets={{ risdeploy_validation_summary.target_count }}"
+          - "PASS={{ (risdeploy_validation_summary.hosts | selectattr('overall_ok') | list | length) }} FAIL={{ (risdeploy_validation_summary.hosts | rejectattr('overall_ok') | list | length) }}"
+          - "summary-json={{ lookup('ansible.builtin.env','HOME') }}/risdeploy-validation-summary.json"
+
+
+    - name: Build concise failed-host list
+      ansible.builtin.set_fact:
+        risdeploy_validation_failed_hosts: >-
+          {{
+            risdeploy_validation_summary.hosts
+            | rejectattr('overall_ok')
+            | map(attribute='host')
+            | list
+          }}
+
+    - name: Print concise compliance summary
+      ansible.builtin.debug:
+        msg:
+          - "RISDEPLOY-VALIDATION SUMMARY: PASS={{ (risdeploy_validation_summary.hosts | selectattr('overall_ok') | list | length) }} FAIL={{ (risdeploy_validation_failed_hosts | length) }}"
+          - "FAILED_HOSTS={{ (risdeploy_validation_failed_hosts | join(',')) if (risdeploy_validation_failed_hosts | length > 0) else 'none' }}"
+
+    - name: Run pytest summary checks (optional but recommended)
+      ansible.builtin.command: >-
+        python3 -m pytest -q {{ playbook_dir }}/validation/test_risdeploy_validation_summary.py
+      environment:
+        SUMMARY_FILE: "{{ lookup('ansible.builtin.env','HOME') }}/risdeploy-validation-summary.json"
+      register: risdeploy_validation_pytest
+      changed_when: false
+      failed_when: false
+
+    - name: Show pytest result line
+      ansible.builtin.debug:
+        var: risdeploy_validation_pytest.stdout_lines
+
+    - name: Optionally fail when at least one host is not compliant
+      ansible.builtin.assert:
+        that:
+          - (risdeploy_validation_failed_hosts | length) == 0
+        fail_msg: "One or more clients are not compliant. Check ~/risdeploy-validation-summary.{json,yml}."
+        success_msg: "All risdeploy targets passed validation."
+      when: risdeploy_validation_fail_on_noncompliant | bool

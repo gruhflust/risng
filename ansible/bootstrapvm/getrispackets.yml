@@ -1,0 +1,16 @@
+# risng_getrispackets_v01 – pre-stage SecondStage RPM repo content on RISng
+---
+- name: Prepare local SecondStage package caches on RISng
+  hosts: bootstrapvm
+  become: true
+  gather_facts: false
+
+  vars_files:
+    - ../host_vars/bootstrapvm.yml
+    - roles/dhcp/defaults/main.yml
+
+  tasks:
+    - name: 00 Invoke management role to stage SecondStage repo content
+      ansible.builtin.import_role:
+        name: management
+        tasks_from: 16_secondstage_repo_content
