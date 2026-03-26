@@ -375,7 +375,8 @@ def index():
         meta = role_map.get(mac, {})
         s2 = secondstage.get(mac, {})
         d = load_discovery(mac)
-        ip = meta.get('ip') or s2.get('ip') or l.get('ip', '') or st.get('ip', '')
+        runtime_ip = l.get('ip', '') or st.get('ip', '')
+        ip = meta.get('ip') or s2.get('ip') or runtime_ip
         role_effective = meta.get('role') or s2.get('boot_profile') or infer_role_from_hostname(meta.get('name') or s2.get('name') or l.get('hostname', '') or st.get('hostname', ''))
         status = 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else ('LEASED' if mac in leases else 'CONFIGURED'))
         if ip and ip in install_progress:
@@ -390,6 +391,7 @@ def index():
         rows.append({
             'mac': mac,
             'ip': ip,
+            'runtime_ip': runtime_ip,
             'hostname': meta.get('name') or s2.get('name') or l.get('hostname', '') or st.get('hostname', ''),
             'role': role_effective,
             'secondstage_enabled': bool(s2.get('secondstage_enabled')),
@@ -405,6 +407,8 @@ def index():
             rows.append({
                 'mac': 'n/a',
                 'ip': ip,
+                'runtime_ip': ip,
+            'runtime_ip': runtime_ip,
                 'hostname': '',
                 'role': '',
                 'secondstage_enabled': False,
@@ -431,7 +435,8 @@ def index():
 def set_boot():
     mac = request.form.get('mac', '').strip().lower()
     mode = request.form.get('mode', '').strip().lower()
-    ip = request.form.get('ip', '').strip()
+    ip = request.form.get('runtime_ip', '').strip() or request.form.get('ip', '').strip()
+    runtime_ip = request.form.get('runtime_ip', '').strip()
     name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
     role_hint = request.form.get('role_hint', '').strip() or 'iCMD'
 
@@ -515,7 +520,7 @@ def assign_deploy():
     save_secondstage_targets(s2)
 
     run_assign_deploy_async(mac, ip)
-    request_reboot_best_effort(ip)
+    request_reboot_best_effort(runtime_ip or ip)
     return redirect('/')
 
 @app.route('/assign', methods=['POST'])
@@ -523,6 +528,7 @@ def assign():
     mac = request.form.get('mac', '').strip().lower()
     role = request.form.get('role', '').strip()
     ip = request.form.get('ip', '').strip()
+    runtime_ip = request.form.get('runtime_ip', '').strip()
     name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
     enable_secondstage = request.form.get('secondstage_enabled', 'on') == 'on'
 
@@ -550,7 +556,7 @@ def assign():
     save_secondstage_targets(s2)
 
     run_apply_async()
-    request_reboot_best_effort(ip)
+    request_reboot_best_effort(runtime_ip or ip)
     return redirect('/')
 
 
@@ -591,6 +597,7 @@ TEMPLATE = """{% raw %}
     <form action="/assign" method="post">
       <input type="hidden" name="mac" value="{{ r.mac }}"/>
       <input type="text" name="ip" value="{{ r.ip }}" size="13"/>
+      <input type="hidden" name="runtime_ip" value="{{ r.runtime_ip }}"/>
       <input type="text" name="name" value="{{ r.hostname }}" size="14"/>
       <select name="role">
         {% for role in roles %}
@@ -606,6 +613,7 @@ TEMPLATE = """{% raw %}
     <form action="/set_boot" method="post" style="margin-bottom:4px;">
       <input type="hidden" name="mac" value="{{ r.mac }}"/>
       <input type="hidden" name="ip" value="{{ r.ip }}"/>
+      <input type="hidden" name="runtime_ip" value="{{ r.runtime_ip }}"/>
       <input type="hidden" name="name" value="{{ r.hostname }}"/>
       <input type="hidden" name="role_hint" value="{{ r.role if r.role else 'iCMD' }}"/>
       <button name="mode" value="pxe" type="submit">Set PXE</button>
@@ -613,6 +621,7 @@ TEMPLATE = """{% raw %}
     </form>
     <form action="/reboot" method="post" style="display:inline;">
       <input type="hidden" name="ip" value="{{ r.ip }}"/>
+      <input type="hidden" name="runtime_ip" value="{{ r.runtime_ip }}"/>
       <button type="submit">Reboot</button>
     </form>
     <form action="/delete_host" method="post" style="display:inline;" onsubmit="return confirm('Delete host entry?');">

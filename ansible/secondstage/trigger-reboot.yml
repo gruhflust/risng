@@ -19,7 +19,6 @@
         ansible_host: "{{ target_ip }}"
         ansible_user: "{{ risdeploy_ssh_user }}"
         ansible_password: "{{ risdeploy_ssh_password }}"
-        ansible_connection: paramiko
         ansible_become: true
         ansible_become_password: "{{ risdeploy_ssh_password }}"
         ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
