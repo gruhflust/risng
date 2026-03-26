@@ -76,6 +76,32 @@ def resolve_playbook(relpath: str) -> str:
     return str(Path(PLAYBOOK_ROOT_CANDIDATES[0]) / relpath)
 
 
+
+
+def resolve_ansible_root() -> Path:
+    for root in PLAYBOOK_ROOT_CANDIDATES:
+        rp = Path(root)
+        if rp.exists() and (rp / 'ansible.cfg').exists() and (rp / 'inventory/hosts.yml').exists():
+            return rp
+    return Path(PLAYBOOK_ROOT_CANDIDATES[0])
+
+
+def ansible_cmd(playbook_rel: str) -> tuple[str, str]:
+    root = resolve_ansible_root()
+    cfg = root / 'ansible.cfg'
+    inv = root / 'inventory/hosts.yml'
+    pb = root / playbook_rel
+    cmd = f"ANSIBLE_CONFIG={cfg} ansible-playbook -i {inv} {pb}"
+    return cmd, str(root)
+
+
+def request_reboot_best_effort(ip: str):
+    if not ip:
+        return
+    # fire-and-forget; key-based auth expected in lab setup
+    reboot_cmd = f'ssh -o BatchMode=yes -o StrictHostKeyChecking=no root@{ip} "nohup bash -lc \'sleep 1; reboot\' >/dev/null 2>&1 &" || true'
+    subprocess.Popen(['bash', '-lc', reboot_cmd], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 def load_state():
     return load_json(STATE_FILE, {})
 
@@ -84,11 +110,11 @@ def save_state(data):
     save_json(STATE_FILE, data)
 
 
-def launch_job(job_name: str, command: str, context: dict | None = None):
+def launch_job(job_name: str, command: str, context: dict | None = None, cwd: str | None = None):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"{job_name}-{int(time.time())}.log"
     with open(log_path, 'ab') as lf:
-        proc = subprocess.Popen(['bash', '-lc', command], stdout=lf, stderr=lf, env={**os.environ, 'HOME': '{{ ssh_user_home }}'})
+        proc = subprocess.Popen(['bash', '-lc', command], cwd=cwd or os.getcwd(), stdout=lf, stderr=lf, env={**os.environ, 'HOME': '{{ ssh_user_home }}'})
     state = load_state()
     state['job'] = {
         'name': job_name,
@@ -129,8 +155,8 @@ def refresh_job_state():
             if mac in m:
                 m[mac]['role'] = 'localdisk'
                 save_map(m)
-                update = resolve_playbook('bootstrapvm/update-dhcp-hosts.yml')
-                launch_job('post-deploy-localboot', f"ansible-playbook {update}", {'source': 'assign-deploy', 'target_mac': mac, 'target_ip': ip})
+                update_cmd, root = ansible_cmd('bootstrapvm/update-dhcp-hosts.yml')
+                launch_job('post-deploy-localboot', update_cmd, {'source': 'assign-deploy', 'target_mac': mac, 'target_ip': ip}, cwd=root)
         ctx['post_processed'] = True
         job['context'] = ctx
     state['job'] = job
@@ -149,16 +175,16 @@ def load_validation_index():
 
 
 def run_apply_async():
-    update = resolve_playbook('bootstrapvm/update-dhcp-hosts.yml')
-    launch_job('assign-apply', f"ansible-playbook {update}")
+    update_cmd, root = ansible_cmd('bootstrapvm/update-dhcp-hosts.yml')
+    launch_job('assign-apply', update_cmd, cwd=root)
 
 
 def run_assign_deploy_async(target_mac: str, target_ip: str):
-    update = resolve_playbook('bootstrapvm/update-dhcp-hosts.yml')
-    deploy = resolve_playbook('secondstage/risdeploy.yml')
-    validate = resolve_playbook('secondstage/risdeploy-validation.yml')
-    cmd = f"ansible-playbook {update} && ansible-playbook {deploy} && ansible-playbook {validate}"
-    launch_job('assign-deploy', cmd, {'target_mac': target_mac, 'target_ip': target_ip, 'post_processed': False})
+    update_cmd, root = ansible_cmd('bootstrapvm/update-dhcp-hosts.yml')
+    deploy_cmd, _ = ansible_cmd('secondstage/risdeploy.yml')
+    validate_cmd, _ = ansible_cmd('secondstage/risdeploy-validation.yml')
+    cmd = f"{update_cmd} && {deploy_cmd} && {validate_cmd}"
+    launch_job('assign-deploy', cmd, {'target_mac': target_mac, 'target_ip': target_ip, 'post_processed': False}, cwd=root)
 
 
 def parse_static_hosts():
@@ -414,6 +440,7 @@ def assign_deploy():
     save_secondstage_targets(s2)
 
     run_assign_deploy_async(mac, ip)
+    request_reboot_best_effort(ip)
     return redirect('/')
 
 @app.route('/assign', methods=['POST'])
@@ -446,6 +473,7 @@ def assign():
     save_secondstage_targets(s2)
 
     run_apply_async()
+    request_reboot_best_effort(ip)
     return redirect('/')
 
 
@@ -461,8 +489,10 @@ TEMPLATE = """{% raw %}
   tr.status-configured td:first-child { background: #0f5132; color: #fff; font-weight: 600; }
   tr.status-install_running td:first-child, tr.status-stage2_fetch td:first-child { background: #0b5ed7; color: #fff; font-weight: 600; }
   tr.status-installed td:first-child { background: #8fd19e; color: #000; font-weight: 600; }
+  tr.status-leased td:first-child { background: #ffb74d; color: #000; font-weight: 600; }
   tr.status-leased td:nth-child(3) { background: #8fd19e; }
   tr.status-post_install td:first-child { background: #cde8ff; color: #000; font-weight: 600; }
+  tr.status-assigned td:first-child { background: #b39ddb; color: #000; font-weight: 600; }
   tr.status-boot_local_set td:first-child { background: #ffe08a; color: #000; font-weight: 700; }
 </style>
 <table border="1" cellpadding="6" cellspacing="0">
