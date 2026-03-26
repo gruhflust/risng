@@ -1,31 +1,54 @@
-from flask import Flask, render_template_string, request, redirect
+from flask import Flask, render_template_string, request, redirect, jsonify
 import json
 import re
 import subprocess
 from pathlib import Path
+from datetime import datetime, timezone
 
 app = Flask(__name__)
 
 LEASES_FILE = Path('/var/lib/dhcp/dhcpd.leases')
 MAP_FILE = Path('/etc/risng/mac_role_map.json')
 DISCOVERY_DIR = Path('/var/lib/tftpboot/runtime/discovery')
-UPDATE_PLAYBOOK = "{{ ssh_user_home }}/botrepo/risng_code/ansible/bootstrapvm/update-dhcp-hosts.yml"
+SECONDSTAGE_TARGETS_FILE = Path('/etc/risng/secondstage_targets.json')
+UPDATE_PLAYBOOK = "{{ ssh_user_home }}/botrepo/risng/ansible/bootstrapvm/update-dhcp-hosts.yml"
 
 ROLES = ["iCWP", "iFDO", "iCMD", "FDPS", "CORRP", "live-ris"]
+DEFAULT_COMPONENTS = ["graphics-gnome", "common-linux-monitoring-base"]
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+
+def load_json(path: Path, default):
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            return default
+    return default
+
+
+def save_json(path: Path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True))
 
 
 def load_map():
-    if MAP_FILE.exists():
-        try:
-            return json.loads(MAP_FILE.read_text())
-        except Exception:
-            return {}
-    return {}
+    return load_json(MAP_FILE, {})
 
 
 def save_map(data):
-    MAP_FILE.parent.mkdir(parents=True, exist_ok=True)
-    MAP_FILE.write_text(json.dumps(data, indent=2, sort_keys=True))
+    save_json(MAP_FILE, data)
+
+
+def load_secondstage_targets():
+    return load_json(SECONDSTAGE_TARGETS_FILE, {})
+
+
+def save_secondstage_targets(data):
+    save_json(SECONDSTAGE_TARGETS_FILE, data)
 
 
 def parse_leases():
@@ -59,21 +82,67 @@ def load_discovery(mac):
         return {}
 
 
+def list_discovery_files():
+    DISCOVERY_DIR.mkdir(parents=True, exist_ok=True)
+    out = []
+    for p in sorted(DISCOVERY_DIR.glob('*.json')):
+        mac = p.stem.lower()
+        if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+            continue
+        data = load_discovery(mac)
+        out.append({'mac': mac, 'hw': data})
+    return out
+
+
+def run_apply_async():
+    subprocess.Popen(['ansible-playbook', UPDATE_PLAYBOOK])
+
+
+@app.route('/api/discovery', methods=['POST'])
+def api_discovery():
+    payload = request.get_json(silent=True) or {}
+    mac = str(payload.get('mac', '')).strip().lower()
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return jsonify({'ok': False, 'error': 'invalid mac'}), 400
+
+    hw = payload.get('hardware', {}) if isinstance(payload.get('hardware', {}), dict) else {}
+    record = {
+        'mac': mac,
+        'hostname': payload.get('hostname', ''),
+        'ip': payload.get('ip', ''),
+        'timestamp': now_iso(),
+        'hardware': hw,
+    }
+    DISCOVERY_DIR.mkdir(parents=True, exist_ok=True)
+    (DISCOVERY_DIR / f"{mac}.json").write_text(json.dumps(record, indent=2, sort_keys=True))
+    return jsonify({'ok': True, 'mac': mac})
+
+
 @app.route('/')
 def index():
     role_map = load_map()
-    leases = parse_leases()
+    secondstage = load_secondstage_targets()
+    leases = {l['mac']: l for l in parse_leases()}
     rows = []
-    for l in leases:
-        mac = l['mac']
+
+    known_macs = set(leases.keys()) | set(role_map.keys()) | set(secondstage.keys())
+    for d in list_discovery_files():
+        known_macs.add(d['mac'])
+
+    for mac in sorted(known_macs):
+        l = leases.get(mac, {})
         meta = role_map.get(mac, {})
-        hw = load_discovery(mac)
+        s2 = secondstage.get(mac, {})
+        d = load_discovery(mac)
         rows.append({
             'mac': mac,
-            'ip': meta.get('ip') or l.get('ip', ''),
-            'hostname': meta.get('name') or l.get('hostname', ''),
+            'ip': meta.get('ip') or s2.get('ip') or l.get('ip', ''),
+            'hostname': meta.get('name') or s2.get('name') or l.get('hostname', ''),
             'role': meta.get('role', ''),
-            'hw': hw,
+            'secondstage_enabled': bool(s2.get('secondstage_enabled')),
+            'components': ','.join(s2.get('secondstage_components', [])) if isinstance(s2.get('secondstage_components', []), list) else '',
+            'hw': d.get('hardware', d if isinstance(d, dict) else {}),
+            'status': 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else 'LEASED'),
         })
     return render_template_string(TEMPLATE, rows=rows, roles=ROLES)
 
@@ -84,6 +153,7 @@ def assign():
     role = request.form.get('role', '').strip()
     ip = request.form.get('ip', '').strip()
     name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
+    enable_secondstage = request.form.get('secondstage_enabled', 'on') == 'on'
 
     if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
         return 'invalid mac', 400
@@ -94,21 +164,36 @@ def assign():
     data[mac] = {'role': role, 'ip': ip, 'name': name}
     save_map(data)
 
-    subprocess.Popen(['ansible-playbook', UPDATE_PLAYBOOK])
+    s2 = load_secondstage_targets()
+    s2[mac] = {
+        'name': name,
+        'mac': mac,
+        'ip': ip,
+        'boot_profile': role,
+        'secondstage_enabled': bool(enable_secondstage and role != 'live-ris'),
+        'secondstage_components': DEFAULT_COMPONENTS,
+        'updated_at': now_iso(),
+    }
+    save_secondstage_targets(s2)
+
+    run_apply_async()
     return redirect('/')
 
 
 TEMPLATE = """{% raw %}
 <html><body style="font-family: sans-serif;">
-<h1>RISng Control UI (Prototype)</h1>
-<p>Booted MACs + role mapping. Saving triggers DHCP refresh.</p>
+<h1>RISng Web UI – Discovery & Assignment</h1>
+<p>Unknown PXE clients can post hardware inventory to <code>/api/discovery</code>. Assigning a role updates DHCP + secondstage target registry and triggers DHCP apply.</p>
 <table border="1" cellpadding="6" cellspacing="0">
-<tr><th>MAC</th><th>IP</th><th>Hostname</th><th>HW Info</th><th>Role Mapping</th></tr>
+<tr><th>Status</th><th>MAC</th><th>IP</th><th>Hostname</th><th>Role</th><th>SecondStage</th><th>HW Info</th><th>Assign/Update</th></tr>
 {% for r in rows %}
 <tr>
+  <td>{{ r.status }}</td>
   <td>{{ r.mac }}</td>
   <td>{{ r.ip }}</td>
   <td>{{ r.hostname }}</td>
+  <td>{{ r.role }}</td>
+  <td>{{ 'on' if r.secondstage_enabled else 'off' }}</td>
   <td>
     CPU: {{ r.hw.get('cpu','n/a') }}<br>
     RAM: {{ r.hw.get('ram','n/a') }}<br>
@@ -124,6 +209,7 @@ TEMPLATE = """{% raw %}
         <option value="{{ role }}" {% if r.role == role %}selected{% endif %}>{{ role }}</option>
         {% endfor %}
       </select>
+      <label><input type="checkbox" name="secondstage_enabled" {% if r.secondstage_enabled %}checked{% endif %}/> secondstage</label>
       <button type="submit">Assign + Apply</button>
     </form>
   </td>

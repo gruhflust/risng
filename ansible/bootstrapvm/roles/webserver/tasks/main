@@ -23,6 +23,21 @@
     state: directory
     mode: '0755'
 
+- name: 02a Ensure discovery runtime directories exist
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - /var/lib/tftpboot/runtime
+    - /var/lib/tftpboot/runtime/discovery
+
+- name: 02b Deploy live-client discovery helper script
+  copy:
+    dest: /var/lib/tftpboot/runtime/discovery/discovery-client.sh
+    mode: "0755"
+    content: "{{ lookup('template', 'discovery-client.sh.j2') }}"
+
 - name: 03 Deploy Flask app
   copy:
     dest: /opt/risng-webui/report_viewer.py

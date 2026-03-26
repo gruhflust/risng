@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+RISNG_HOST="${1:-{{ tftp_server_ip | default('127.0.0.1') }}}"
+API_URL="http://${RISNG_HOST}:8089/api/discovery"
+
+MAC="$(ip -o link | awk '/link\/ether/ {print tolower($17); exit}')"
+HOSTNAME_CUR="$(hostname 2>/dev/null || true)"
+IPV4="$(hostname -I 2>/dev/null | awk '{print $1}')"
+CPU="$(awk -F: '/model name/{gsub(/^ +/,"",$2); print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
+RAM="$(awk '/MemTotal/{printf "%.1f GiB", $2/1024/1024}' /proc/meminfo 2>/dev/null || true)"
+DISK="$(lsblk -dn -o NAME,SIZE,TYPE 2>/dev/null | awk '$3=="disk"{print $1":"$2}' | paste -sd ',' -)"
+
+python3 - <<PY
+import json, urllib.request
+payload={
+  "mac": "${MAC}",
+  "hostname": "${HOSTNAME_CUR}",
+  "ip": "${IPV4}",
+  "hardware": {
+    "cpu": "${CPU}",
+    "ram": "${RAM}",
+    "disk": "${DISK}"
+  }
+}
+req=urllib.request.Request("${API_URL}", data=json.dumps(payload).encode(), headers={"Content-Type":"application/json"})
+with urllib.request.urlopen(req, timeout=8) as r:
+    print(r.read().decode())
+PY

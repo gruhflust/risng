@@ -6,6 +6,8 @@
   vars_files:
     - ../bootstrapvm/roles/dhcp/defaults/main.yml
     - vars/risdeploy_components.yml
+  vars:
+    risdeploy_extra_targets_file: /etc/risng/secondstage_targets.json
   tasks:
     - name: Select enabled RIS deploy targets
       ansible.builtin.set_fact:
@@ -15,6 +17,35 @@
             | selectattr('secondstage_enabled', 'defined')
             | selectattr('secondstage_enabled')
             | list
+          }}
+
+    - name: Load extra secondstage targets file if present
+      ansible.builtin.slurp:
+        src: "{{ risdeploy_extra_targets_file }}"
+      register: risdeploy_extra_targets_raw
+      failed_when: false
+      changed_when: false
+
+    - name: Parse extra secondstage targets
+      ansible.builtin.set_fact:
+        risdeploy_extra_targets: >-
+          {{
+            (risdeploy_extra_targets_raw.content | b64decode | from_json)
+            if (risdeploy_extra_targets_raw is defined and risdeploy_extra_targets_raw.content is defined)
+            else {}
+          }}
+
+    - name: Merge DHCP targets with extra secondstage targets
+      ansible.builtin.set_fact:
+        risdeploy_targets: >-
+          {{
+            (risdeploy_targets | default([]))
+            + (
+                (risdeploy_extra_targets | default({})).values()
+                | selectattr('secondstage_enabled', 'defined')
+                | selectattr('secondstage_enabled')
+                | list
+              )
           }}
 
     - name: Remove stale SSH host keys for RIS deploy targets on control host
