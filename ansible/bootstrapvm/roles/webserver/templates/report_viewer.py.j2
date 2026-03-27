@@ -555,8 +555,8 @@ def assign_deploy():
     }
     save_secondstage_targets(s2)
 
+    update_management_state(mac, runtime_ip=(runtime_ip or None), assigned_ip=(ip or None), name=name, role=role, phase='DEPLOYING')
     run_assign_deploy_async(mac, ip)
-    request_reboot_best_effort(runtime_ip or ip)
     return redirect('/')
 
 

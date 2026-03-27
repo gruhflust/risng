@@ -36,6 +36,22 @@
             else {}
           }}
 
+    - name: Load management state file if present
+      ansible.builtin.slurp:
+        src: /var/lib/tftpboot/runtime/management_state.json
+      register: risdeploy_management_state_raw
+      failed_when: false
+      changed_when: false
+
+    - name: Parse management state JSON
+      ansible.builtin.set_fact:
+        risdeploy_management_state: >-
+          {{
+            (risdeploy_management_state_raw.content | b64decode | from_json)
+            if (risdeploy_management_state_raw is defined and risdeploy_management_state_raw.content is defined)
+            else {}
+          }}
+
     - name: Merge DHCP targets with extra secondstage targets
       ansible.builtin.set_fact:
         risdeploy_targets: >-
@@ -48,6 +64,18 @@
                 | list
               )
           }}
+
+    - name: Apply runtime IP from management state where available
+      ansible.builtin.set_fact:
+        risdeploy_targets: "{{ updated_targets }}"
+      vars:
+        updated_targets: >-
+          {%- set out = [] -%}
+          {%- for item in (risdeploy_targets | default([])) -%}
+          {%- set mgmt = (risdeploy_management_state | default({})).get(item.mac, {}) if item.mac is defined else {} -%}
+          {%- set _ = out.append(item | combine({'runtime_ip': mgmt.get('runtime_ip'), 'management_ip': mgmt.get('runtime_ip')})) -%}
+          {%- endfor -%}
+          {{ out }}
 
     - name: Optionally restrict RIS deploy to a single target MAC
       ansible.builtin.set_fact:
@@ -64,7 +92,7 @@
       ansible.builtin.shell: |
         KNOWN="$HOME/.ssh/known_hosts"
         [ -f "$KNOWN" ] || exit 0
-        for h in "{{ item.ip }}" "[{{ item.ip }}]:22" "{{ item.name }}" "[{{ item.name }}]:22"; do
+        for h in "{{ item.runtime_ip | default(item.management_ip | default(item.ip)) }}" "[{{ item.runtime_ip | default(item.management_ip | default(item.ip)) }}]:22" "{{ item.name }}" "[{{ item.name }}]:22"; do
           ssh-keygen -f "$KNOWN" -R "$h" >/dev/null 2>&1 || true
         done
       args:
@@ -72,9 +100,8 @@
       loop: "{{ risdeploy_targets }}"
       changed_when: false
 
-
     - name: Collect SSH host key via target IP (best effort)
-      ansible.builtin.shell: "ssh-keyscan -T 5 -t ed25519,rsa {{ item.ip }} 2>/dev/null | grep -v '^#' | head -n 1"
+      ansible.builtin.shell: "ssh-keyscan -T 5 -t ed25519,rsa {{ item.runtime_ip | default(item.management_ip | default(item.ip)) }} 2>/dev/null | grep -v '^#' | head -n 1"
       args:
         executable: /bin/bash
       loop: "{{ risdeploy_targets }}"
@@ -85,7 +112,7 @@
     - name: Register target IP host key in known_hosts
       ansible.builtin.known_hosts:
         path: "{{ lookup('ansible.builtin.env','HOME') }}/.ssh/known_hosts"
-        name: "{{ item.item.ip }}"
+        name: "{{ item.item.runtime_ip | default(item.item.management_ip | default(item.item.ip)) }}"
         key: "{{ item.stdout }}"
         state: present
       loop: "{{ risdeploy_known_host_ip_scan.results | default([]) }}"
@@ -110,11 +137,12 @@
       loop: "{{ risdeploy_known_host_name_scan.results | default([]) }}"
       when: (item.stdout | default('') | trim) | length > 0
       failed_when: false
+
     - name: Register enabled RIS deploy targets as dynamic hosts
       ansible.builtin.add_host:
         name: "{{ item.name }}"
         groups: risdeploy_targets
-        ansible_host: "{{ item.ip }}"
+        ansible_host: "{{ item.runtime_ip | default(item.management_ip | default(item.ip)) }}"
         ansible_user: "{{ risdeploy_ssh_user }}"
         ansible_password: "{{ risdeploy_ssh_password }}"
         ansible_become: true
@@ -191,6 +219,7 @@
           {{
             (risdeploy_components | default([]))
             | map('extract', risdeploy_component_catalog)
+            | select('defined')
             | list
           }}
       delegate_to: localhost
@@ -198,138 +227,99 @@
 
   tasks:
     - name: Clean yum metadata before second-stage install
-      ansible.builtin.raw: yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras clean all
+      ansible.builtin.raw: yum clean all >/dev/null 2>&1 || true
       changed_when: false
-      failed_when: false
 
     - name: Install yum groups required by selected components via raw yum
       ansible.builtin.raw: >-
-        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras -y groupinstall '{{ item }}'
-      loop: >-
-        {{
-          hostvars['localhost'].risdeploy_component_defs
+        yum -y groupinstall {{ hostvars['localhost']['risdeploy_component_defs']
           | map(attribute='yum_groups')
-          | select('defined')
-          | list
           | flatten
           | unique
-        }}
-      when: >-
-        (
-          hostvars['localhost'].risdeploy_component_defs
-          | map(attribute='yum_groups')
-          | select('defined')
-          | list
-          | flatten
-          | unique
-          | length
-        ) > 0
+          | map('quote')
+          | join(' ') }}
+      when: (hostvars['localhost']['risdeploy_component_defs'] | map(attribute='yum_groups') | flatten | unique | list | length) > 0
+      changed_when: false
+      failed_when: false
 
     - name: Install RPM packages required by selected components via raw yum
       ansible.builtin.raw: >-
-        yum --disablerepo='*' --enablerepo=risng-ss-base,risng-ss-updates,risng-ss-extras -y install
-        {{
-          hostvars['localhost'].risdeploy_component_defs
-          | map(attribute='packages')
-          | select('defined')
-          | list
+        yum -y install {{ hostvars['localhost']['risdeploy_component_defs']
+          | map(attribute='yum_packages')
           | flatten
           | unique
-          | join(' ')
-        }}
-      when: >-
-        (
-          hostvars['localhost'].risdeploy_component_defs
-          | map(attribute='packages')
-          | select('defined')
-          | list
-          | flatten
-          | unique
-          | length
-        ) > 0
+          | map('quote')
+          | join(' ') }}
+      when: (hostvars['localhost']['risdeploy_component_defs'] | map(attribute='yum_packages') | flatten | unique | list | length) > 0
+      changed_when: false
+      failed_when: false
 
     - name: Force GDM to use Xorg on graphical clients
       ansible.builtin.raw: |
         mkdir -p /etc/gdm
-        if [ -f /etc/gdm/custom.conf ]; then
-          sed -i 's/^#\?WaylandEnable=.*/WaylandEnable=false/' /etc/gdm/custom.conf
-        else
-          echo '[daemon]' > /etc/gdm/custom.conf
-          echo 'WaylandEnable=false' >> /etc/gdm/custom.conf
-        fi
+        python3 - <<'PY'
+from pathlib import Path
+path = Path('/etc/gdm/custom.conf')
+text = path.read_text() if path.exists() else '[daemon]\n'
+if '[daemon]' not in text:
+    text = '[daemon]\n' + text
+if 'WaylandEnable=' in text:
+    import re
+    text = re.sub(r'^\s*WaylandEnable\s*=.*$', 'WaylandEnable=false', text, flags=re.M)
+else:
+    text = text.rstrip() + '\nWaylandEnable=false\n'
+path.write_text(text)
+PY
       when: "'graphics-gnome' in risdeploy_components"
+      changed_when: false
 
     - name: Ensure login user home and authority files exist for graphical session
       ansible.builtin.raw: |
-        getent passwd {{ risdeploy_login_user }} >/dev/null 2>&1 || exit 0
-        home_dir=$(getent passwd {{ risdeploy_login_user }} | cut -d: -f6)
-        mkdir -p "$home_dir"
-        touch "$home_dir/.Xauthority" "$home_dir/.ICEauthority" "$home_dir/.dmrc"
-        chown {{ risdeploy_login_user }}:{{ risdeploy_login_user }} "$home_dir" "$home_dir/.Xauthority" "$home_dir/.ICEauthority" "$home_dir/.dmrc"
-        chmod 700 "$home_dir"
-        chmod 600 "$home_dir/.Xauthority" "$home_dir/.ICEauthority"
-        cat > "$home_dir/.dmrc" <<'EOF'
-        [Desktop]
-        Session=gnome-xorg
-        EOF
+        user_home=$(getent passwd {{ risdeploy_login_user }} | cut -d: -f6)
+        mkdir -p "$user_home/.config/dconf" "$user_home/.local/share/backgrounds"
+        touch "$user_home/.Xauthority"
+        chown -R {{ risdeploy_login_user }}:{{ risdeploy_login_user }} "$user_home/.config" "$user_home/.local" "$user_home/.Xauthority"
       when: "'graphics-gnome' in risdeploy_components"
+      changed_when: false
 
     - name: Regenerate machine identity for freshly staged client
       ansible.builtin.raw: |
-        rm -f /var/lib/dbus/machine-id
-        [ -s /etc/machine-id ] || rm -f /etc/machine-id
-        systemd-machine-id-setup >/dev/null 2>&1 || dbus-uuidgen --ensure=/etc/machine-id
-        ln -sf /etc/machine-id /var/lib/dbus/machine-id
+        dbus-uuidgen --ensure
+        if command -v systemd-machine-id-setup >/dev/null 2>&1; then
+          systemd-machine-id-setup >/dev/null 2>&1 || true
+        fi
       when: "'graphics-gnome' in risdeploy_components"
+      changed_when: false
 
     - name: Enforce sane default monospace font via system dconf profile
       ansible.builtin.raw: |
-        mkdir -p /etc/dconf/profile /etc/dconf/db/local.d
-        cat > /etc/dconf/profile/user <<'EOF'
+        mkdir -p /etc/dconf/db/local.d /etc/dconf/profile
+        cat >/etc/dconf/profile/user <<'EOF'
         user-db:user
         system-db:local
         EOF
-        cat > /etc/dconf/db/local.d/00-risng-fonts <<'EOF'
+        cat >/etc/dconf/db/local.d/00-risng-fonts <<'EOF'
         [org/gnome/desktop/interface]
-        monospace-font-name='DejaVu Sans Mono 11'
-        document-font-name='Sans 11'
-        font-name='Sans 11'
-
-        [org/gnome/terminal/legacy/profiles:/:default]
-        use-system-font=false
-        font='DejaVu Sans Mono 11'
+        monospace-font-name='Monospace 11'
         EOF
-        dconf update || true
+        dconf update >/dev/null 2>&1 || true
       when: "'graphics-gnome' in risdeploy_components"
+      changed_when: false
 
     - name: Restart GDM after graphical session fixes
-      ansible.builtin.raw: systemctl restart gdm
+      ansible.builtin.raw: |
+        systemctl restart gdm || systemctl restart gdm3 || true
       when: "'graphics-gnome' in risdeploy_components"
+      changed_when: false
 
     - name: Enable and start services required by selected components via systemctl
-      ansible.builtin.raw: systemctl enable {{ item }} && systemctl start {{ item }}
-      loop: >-
-        {{
-          hostvars['localhost'].risdeploy_component_defs
-          | map(attribute='services')
-          | select('defined')
-          | list
-          | flatten
-          | unique
-        }}
-      when: >-
-        (
-          hostvars['localhost'].risdeploy_component_defs
-          | map(attribute='services')
-          | select('defined')
-          | list
-          | flatten
-          | unique
-          | length
-        ) > 0
+      ansible.builtin.raw: "systemctl enable --now {{ item }}"
+      loop: "{{ hostvars['localhost']['risdeploy_component_defs'] | map(attribute='services') | flatten | unique | list }}"
+      when: (hostvars['localhost']['risdeploy_component_defs'] | map(attribute='services') | flatten | unique | list | length) > 0
+      changed_when: false
+      failed_when: false
 
     - name: Set graphical.target when graphical component is selected
       ansible.builtin.raw: systemctl set-default graphical.target
-      changed_when: false
       when: "'graphics-gnome' in risdeploy_components"
-
+      changed_when: false
