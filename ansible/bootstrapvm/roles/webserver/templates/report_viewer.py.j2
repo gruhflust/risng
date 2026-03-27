@@ -169,7 +169,7 @@ def request_reboot_best_effort(ip: str):
     base_cmd, root = ansible_cmd('secondstage/trigger-reboot.yml')
     # credential fallback for different client phases
     variants = [
-        f"{base_cmd} -e target_ip={ip} -e reboot_user=root",
+        f"{base_cmd} -e target_ip={ip} -e reboot_user=root -e reboot_ssh_key_file={{ ssh_user_home }}/.ssh/id_ed25519",
     ]
     cmd = " || ".join(variants)
     launch_job('reboot', cmd, {'target_ip': ip}, cwd=root)
