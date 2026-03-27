@@ -69,6 +69,14 @@ run_risng_playbook() {
     local logfile="$3"
     local inventory="${4:-$RISNG_INVENTORY_DEFAULT}"
 
+    mkdir -p "$HOME/.ansible/cp"
+    chmod 700 "$HOME/.ansible/cp" 2>/dev/null || true
+    if [ ! -w "$HOME/.ansible/cp" ]; then
+        echo "ERROR: $HOME/.ansible/cp is not writable (owner/perms wrong)." >&2
+        ls -ld "$HOME/.ansible" "$HOME/.ansible/cp" >&2 || true
+        return 1
+    fi
+
     local resolved_inventory=""
     case "$inventory" in
         /*) resolved_inventory="$inventory" ;;
@@ -122,6 +130,7 @@ if [ -x /usr/bin/dircolors ]; then
     alias getrispackets='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/getrispackets.yml" "$HOME/getrispackets.log"'
 
     alias repair-dhcp='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/repair-dhcp.yml" "$HOME/repair-dhcp.log"'
+    alias fix-operator-home='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/fix-operator-home.yml" "$HOME/fix-operator-home.log"'
 
     # 01b Second-stage deployment for already installed CentOS clients
     alias risdeploy='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/secondstage/risdeploy.yml" "$HOME/risdeploy.log"'
