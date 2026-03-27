@@ -65,3 +65,11 @@ The remaining fragility is mainly management continuity:
 - host reachable via root but UI/state not fully aligned
 - first-stage key continuity not modeled explicitly enough
 - deploy/reboot behavior depends too much on implicit assumptions
+
+## Confirmed live observation
+
+- A freshly discovered/live-booted client remained reachable for root/key management on its runtime IP `10.228.229.101` even while the assigned install IP differed.
+- Manual reboot via `ssh -i /home/risng/.ssh/id_ed25519 root@10.228.229.101 'nohup sh -c 'sleep 1; /sbin/reboot || /usr/sbin/reboot || reboot' >/dev/null 2>&1 &'` worked.
+- Therefore the model must explicitly separate:
+  - `runtime_ip` for immediate management actions like reboot
+  - `assigned_ip` for planning/install/static target configuration
