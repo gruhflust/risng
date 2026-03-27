@@ -73,3 +73,35 @@ The remaining fragility is mainly management continuity:
 - Therefore the model must explicitly separate:
   - `runtime_ip` for immediate management actions like reboot
   - `assigned_ip` for planning/install/static target configuration
+
+
+## Management path transition
+
+RISng management is explicitly phase-dependent.
+
+### Phase 1: LIVE / pre-install
+- management IP = `runtime_ip`
+- management user = `root`
+- auth = stage-1 key
+- used for discovery, early reboot, live-state management
+
+### Phase 2: INSTALLED_BASE / deployable
+- when the freshly installed client comes up on its new post-install IP, that IP becomes the new `runtime_ip`
+- management user switches to `nor`
+- `nor` is passwordless sudo and must be used for deployment
+- root is no longer assumed after successful base installation
+
+### UI requirement
+The current management/deploy user must be displayed in the UI as a non-editable informational field.
+The operator should always see:
+- runtime IP
+- assigned IP
+- management user
+
+## Immediate next coding goals
+
+1. Persist `management_user` in management state.
+2. Promote management path from `root@live-runtime-ip` to `nor@installed-runtime-ip` when the post-install host becomes reachable there.
+3. Use `runtime_ip + management_user` consistently for actions.
+4. Keep `assigned_ip` strictly as plan/install target unless promoted by verified reachability.
+5. Show management user read-only in the UI.
