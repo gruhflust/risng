@@ -169,9 +169,7 @@ def request_reboot_best_effort(ip: str):
     base_cmd, root = ansible_cmd('secondstage/trigger-reboot.yml')
     # credential fallback for different client phases
     variants = [
-        f"{base_cmd} -e target_ip={ip}",
-        f"{base_cmd} -e target_ip={ip} -e reboot_user=nor -e reboot_password=nor",
-        f"{base_cmd} -e target_ip={ip} -e reboot_user=user -e reboot_password=user",
+        f"{base_cmd} -e target_ip={ip} -e reboot_user=root",
     ]
     cmd = " || ".join(variants)
     launch_job('reboot', cmd, {'target_ip': ip}, cwd=root)
@@ -389,7 +387,7 @@ def index():
         elif ip and validation_index.get(ip):
             status = 'INSTALLED'
         elif ssh_reachable(runtime_ip or ip):
-            status = 'POST_INSTALL'
+            status = 'MANAGABLE'
 
         rows.append({
             'mac': mac,
@@ -451,8 +449,6 @@ def set_boot():
     save_secondstage_targets(s2)
 
     run_apply_async()
-    if mode == 'pxe':
-        request_reboot_best_effort(runtime_ip or ip)
     return redirect('/')
 
 
