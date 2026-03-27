@@ -16,21 +16,22 @@ DISCOVERY_DIR = Path('/var/lib/tftpboot/runtime/discovery')
 SECONDSTAGE_TARGETS_FILE = Path('/etc/risng/secondstage_targets.json')
 STATIC_HOSTS_FILE = Path('/etc/dhcp/static-hosts.conf')
 NGINX_ACCESS_LOG = Path('/var/log/nginx/risng-pxe.access.log')
+STATE_FILE = Path('/var/lib/tftpboot/runtime/webui_state.json')
+LOG_DIR = Path('/var/lib/tftpboot/runtime/webui_logs')
+VALIDATION_SUMMARY = Path('{{ ssh_user_home }}/risdeploy-validation-summary.json')
+
 PLAYBOOK_ROOT_CANDIDATES = [
     '{{ ssh_user_home }}/risng/ansible',
     '{{ ssh_user_home }}/botrepo/risng/ansible',
     '/home/risng/risng/ansible',
 ]
-STATE_FILE = Path('/var/lib/tftpboot/runtime/webui_state.json')
-LOG_DIR = Path('/var/lib/tftpboot/runtime/webui_logs')
-VALIDATION_SUMMARY = Path('{{ ssh_user_home }}/risdeploy-validation-summary.json')
 
 ROLES = ["iCWP", "iFDO", "iCMD", "FDPS", "CORRP", "live-ris", "localdisk"]
 DEFAULT_COMPONENTS = ["graphics-gnome", "common-linux-monitoring-base"]
 AUTO_LOCALBOOT_ON_SUCCESS = True
 
 
-def now_iso():
+def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -64,20 +65,6 @@ def save_secondstage_targets(data):
     save_json(SECONDSTAGE_TARGETS_FILE, data)
 
 
-
-
-
-
-def resolve_playbook(relpath: str) -> str:
-    for root in PLAYBOOK_ROOT_CANDIDATES:
-        cand = Path(root) / relpath
-        if cand.exists():
-            return str(cand)
-    return str(Path(PLAYBOOK_ROOT_CANDIDATES[0]) / relpath)
-
-
-
-
 def resolve_ansible_root() -> Path:
     for root in PLAYBOOK_ROOT_CANDIDATES:
         rp = Path(root)
@@ -95,27 +82,18 @@ def ansible_cmd(playbook_rel: str) -> tuple[str, str]:
     return cmd, str(root)
 
 
-def request_reboot_best_effort(ip: str):
-    if not ip:
-        return
-    reboot_cmd, root = ansible_cmd('secondstage/trigger-reboot.yml')
-    launch_job('reboot', f"{reboot_cmd} -e target_ip={ip}", {'target_ip': ip}, cwd=root)
-
-
-def load_state():
-    return load_json(STATE_FILE, {})
-
-
-def save_state(data):
-    save_json(STATE_FILE, data)
-
-
 def launch_job(job_name: str, command: str, context: dict | None = None, cwd: str | None = None):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"{job_name}-{int(time.time())}.log"
     with open(log_path, 'ab') as lf:
-        proc = subprocess.Popen(['bash', '-lc', command], cwd=cwd or os.getcwd(), stdout=lf, stderr=lf, env={**os.environ, 'HOME': '{{ ssh_user_home }}'})
-    state = load_state()
+        proc = subprocess.Popen(
+            ['bash', '-lc', command],
+            cwd=cwd or os.getcwd(),
+            stdout=lf,
+            stderr=lf,
+            env={**os.environ, 'HOME': '{{ ssh_user_home }}'},
+        )
+    state = load_json(STATE_FILE, {})
     state['job'] = {
         'name': job_name,
         'pid': proc.pid,
@@ -125,43 +103,7 @@ def launch_job(job_name: str, command: str, context: dict | None = None, cwd: st
         'command': command,
         'context': context or {},
     }
-    save_state(state)
-
-
-def refresh_job_state():
-    state = load_state()
-    job = state.get('job')
-    if not job:
-        return state
-    pid = int(job.get('pid', 0) or 0)
-    if pid <= 0:
-        return state
-    try:
-        os.kill(pid, 0)
-        job['status'] = 'RUNNING'
-    except OSError:
-        if job.get('status') == 'RUNNING':
-            job['status'] = 'FINISHED'
-            job['finished_at'] = now_iso()
-
-    # post-process: after assign+deploy success, set host to localdisk profile
-    ctx = job.get('context', {}) if isinstance(job.get('context', {}), dict) else {}
-    if AUTO_LOCALBOOT_ON_SUCCESS and job.get('name') == 'assign-deploy' and job.get('status') == 'FINISHED' and not ctx.get('post_processed'):
-        ip = ctx.get('target_ip', '')
-        mac = ctx.get('target_mac', '')
-        ok = bool(load_validation_index().get(ip))
-        if ok and mac:
-            m = load_map()
-            if mac in m:
-                m[mac]['role'] = 'localdisk'
-                save_map(m)
-                update_cmd, root = ansible_cmd('bootstrapvm/update-dhcp-hosts.yml')
-                launch_job('post-deploy-localboot', update_cmd, {'source': 'assign-deploy', 'target_mac': mac, 'target_ip': ip}, cwd=root)
-        ctx['post_processed'] = True
-        job['context'] = ctx
-    state['job'] = job
-    save_state(state)
-    return state
+    save_json(STATE_FILE, state)
 
 
 def load_validation_index():
@@ -172,6 +114,55 @@ def load_validation_index():
         if ip:
             out[ip] = bool(h.get('overall_ok'))
     return out
+
+
+def refresh_job_state():
+    state = load_json(STATE_FILE, {})
+    job = state.get('job')
+    if not job:
+        return state
+    pid = int(job.get('pid', 0) or 0)
+    if pid > 0:
+        try:
+            os.kill(pid, 0)
+            job['status'] = 'RUNNING'
+        except OSError:
+            if job.get('status') == 'RUNNING':
+                job['status'] = 'FINISHED'
+                job['finished_at'] = now_iso()
+
+    # post-process assign+deploy -> localdisk after successful validation
+    ctx = job.get('context', {}) if isinstance(job.get('context', {}), dict) else {}
+    if AUTO_LOCALBOOT_ON_SUCCESS and job.get('name') == 'assign-deploy' and job.get('status') == 'FINISHED' and not ctx.get('post_processed'):
+        ip = ctx.get('target_ip', '')
+        mac = ctx.get('target_mac', '')
+        if ip and mac and load_validation_index().get(ip):
+            m = load_map()
+            if mac in m:
+                m[mac]['role'] = 'localdisk'
+                save_map(m)
+                update_cmd, root = ansible_cmd('bootstrapvm/update-dhcp-hosts.yml')
+                launch_job('post-deploy-localboot', update_cmd, {'target_ip': ip, 'target_mac': mac}, cwd=root)
+        ctx['post_processed'] = True
+        job['context'] = ctx
+
+    state['job'] = job
+    save_json(STATE_FILE, state)
+    return state
+
+
+def request_reboot_best_effort(ip: str):
+    if not ip:
+        return
+    base_cmd, root = ansible_cmd('secondstage/trigger-reboot.yml')
+    # credential fallback for different client phases
+    variants = [
+        f"{base_cmd} -e target_ip={ip}",
+        f"{base_cmd} -e target_ip={ip} -e reboot_user=nor -e reboot_password=nor",
+        f"{base_cmd} -e target_ip={ip} -e reboot_user=user -e reboot_password=user",
+    ]
+    cmd = " || ".join(variants)
+    launch_job('reboot', cmd, {'target_ip': ip}, cwd=root)
 
 
 def run_apply_async():
@@ -187,8 +178,6 @@ def run_assign_deploy_async(target_mac: str, target_ip: str):
     launch_job('assign-deploy', cmd, {'target_mac': target_mac, 'target_ip': target_ip, 'post_processed': False}, cwd=root)
 
 
-
-
 def delete_host_records(mac: str):
     m = load_map()
     if mac in m:
@@ -201,6 +190,7 @@ def delete_host_records(mac: str):
     d = DISCOVERY_DIR / f"{mac}.json"
     if d.exists():
         d.unlink()
+
 
 def parse_static_hosts():
     items = {}
@@ -221,16 +211,12 @@ def parse_static_hosts():
         if line == '}':
             mac = current.get('mac')
             if mac:
-                items[mac] = {
-                    'mac': mac,
-                    'ip': current.get('ip', ''),
-                    'hostname': current.get('name', ''),
-                }
+                items[mac] = {'mac': mac, 'ip': current.get('ip', ''), 'hostname': current.get('name', '')}
             current = {}
     return items
 
+
 def parse_leases():
-    # Robust parser tolerant to partially-written lease files.
     items = {}
     lease_re = re.compile(r'^lease\s+([0-9.]+)\s+\{')
     mac_re = re.compile(r'^hardware\s+ethernet\s+([0-9a-f:]{17});', re.IGNORECASE)
@@ -257,11 +243,7 @@ def parse_leases():
             if line == '}':
                 mac = current.get('mac')
                 if mac:
-                    items[mac] = {
-                        'mac': mac,
-                        'ip': current.get('ip', ''),
-                        'hostname': current.get('hostname', ''),
-                    }
+                    items[mac] = {'mac': mac, 'ip': current.get('ip', ''), 'hostname': current.get('hostname', '')}
                 current = {}
     return sorted(items.values(), key=lambda x: x.get('mac', ''))
 
@@ -283,19 +265,16 @@ def list_discovery_files():
         mac = p.stem.lower()
         if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
             continue
-        data = load_discovery(mac)
-        out.append({'mac': mac, 'hw': data})
+        out.append({'mac': mac, 'hw': load_discovery(mac)})
     return out
 
 
 def parse_install_progress_ips():
-    # Very lightweight progress signal from nginx access log
     progress = {}
     if not NGINX_ACCESS_LOG.exists():
         return progress
     lines = NGINX_ACCESS_LOG.read_text(errors='ignore').splitlines()[-2000:]
     for ln in lines:
-        # format contains: <ip> - - [..] "GET /path HTTP/1.1"
         parts = ln.split(' ', 3)
         if len(parts) < 4:
             continue
@@ -305,8 +284,6 @@ def parse_install_progress_ips():
         elif '/centos/7/os/x86_64/' in ln and progress.get(ip) != 'INSTALL_RUNNING':
             progress[ip] = 'STAGE2_FETCH'
     return progress
-
-
 
 
 def infer_role_from_hostname(hostname: str) -> str:
@@ -340,7 +317,6 @@ def api_discovery():
     mac = str(payload.get('mac', '')).strip().lower()
     if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
         return jsonify({'ok': False, 'error': 'invalid mac'}), 400
-
     hw = payload.get('hardware', {}) if isinstance(payload.get('hardware', {}), dict) else {}
     record = {
         'mac': mac,
@@ -360,62 +336,53 @@ def index():
     secondstage = load_secondstage_targets()
     leases = {l['mac']: l for l in parse_leases()}
     static_hosts = parse_static_hosts()
-    install_progress = parse_install_progress_ips()
-    state = refresh_job_state()
+    progress = parse_install_progress_ips()
     validation_index = load_validation_index()
-    rows = []
+    state = refresh_job_state()
 
     known_macs = set(leases.keys()) | set(static_hosts.keys()) | set(role_map.keys()) | set(secondstage.keys())
     for d in list_discovery_files():
         known_macs.add(d['mac'])
 
+    rows = []
     for mac in sorted(known_macs):
-        l = leases.get(mac, {})
-        st = static_hosts.get(mac, {})
+        lease = leases.get(mac, {})
+        stat = static_hosts.get(mac, {})
         meta = role_map.get(mac, {})
         s2 = secondstage.get(mac, {})
         d = load_discovery(mac)
-        runtime_ip = l.get('ip', '') or st.get('ip', '')
-        ip = meta.get('ip') or s2.get('ip') or runtime_ip
-        role_effective = meta.get('role') or s2.get('boot_profile') or infer_role_from_hostname(meta.get('name') or s2.get('name') or l.get('hostname', '') or st.get('hostname', ''))
+
+        runtime_ip = lease.get('ip', '') or stat.get('ip', '')
+        assigned_ip = meta.get('ip') or s2.get('ip', '')
+        ip = assigned_ip or runtime_ip
+        role_eff = meta.get('role') or s2.get('boot_profile') or infer_role_from_hostname(meta.get('name') or s2.get('name') or lease.get('hostname','') or stat.get('hostname',''))
+
         status = 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else ('LEASED' if mac in leases else 'CONFIGURED'))
-        if ip and ip in install_progress:
-            status = install_progress[ip]
+        if runtime_ip and runtime_ip in progress:
+            status = progress[runtime_ip]
         elif (meta.get('role') == 'localdisk' or s2.get('boot_profile') == 'localdisk') and ip and validation_index.get(ip):
             status = 'BOOT_LOCAL_SET'
         elif ip and validation_index.get(ip):
             status = 'INSTALLED'
-        elif ssh_reachable(ip):
+        elif ssh_reachable(runtime_ip or ip):
             status = 'POST_INSTALL'
 
         rows.append({
             'mac': mac,
             'ip': ip,
             'runtime_ip': runtime_ip,
-            'hostname': meta.get('name') or s2.get('name') or l.get('hostname', '') or st.get('hostname', ''),
-            'role': role_effective,
+            'hostname': meta.get('name') or s2.get('name') or lease.get('hostname','') or stat.get('hostname',''),
+            'role': role_eff,
             'secondstage_enabled': bool(s2.get('secondstage_enabled')),
             'components': ','.join(s2.get('secondstage_components', [])) if isinstance(s2.get('secondstage_components', []), list) else '',
             'hw': d.get('hardware', d if isinstance(d, dict) else {}),
             'status': status,
         })
 
-
-    known_ips = {r['ip'] for r in rows if r.get('ip')}
-    for ip, pstatus in install_progress.items():
+    known_ips = {r['runtime_ip'] or r['ip'] for r in rows if (r.get('runtime_ip') or r.get('ip'))}
+    for ip, st in progress.items():
         if ip not in known_ips:
-            rows.append({
-                'mac': 'n/a',
-                'ip': ip,
-                'runtime_ip': ip,
-            'runtime_ip': runtime_ip,
-                'hostname': '',
-                'role': '',
-                'secondstage_enabled': False,
-                'components': '',
-                'hw': {},
-                'status': ('INSTALLED' if ssh_reachable(ip) else pstatus),
-            })
+            rows.append({'mac': 'n/a', 'ip': ip, 'runtime_ip': ip, 'hostname': '', 'role': '', 'secondstage_enabled': False, 'components': '', 'hw': {}, 'status': st})
 
     diagnostics = {
         'lease_files': [str(p) for p in LEASES_FILES if p.exists()],
@@ -427,15 +394,11 @@ def index():
     return render_template_string(TEMPLATE, rows=rows, roles=ROLES, diagnostics=diagnostics, job=state.get('job', {}))
 
 
-
-
-
-
 @app.route('/set_boot', methods=['POST'])
 def set_boot():
     mac = request.form.get('mac', '').strip().lower()
     mode = request.form.get('mode', '').strip().lower()
-    ip = request.form.get('runtime_ip', '').strip() or request.form.get('ip', '').strip()
+    ip = request.form.get('ip', '').strip()
     runtime_ip = request.form.get('runtime_ip', '').strip()
     name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
     role_hint = request.form.get('role_hint', '').strip() or 'iCMD'
@@ -449,10 +412,7 @@ def set_boot():
     if role not in ROLES:
         role = 'iCMD'
 
-    m = load_map()
-    m[mac] = {'role': role, 'ip': ip, 'name': name}
-    save_map(m)
-
+    m = load_map(); m[mac] = {'role': role, 'ip': ip, 'name': name}; save_map(m)
     s2 = load_secondstage_targets()
     cur = s2.get(mac, {})
     s2[mac] = {
@@ -468,7 +428,7 @@ def set_boot():
 
     run_apply_async()
     if mode == 'pxe':
-        request_reboot_best_effort(ip)
+        request_reboot_best_effort(runtime_ip or ip)
     return redirect('/')
 
 
@@ -484,9 +444,10 @@ def delete_host():
 
 @app.route('/reboot', methods=['POST'])
 def reboot_host():
-    ip = request.form.get('ip', '').strip()
+    ip = request.form.get('runtime_ip', '').strip() or request.form.get('ip', '').strip()
     request_reboot_best_effort(ip)
     return redirect('/')
+
 
 @app.route('/assign_deploy', methods=['POST'])
 def assign_deploy():
@@ -504,10 +465,7 @@ def assign_deploy():
     if role not in ROLES:
         return 'invalid role', 400
 
-    data = load_map()
-    data[mac] = {'role': role, 'ip': ip, 'name': name}
-    save_map(data)
-
+    m = load_map(); m[mac] = {'role': role, 'ip': ip, 'name': name}; save_map(m)
     s2 = load_secondstage_targets()
     s2[mac] = {
         'name': name,
@@ -524,12 +482,12 @@ def assign_deploy():
     request_reboot_best_effort(runtime_ip or ip)
     return redirect('/')
 
+
 @app.route('/assign', methods=['POST'])
 def assign():
     mac = request.form.get('mac', '').strip().lower()
     role = request.form.get('role', '').strip()
     ip = request.form.get('ip', '').strip()
-    runtime_ip = request.form.get('runtime_ip', '').strip()
     runtime_ip = request.form.get('runtime_ip', '').strip()
     name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
     enable_secondstage = request.form.get('secondstage_enabled', 'on') == 'on'
@@ -541,10 +499,7 @@ def assign():
     if role not in ROLES:
         return 'invalid role', 400
 
-    data = load_map()
-    data[mac] = {'role': role, 'ip': ip, 'name': name}
-    save_map(data)
-
+    m = load_map(); m[mac] = {'role': role, 'ip': ip, 'name': name}; save_map(m)
     s2 = load_secondstage_targets()
     s2[mac] = {
         'name': name,
