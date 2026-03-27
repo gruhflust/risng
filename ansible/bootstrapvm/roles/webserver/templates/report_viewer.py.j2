@@ -380,14 +380,17 @@ def index():
         role_eff = meta.get('role') or s2.get('boot_profile') or infer_role_from_hostname(meta.get('name') or s2.get('name') or lease.get('hostname','') or stat.get('hostname',''))
 
         status = 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else ('LEASED' if mac in leases else 'CONFIGURED'))
-        if runtime_ip and runtime_ip in progress:
-            status = progress[runtime_ip]
-        elif (meta.get('role') == 'localdisk' or s2.get('boot_profile') == 'localdisk') and ip and validation_index.get(ip):
+        reachable_now = ssh_reachable(runtime_ip or ip)
+        if (meta.get('role') == 'localdisk' or s2.get('boot_profile') == 'localdisk') and ip and validation_index.get(ip):
             status = 'BOOT_LOCAL_SET'
         elif ip and validation_index.get(ip):
             status = 'INSTALLED'
-        elif ssh_reachable(runtime_ip or ip):
+        elif assigned_ip and reachable_now:
+            status = 'DEPLOYABLE'
+        elif reachable_now:
             status = 'MANAGABLE'
+        elif runtime_ip and runtime_ip in progress:
+            status = progress[runtime_ip]
 
         rows.append({
             'mac': mac,
@@ -403,8 +406,9 @@ def index():
 
     known_ips = {r['runtime_ip'] or r['ip'] for r in rows if (r.get('runtime_ip') or r.get('ip'))}
     for ip, st in progress.items():
-        if ip not in known_ips:
-            rows.append({'mac': 'n/a', 'ip': ip, 'runtime_ip': ip, 'hostname': '', 'role': '', 'secondstage_enabled': False, 'components': '', 'hw': {}, 'status': st})
+        if ip in known_ips:
+            continue
+        rows.append({'mac': 'n/a', 'ip': ip, 'runtime_ip': ip, 'hostname': '', 'role': '', 'secondstage_enabled': False, 'components': '', 'hw': {}, 'status': st})
 
     diagnostics = {
         'lease_files': [str(p) for p in LEASES_FILES if p.exists()],
