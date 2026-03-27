@@ -480,7 +480,6 @@ def set_boot():
         role = 'iCMD'
 
     m = load_map(); m[mac] = {'role': role, 'ip': ip, 'name': name}; save_map(m)
-    update_management_state(mac, assigned_ip=ip or None, name=name, role=role, phase='DEPLOYING')
     update_management_state(mac, assigned_ip=ip or None, name=name, role=role, phase='ASSIGNED')
     s2 = load_secondstage_targets()
     cur = s2.get(mac, {})
@@ -521,7 +520,9 @@ def forget_host():
 
 @app.route('/reboot', methods=['POST'])
 def reboot_host():
-    ip = request.form.get('runtime_ip', '').strip() or request.form.get('ip', '').strip()
+    mac = request.form.get('mac', '').strip().lower()
+    fallback_ip = request.form.get('runtime_ip', '').strip() or request.form.get('ip', '').strip()
+    ip = get_effective_management_ip(mac, fallback_ip) if mac else fallback_ip
     request_reboot_best_effort(ip)
     return redirect('/')
 
@@ -656,6 +657,7 @@ TEMPLATE = """{% raw %}
       <button name="mode" value="localdisk" type="submit">Set Local Disk</button>
     </form>
     <form action="/reboot" method="post" style="display:inline;">
+      <input type="hidden" name="mac" value="{{ r.mac }}"/>
       <input type="hidden" name="ip" value="{{ r.ip }}"/>
       <input type="hidden" name="runtime_ip" value="{{ r.runtime_ip }}"/>
       <button type="submit">Reboot</button>
