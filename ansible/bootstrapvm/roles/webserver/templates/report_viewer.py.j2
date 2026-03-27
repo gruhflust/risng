@@ -604,9 +604,13 @@ TEMPLATE = """{% raw %}
       <input type="hidden" name="runtime_ip" value="{{ r.runtime_ip }}"/>
       <button type="submit">Reboot</button>
     </form>
-    <form action="/delete_host" method="post" style="display:inline;" onsubmit="return confirm('Delete host entry?');">
+    <form action="/delete_host" method="post" style="display:inline;" onsubmit="return confirm('Delete assignment only?');">
       <input type="hidden" name="mac" value="{{ r.mac }}"/>
-      <button type="submit">Delete</button>
+      <button type="submit">Delete Assignment</button>
+    </form>
+    <form action="/forget_host" method="post" style="display:inline;" onsubmit="return confirm('Forget host completely? It will disappear from leased/discovery and must rediscover on next boot.');">
+      <input type="hidden" name="mac" value="{{ r.mac }}"/>
+      <button type="submit">Forget Host</button>
     </form>
   </td>
 </tr>
