@@ -692,9 +692,11 @@
     - name: 02.98 Apply risng wallpaper in GNOME via gsettings (psutil-free)
       ansible.builtin.shell: |
         set -euo pipefail
-        if command -v gsettings >/dev/null 2>&1; then
+        if command -v gsettings >/dev/null 2>&1 && command -v dbus-launch >/dev/null 2>&1; then
           dbus-launch gsettings set org.gnome.desktop.background picture-uri "file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png" || true
           dbus-launch gsettings set org.gnome.desktop.background picture-uri-dark "file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png" || true
+        else
+          echo "Skipping GNOME wallpaper gsettings apply: gsettings or dbus-launch missing"
         fi
       args:
         executable: /bin/bash
