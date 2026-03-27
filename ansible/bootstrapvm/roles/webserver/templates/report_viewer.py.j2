@@ -199,9 +199,20 @@ def delete_host_records(mac: str):
     if mac in s2:
         del s2[mac]
         save_secondstage_targets(s2)
+    forgotten = load_forgotten_hosts()
+    if mac in forgotten:
+        forgotten.remove(mac)
+        save_forgotten_hosts(forgotten)
     d = DISCOVERY_DIR / f"{mac}.json"
     if d.exists():
         d.unlink()
+
+
+def forget_host_records(mac: str):
+    delete_host_records(mac)
+    forgotten = load_forgotten_hosts()
+    forgotten.add(mac)
+    save_forgotten_hosts(forgotten)
 
 
 def parse_static_hosts():
