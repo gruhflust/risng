@@ -15,6 +15,7 @@ MAP_FILE = Path('/etc/risng/mac_role_map.json')
 DISCOVERY_DIR = Path('/var/lib/tftpboot/runtime/discovery')
 SECONDSTAGE_TARGETS_FILE = Path('/etc/risng/secondstage_targets.json')
 STATIC_HOSTS_FILE = Path('/etc/dhcp/static-hosts.conf')
+FORGOTTEN_HOSTS_FILE = Path('/var/lib/tftpboot/runtime/forgotten_hosts.json')
 NGINX_ACCESS_LOG = Path('/var/log/nginx/risng-pxe.access.log')
 STATE_FILE = Path('/var/lib/tftpboot/runtime/webui_state.json')
 LOG_DIR = Path('/var/lib/tftpboot/runtime/webui_logs')
@@ -63,6 +64,17 @@ def load_secondstage_targets():
 
 def save_secondstage_targets(data):
     save_json(SECONDSTAGE_TARGETS_FILE, data)
+
+
+def load_forgotten_hosts():
+    data = load_json(FORGOTTEN_HOSTS_FILE, [])
+    if isinstance(data, list):
+        return set(str(x).lower() for x in data if isinstance(x, str))
+    return set()
+
+
+def save_forgotten_hosts(items):
+    save_json(FORGOTTEN_HOSTS_FILE, sorted(set(str(x).lower() for x in items)))
 
 
 def resolve_ansible_root() -> Path:
@@ -334,8 +346,9 @@ def api_discovery():
 def index():
     role_map = load_map()
     secondstage = load_secondstage_targets()
-    leases = {l['mac']: l for l in parse_leases()}
-    static_hosts = parse_static_hosts()
+    forgotten = load_forgotten_hosts()
+    leases = {l['mac']: l for l in parse_leases() if l.get('mac', '').lower() not in forgotten}
+    static_hosts = {k: v for k, v in parse_static_hosts().items() if k.lower() not in forgotten}
     progress = parse_install_progress_ips()
     validation_index = load_validation_index()
     state = refresh_job_state()
@@ -438,6 +451,16 @@ def delete_host():
     if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
         return 'invalid mac', 400
     delete_host_records(mac)
+    run_apply_async()
+    return redirect('/')
+
+
+@app.route('/forget_host', methods=['POST'])
+def forget_host():
+    mac = request.form.get('mac', '').strip().lower()
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return 'invalid mac', 400
+    forget_host_records(mac)
     run_apply_async()
     return redirect('/')
 
