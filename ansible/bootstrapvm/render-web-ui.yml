@@ -5,8 +5,8 @@
   gather_facts: false
 
   vars:
-    ssh_user: "{{ ssh_user | default('risng') }}"
-    ssh_user_home: "{{ ssh_user_home | default('/home/risng') }}"
+    ssh_user: "risng"
+    ssh_user_home: "/home/risng"
 
   roles:
     - webserver
