@@ -493,6 +493,7 @@ def assign_deploy():
     mac = request.form.get('mac', '').strip().lower()
     role = request.form.get('role', '').strip()
     ip = request.form.get('ip', '').strip()
+    runtime_ip = request.form.get('runtime_ip', '').strip()
     name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
     enable_secondstage = request.form.get('secondstage_enabled', 'on') == 'on'
 
@@ -528,6 +529,7 @@ def assign():
     mac = request.form.get('mac', '').strip().lower()
     role = request.form.get('role', '').strip()
     ip = request.form.get('ip', '').strip()
+    runtime_ip = request.form.get('runtime_ip', '').strip()
     runtime_ip = request.form.get('runtime_ip', '').strip()
     name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
     enable_secondstage = request.form.get('secondstage_enabled', 'on') == 'on'
