@@ -8,6 +8,7 @@
     - vars/risdeploy_components.yml
   vars:
     risdeploy_extra_targets_file: /etc/risng/secondstage_targets.json
+    risdeploy_target_mac: "{{ risdeploy_target_mac | default('') }}"
   tasks:
     - name: Select enabled RIS deploy targets
       ansible.builtin.set_fact:
@@ -47,6 +48,17 @@
                 | list
               )
           }}
+
+    - name: Optionally restrict RIS deploy to a single target MAC
+      ansible.builtin.set_fact:
+        risdeploy_targets: >-
+          {{
+            (risdeploy_targets | default([]))
+            | selectattr('mac', 'defined')
+            | selectattr('mac', 'equalto', risdeploy_target_mac)
+            | list
+          }}
+      when: (risdeploy_target_mac | default('') | length) > 0
 
     - name: Remove stale SSH host keys for RIS deploy targets on control host
       ansible.builtin.shell: |

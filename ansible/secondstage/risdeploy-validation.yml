@@ -3,6 +3,8 @@
   hosts: bootstrapvm
   connection: local
   gather_facts: false
+  vars:
+    risdeploy_validation_target_mac: "{{ risdeploy_validation_target_mac | default('') }}"
   vars_files:
     - ../bootstrapvm/roles/dhcp/defaults/main.yml
     - vars/risdeploy_components.yml

@@ -18,6 +18,7 @@ STATIC_HOSTS_FILE = Path('/etc/dhcp/static-hosts.conf')
 FORGOTTEN_HOSTS_FILE = Path('/var/lib/tftpboot/runtime/forgotten_hosts.json')
 NGINX_ACCESS_LOG = Path('/var/log/nginx/risng-pxe.access.log')
 STATE_FILE = Path('/var/lib/tftpboot/runtime/webui_state.json')
+DEPLOY_STATE_FILE = Path('/var/lib/tftpboot/runtime/deploy_state.json')
 LOG_DIR = Path('/var/lib/tftpboot/runtime/webui_logs')
 VALIDATION_SUMMARY = Path('{{ ssh_user_home }}/risdeploy-validation-summary.json')
 
@@ -64,6 +65,15 @@ def load_secondstage_targets():
 
 def save_secondstage_targets(data):
     save_json(SECONDSTAGE_TARGETS_FILE, data)
+
+
+def load_deploy_state():
+    data = load_json(DEPLOY_STATE_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def save_deploy_state(data):
+    save_json(DEPLOY_STATE_FILE, data if isinstance(data, dict) else {})
 
 
 def load_forgotten_hosts():
@@ -184,7 +194,10 @@ def run_assign_deploy_async(target_mac: str, target_ip: str):
     update_cmd, root = ansible_cmd('bootstrapvm/update-dhcp-hosts.yml')
     deploy_cmd, _ = ansible_cmd('secondstage/risdeploy.yml')
     validate_cmd, _ = ansible_cmd('secondstage/risdeploy-validation.yml')
-    cmd = f"{update_cmd} && {deploy_cmd} && {validate_cmd}"
+    deploy_state = load_deploy_state()
+    deploy_state[target_mac] = 'DEPLOYING'
+    save_deploy_state(deploy_state)
+    cmd = f"{update_cmd} && {deploy_cmd} -e risdeploy_target_mac={target_mac} && {validate_cmd} -e risdeploy_validation_target_mac={target_mac}"
     launch_job('assign-deploy', cmd, {'target_mac': target_mac, 'target_ip': target_ip, 'post_processed': False}, cwd=root)
 
 
@@ -360,6 +373,7 @@ def index():
     static_hosts = {k: v for k, v in parse_static_hosts().items() if k.lower() not in forgotten}
     progress = parse_install_progress_ips()
     validation_index = load_validation_index()
+    deploy_state = load_deploy_state()
     state = refresh_job_state()
 
     known_macs = set(leases.keys()) | set(static_hosts.keys()) | set(role_map.keys()) | set(secondstage.keys())
@@ -385,6 +399,8 @@ def index():
             status = 'BOOT_LOCAL_SET'
         elif ip and validation_index.get(ip):
             status = 'INSTALLED'
+        elif deploy_state.get(mac) == 'DEPLOYING':
+            status = 'DEPLOYING'
         elif assigned_ip and reachable_now:
             status = 'DEPLOYABLE'
         elif reachable_now:
@@ -561,6 +577,7 @@ TEMPLATE = """{% raw %}
   td, th { border: 1px solid #777; }
   tr.status-configured td:first-child { background: #0f5132; color: #fff; font-weight: 600; }
   tr.status-install_running td:first-child, tr.status-stage2_fetch td:first-child { background: #0b5ed7; color: #fff; font-weight: 600; }
+  tr.status-deploying td:first-child { background: #6f42c1; color: #fff; font-weight: 700; }
   tr.status-installed td:first-child { background: #8fd19e; color: #000; font-weight: 600; }
   tr.status-leased td:first-child { background: #ffb74d; color: #000; font-weight: 600; }
   tr.status-leased td:nth-child(3) { background: #8fd19e; }
