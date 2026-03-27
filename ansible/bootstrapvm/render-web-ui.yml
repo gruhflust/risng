@@ -1,0 +1,8 @@
+---
+- name: Fast re-render of RISng web UI only
+  hosts: bootstrapvm
+  become: true
+  gather_facts: false
+
+  roles:
+    - webserver

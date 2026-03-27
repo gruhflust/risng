@@ -112,8 +112,10 @@ if [ -x /usr/bin/dircolors ]; then
 
     # 01 Full PXE setup (management, debian-live, dns, dhcp etc.)
     alias feuer='run_risng_playbook "-vv" "$RISNG_SETUP_PLAYBOOK" "$HOME/feuer.log"'
+    # 01a Nur Web-UI aus Template neu rendern und Service neustarten
+    alias render-web-ui='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/render-web-ui.yml" "$HOME/render-web-ui.log"'
 
-    # 01a Nur ISO-Downloads vorziehen (identische Tasks wie im Setup)
+    # 01b Nur ISO-Downloads vorziehen (identische Tasks wie im Setup)
     alias getisos='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/getisos.yml" "$HOME/getisos.log"'
     # 01b Nur SecondStage Paket-Repos vorziehen (lokale RPM-Caches auf RISng)
     alias getrispackets='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/getrispackets.yml" "$HOME/getrispackets.log"'
