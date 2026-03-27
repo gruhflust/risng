@@ -28,8 +28,7 @@
   hosts: reboot_target
   gather_facts: false
   tasks:
-    - name: Trigger reboot
-      ansible.builtin.reboot:
-        msg: "RISng UI triggered reboot"
-        reboot_timeout: 30
-        connect_timeout: 5
+    - name: Trigger reboot without requiring Python on target
+      ansible.builtin.raw: |
+        nohup sh -c 'sleep 1; /sbin/reboot || /usr/sbin/reboot || reboot' >/dev/null 2>&1 &
+      changed_when: true
