@@ -194,6 +194,36 @@ def refresh_job_state():
     return state
 
 
+def get_effective_management_ip(mac: str, fallback_ip: str = '') -> str:
+    mac = (mac or '').strip().lower()
+    fallback_ip = (fallback_ip or '').strip()
+    if not mac:
+        return fallback_ip
+
+    management_state = load_management_state()
+    if isinstance(management_state.get(mac, {}), dict):
+        runtime_ip = str(management_state.get(mac, {}).get('runtime_ip', '') or '').strip()
+        if runtime_ip:
+            return runtime_ip
+        last_runtime_ip = str(management_state.get(mac, {}).get('last_runtime_ip', '') or '').strip()
+        if last_runtime_ip:
+            return last_runtime_ip
+
+    for lease in parse_leases():
+        if str(lease.get('mac', '')).strip().lower() == mac:
+            lease_ip = str(lease.get('ip', '') or '').strip()
+            if lease_ip:
+                return lease_ip
+
+    static_hosts = parse_static_hosts()
+    if isinstance(static_hosts.get(mac, {}), dict):
+        static_ip = str(static_hosts.get(mac, {}).get('ip', '') or '').strip()
+        if static_ip:
+            return static_ip
+
+    return fallback_ip
+
+
 def request_reboot_best_effort(ip: str):
     if not ip:
         return
