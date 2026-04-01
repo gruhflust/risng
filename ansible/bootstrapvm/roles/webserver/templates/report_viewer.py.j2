@@ -257,6 +257,11 @@ def run_apply_async():
     launch_job('assign-apply', update_cmd, cwd=root)
 
 
+def run_repair_dhcp_async():
+    repair_cmd, root = ansible_cmd('bootstrapvm/repair-dhcp.yml')
+    launch_job('repair-dhcp', repair_cmd, cwd=root)
+
+
 def run_assign_deploy_async(target_mac: str, target_ip: str):
     update_cmd, root = ansible_cmd('bootstrapvm/update-dhcp-hosts.yml')
     deploy_cmd, _ = ansible_cmd('secondstage/risdeploy.yml')
@@ -580,7 +585,7 @@ def forget_host():
     if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
         return 'invalid mac', 400
     forget_host_records(mac)
-    run_apply_async()
+    run_repair_dhcp_async()
     return redirect('/')
 
 
