@@ -128,9 +128,10 @@ def ansible_cmd(playbook_rel: str) -> tuple[str, str]:
 def launch_job(job_name: str, command: str, context: dict | None = None, cwd: str | None = None):
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"{job_name}-{int(time.time())}.log"
+    wrapped_command = f"{command}; rc=$?; echo __RISNG_EXIT_CODE__:$rc >> {log_path}; exit $rc"
     with open(log_path, 'ab') as lf:
         proc = subprocess.Popen(
-            ['bash', '-lc', command],
+            ['bash', '-lc', wrapped_command],
             cwd=cwd or os.getcwd(),
             stdout=lf,
             stderr=lf,
@@ -173,6 +174,19 @@ def refresh_job_state():
             if job.get('status') == 'RUNNING':
                 job['status'] = 'FINISHED'
                 job['finished_at'] = now_iso()
+                log_path = str(job.get('log_path', '') or '').strip()
+                if log_path and Path(log_path).exists():
+                    try:
+                        lines = Path(log_path).read_text(errors='ignore').splitlines()
+                        for line in reversed(lines[-20:]):
+                            if line.startswith('__RISNG_EXIT_CODE__:'):
+                                rc = int(line.split(':', 1)[1].strip())
+                                job['exit_code'] = rc
+                                if rc != 0:
+                                    job['status'] = 'FAILED'
+                                break
+                    except Exception:
+                        pass
 
     # post-process assign+deploy -> localdisk after successful validation
     ctx = job.get('context', {}) if isinstance(job.get('context', {}), dict) else {}
@@ -231,6 +245,7 @@ def request_reboot_best_effort(ip: str):
     # credential fallback for different client phases
     variants = [
         f"{base_cmd} -e target_ip={ip} -e reboot_user=root -e reboot_ssh_key_file={{ ssh_user_home }}/.ssh/id_ed25519",
+        f"{base_cmd} -e target_ip={ip} -e reboot_user=root -e reboot_password=root",
     ]
     cmd = " || ".join(variants)
     launch_job('reboot', cmd, {'target_ip': ip}, cwd=root)
@@ -642,7 +657,7 @@ TEMPLATE = """{% raw %}
 <h1>RISng Web UI – Discovery & Assignment</h1>
 <p>Unknown PXE clients can post hardware inventory to <code>/api/discovery</code>. Assigning a role updates DHCP + secondstage target registry and triggers DHCP apply.</p>
 <p><b>Diagnostics:</b> leases={{ diagnostics.lease_count }} static_hosts={{ diagnostics.static_host_count }} discovery={{ diagnostics.discovery_count }} mapped={{ diagnostics.mapped_count }} files={{ diagnostics.lease_files }}</p>
-<p><b>Job:</b> {% if job %}{{ job.name }} | {{ job.status }} | target={{ job.context.target_ip if job.context else '' }} | log={{ job.log_path }}{% else %}none{% endif %}</p>
+<p><b>Job:</b> {% if job %}{{ job.name }} | {{ job.status }}{% if job.exit_code is defined %} | rc={{ job.exit_code }}{% endif %} | target={{ job.context.target_ip if job.context else '' }} | log={{ job.log_path }}{% else %}none{% endif %}</p>
 <style>
   table { border-collapse: collapse; }
   td, th { border: 1px solid #777; }
