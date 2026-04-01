@@ -257,14 +257,27 @@ def delete_host_records(mac: str):
     if mac in m:
         del m[mac]
         save_map(m)
+
     s2 = load_secondstage_targets()
     if mac in s2:
         del s2[mac]
         save_secondstage_targets(s2)
+
+    deploy_state = load_deploy_state()
+    if mac in deploy_state:
+        del deploy_state[mac]
+        save_deploy_state(deploy_state)
+
+    management_state = load_management_state()
+    if mac in management_state:
+        del management_state[mac]
+        save_management_state(management_state)
+
     forgotten = load_forgotten_hosts()
     if mac in forgotten:
         forgotten.remove(mac)
         save_forgotten_hosts(forgotten)
+
     d = DISCOVERY_DIR / f"{mac}.json"
     if d.exists():
         d.unlink()
