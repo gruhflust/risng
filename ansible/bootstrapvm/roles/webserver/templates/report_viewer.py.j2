@@ -26,8 +26,8 @@ VALIDATION_SUMMARY = Path('{{ ssh_user_home }}/risdeploy-validation-summary.json
 PLAYBOOK_ROOT_CANDIDATES = [
     '{{ ssh_user_home }}/risng/ansible',
     '{{ ssh_user_home }}/botrepo/risng/ansible',
-    '/home/master/risng/ansible',
     '/home/risng/risng/ansible',
+    '/home/master/risng/ansible',
 ]
 
 ROLES = ["iCWP", "iFDO", "iCMD", "FDPS", "CORRP", "live-ris", "localdisk"]
@@ -297,6 +297,13 @@ def delete_host_records(mac: str):
     d = DISCOVERY_DIR / f"{mac}.json"
     if d.exists():
         d.unlink()
+
+    mac_slug = mac.replace(':', '-').lower()
+    pxe_override = Path(f"/var/lib/tftpboot/pxelinux.cfg/01-{mac_slug}")
+    grub_override = Path(f"/var/lib/tftpboot/boot/grub/hosts/{mac.lower()}.cfg")
+    for path in (pxe_override, grub_override):
+        if path.exists():
+            path.unlink()
 
 
 def forget_host_records(mac: str):

@@ -5,8 +5,8 @@
   gather_facts: false
 
   vars:
-    ssh_user: "{{ lookup('env', 'USER') }}"
-    ssh_user_home: "{{ lookup('env', 'HOME') }}"
+    ssh_user: "risng"
+    ssh_user_home: "/home/risng"
 
   roles:
     - webserver
