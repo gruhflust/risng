@@ -68,6 +68,7 @@ run_risng_playbook() {
     local playbook="$2"
     local logfile="$3"
     local inventory="${4:-$RISNG_INVENTORY_DEFAULT}"
+    shift 4
 
     mkdir -p "$HOME/.ansible/cp"
     chmod 700 "$HOME/.ansible/cp" 2>/dev/null || true
@@ -101,6 +102,7 @@ run_risng_playbook() {
     fi
 
     cmd+=("$resolved_playbook")
+    cmd+=("$@")
 
     ANSIBLE_CONFIG="$RISNG_ANSIBLE_CFG" \
     ANSIBLE_FORCE_COLOR=true \
