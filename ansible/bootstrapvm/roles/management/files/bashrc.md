@@ -68,6 +68,15 @@ run_risng_playbook() {
     local playbook="$2"
     local logfile="$3"
     local inventory="${4:-$RISNG_INVENTORY_DEFAULT}"
+    shift 4
+
+    mkdir -p "$HOME/.ansible/cp"
+    chmod 700 "$HOME/.ansible/cp" 2>/dev/null || true
+    if [ ! -w "$HOME/.ansible/cp" ]; then
+        echo "ERROR: $HOME/.ansible/cp is not writable (owner/perms wrong)." >&2
+        ls -ld "$HOME/.ansible" "$HOME/.ansible/cp" >&2 || true
+        return 1
+    fi
 
     local resolved_inventory=""
     case "$inventory" in
@@ -93,10 +102,12 @@ run_risng_playbook() {
     fi
 
     cmd+=("$resolved_playbook")
+    cmd+=("$@")
 
     ANSIBLE_CONFIG="$RISNG_ANSIBLE_CFG" \
     ANSIBLE_FORCE_COLOR=true \
-    ANSIBLE_STDOUT_CALLBACK=yaml \
+    ANSIBLE_STDOUT_CALLBACK=default \
+    ANSIBLE_RESULT_FORMAT=yaml \
     ANSIBLE_CALLBACKS_ENABLED=profile_tasks \
     "${cmd[@]}" 2>&1 | tee "$logfile"
 }
@@ -112,13 +123,23 @@ if [ -x /usr/bin/dircolors ]; then
 
     # 01 Full PXE setup (management, debian-live, dns, dhcp etc.)
     alias feuer='run_risng_playbook "-vv" "$RISNG_SETUP_PLAYBOOK" "$HOME/feuer.log"'
+    # 01a Nur Web-UI aus Template neu rendern und Service neustarten
+    alias ris-render-web-ui='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/render-web-ui.yml" "$HOME/render-web-ui.log"'
 
-    # 01a Nur ISO-Downloads vorziehen (identische Tasks wie im Setup)
+    # 01b Nur ISO-Downloads vorziehen (identische Tasks wie im Setup)
     alias getisos='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/getisos.yml" "$HOME/getisos.log"'
     # 01b Nur SecondStage Paket-Repos vorziehen (lokale RPM-Caches auf RISng)
     alias getrispackets='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/getrispackets.yml" "$HOME/getrispackets.log"'
 
     alias repair-dhcp='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/repair-dhcp.yml" "$HOME/repair-dhcp.log"'
+    alias fix-operator-home='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/bootstrapvm/fix-operator-home.yml" "$HOME/fix-operator-home.log"'
+
+    # 01b Second-stage deployment for already installed CentOS clients
+    alias risdeploy='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/secondstage/risdeploy.yml" "$HOME/risdeploy.log"'
+    # 01c Dry-run planner for second-stage deployment (no client changes)
+    alias risdeploy-dryrun='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/secondstage/risdeploy-dryrun.yml" "$HOME/risdeploy-dryrun.log"'
+    # 01d Validation summary for second-stage deployment state (includes optional pytest gate)
+    alias risdeploy-validation='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/secondstage/risdeploy-validation.yml" "$HOME/risdeploy-validation.log"'
 
     # 02 Re-enable PXE NIC and restart TFTP/DHCP services
     alias iron='git -C "$RISNG_DIR" pull'
@@ -153,6 +174,9 @@ if [ -x /usr/bin/dircolors ]; then
     # EANTC mix variants (keep legacy flows untouched)
 
     # EANTC randomized variants
+
+ # Import der Cue Informationen
+    alias inventory-import='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/playbooks/inventory-import.yml" "$HOME/inventory-import.log"'
 
     # Doxygen code documentation (branch/source tree)
     alias doxyris='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/doxygen/doxygen.yml" "$HOME/doxyris.log"'
@@ -310,7 +334,7 @@ nonetbox() {
     # 11 Populate Test data
     alias populate='(cd "$RISNG_PYTHON_DIR" && python3 populate_test_data.py)'
 
-    alias guckma='sudo watch -n 1 '\''for dir in /tmp/pxe-build/* /var/lib/tftpboot/* ; do
+    alias guckma='sudo watch -n 1 '\''for dir in /var/tmp/pxe-build/* /var/lib/tftpboot/* ; do
   [ -d "$dir" ] && echo "--- $dir ---" && du -sh "$dir" && ls -lhS --color=always "$dir"
 done'\'''
 
@@ -321,37 +345,99 @@ done'\'''
 codefromLABtoHUB() {
   local dto_admin_dir="$HOME/dto_admin"
   local mirror_dir="$dto_admin_dir/risng_code"
-  local commit_msg
+  local src_branch dst_branch commit_msg
 
+  [ -d "$dto_admin_dir" ] || { echo "[codefromLABtoHUB] → Missing repo $dto_admin_dir" >&2; return 1; }
+  [ -d "$RISNG_DIR" ] || { echo "[codefromLABtoHUB] → Missing repo $RISNG_DIR" >&2; return 1; }
+
+  if [ -n "$(git -C "$RISNG_DIR" status --porcelain)" ]; then
+    echo "[codefromLABtoHUB] → risng repo has uncommitted changes. Commit or stash first." >&2
+    return 1
+  fi
+
+  if [ -n "$(git -C "$dto_admin_dir" status --porcelain)" ]; then
+    echo "[codefromLABtoHUB] → dto_admin repo has uncommitted changes. Commit or stash first." >&2
+    return 1
+  fi
+
+  src_branch=$(git -C "$RISNG_DIR" rev-parse --abbrev-ref HEAD) || return 1
+  dst_branch=$(git -C "$dto_admin_dir" rev-parse --abbrev-ref HEAD) || return 1
   commit_msg=$(git -C "$RISNG_DIR" log -1 --pretty=%s) || return 1
 
   (
     cd "$dto_admin_dir" || return 1
-    git fetch origin &&
-      git reset --hard origin/main &&
-      rm -rf "$mirror_dir/code" &&
-      mkdir -p "$mirror_dir" &&
-      cp -r "$RISNG_CODE_DIR" "$mirror_dir/code" &&
-      git add . &&
-      git commit -m "$commit_msg" &&
-      git push --force
+    git fetch --all --prune || return 1
+    for remote in origin upstream; do
+      if git ls-remote --exit-code "$remote" &>/dev/null && git show-ref --verify --quiet "refs/remotes/$remote/$dst_branch"; then
+        git pull --ff-only "$remote" "$dst_branch" || return 1
+      fi
+    done
+
+    mkdir -p "$mirror_dir" || return 1
+    rsync -a --delete --exclude='.git/' "$RISNG_CODE_DIR/" "$mirror_dir/" || return 1
+
+    if git diff --quiet -- "$mirror_dir"; then
+      echo "[codefromLABtoHUB] → No changes to mirror." && exit 0
+    fi
+
+    git add "$mirror_dir" || return 1
+    git commit -m "${commit_msg}" || return 1
+    for remote in origin upstream; do
+      if git ls-remote --exit-code "$remote" &>/dev/null; then
+        git push "$remote" "$dst_branch" || return 1
+      fi
+    done
   )
 }
 
 codefromHUBtoLAB() {
   local dto_admin_dir="$HOME/dto_admin"
-  local commit_msg
+  local src_branch dst_branch commit_msg mirror_dir
 
-  git -C "$dto_admin_dir" pull || return 1
+  mirror_dir="$dto_admin_dir/risng_code"
+
+  [ -d "$dto_admin_dir" ] || { echo "[codefromHUBtoLAB] → Missing repo $dto_admin_dir" >&2; return 1; }
+  [ -d "$RISNG_DIR" ] || { echo "[codefromHUBtoLAB] → Missing repo $RISNG_DIR" >&2; return 1; }
+
+  if [ -n "$(git -C "$dto_admin_dir" status --porcelain)" ]; then
+    echo "[codefromHUBtoLAB] → dto_admin repo has uncommitted changes. Commit or stash first." >&2
+    return 1
+  fi
+
+  if [ -n "$(git -C "$RISNG_DIR" status --porcelain)" ]; then
+    echo "[codefromHUBtoLAB] → risng repo has uncommitted changes. Commit or stash first." >&2
+    return 1
+  fi
+
+  src_branch=$(git -C "$dto_admin_dir" rev-parse --abbrev-ref HEAD) || return 1
+  dst_branch=$(git -C "$RISNG_DIR" rev-parse --abbrev-ref HEAD) || return 1
   commit_msg=$(git -C "$dto_admin_dir" log -1 --pretty=%s) || return 1
 
   (
+    cd "$dto_admin_dir" || return 1
+    git fetch --all --prune || return 1
+    for remote in origin upstream; do
+      if git ls-remote --exit-code "$remote" &>/dev/null && git show-ref --verify --quiet "refs/remotes/$remote/$src_branch"; then
+        git pull --ff-only "$remote" "$src_branch" || return 1
+      fi
+    done
+  ) || return 1
+
+  (
     cd "$RISNG_DIR" || return 1
-    rm -rf code &&
-      cp -r "$dto_admin_dir/risng_code" ./code &&
-      git add . &&
-      git commit -m "$commit_msg" &&
-      git push
+    rsync -a --delete --exclude='.git/' "$mirror_dir/" "$RISNG_CODE_DIR/" || return 1
+
+    if git diff --quiet -- "$RISNG_CODE_DIR"; then
+      echo "[codefromHUBtoLAB] → No changes to apply." && exit 0
+    fi
+
+    git add "$RISNG_CODE_DIR" || return 1
+    git commit -m "${commit_msg}" || return 1
+    for remote in origin upstream; do
+      if git ls-remote --exit-code "$remote" &>/dev/null; then
+        git push "$remote" "$dst_branch" || return 1
+      fi
+    done
   )
 }
 
@@ -401,3 +487,5 @@ if ! shopt -oq posix; then
         . /etc/bash_completion
     fi
 fi
+
+alias wannpush='git log --graph --pretty=format:"%C(auto)%h%Creset %C(blue)%ad%Creset %C(auto)%d%Creset %s" --date=iso-local'

@@ -121,7 +121,7 @@
     mode: "0644"
   vars:
     host_bios_label: "{{ dhcp_boot_menu_defaults[item.boot_profile].bios_label }}"
-  loop: "{{ dhcp_static_hosts | selectattr('boot_profile', 'defined') | list }}"
+  loop: "{{ (dhcp_static_hosts_effective | default(dhcp_static_hosts)) | selectattr('boot_profile', 'defined') | list }}"
   when:
     - item.boot_profile in dhcp_boot_menu_defaults
 
@@ -132,6 +132,6 @@
     mode: "0644"
   vars:
     host_uefi_menuentry: "{{ dhcp_boot_menu_defaults[item.boot_profile].uefi_menuentry }}"
-  loop: "{{ dhcp_static_hosts | selectattr('boot_profile', 'defined') | list }}"
+  loop: "{{ (dhcp_static_hosts_effective | default(dhcp_static_hosts)) | selectattr('boot_profile', 'defined') | list }}"
   when:
     - item.boot_profile in dhcp_boot_menu_defaults

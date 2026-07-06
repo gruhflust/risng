@@ -100,6 +100,88 @@
     dest: "{{ risng_workdir }}/etc/systemd/system/multi-user.target.wants/apply-dhcp-hostname.service"
     state: link
 
+
+- name: Task IR-38a - Install RISng live discovery autostart script
+  copy:
+    dest: "{{ risng_workdir }}/usr/local/sbin/risng-discovery-autostart.sh"
+    mode: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      RISNG_HOST="{{ tftp_server_ip }}"
+      API_URL="http://${RISNG_HOST}:8089/api/discovery"
+      STAMP="/run/risng-discovery.sent"
+      [ -f "$STAMP" ] && exit 0
+
+      get_boot_iface() {
+        ip route get 1.1.1.1 2>/dev/null | awk '/dev/ {for(i=1;i<=NF;i++) if($i=="dev") {print $(i+1); exit}}'
+      }
+
+      BOOT_IFACE="$(get_boot_iface || true)"
+      BOOT_MAC=""
+      if [ -n "${BOOT_IFACE}" ]; then
+        BOOT_MAC="$(cat /sys/class/net/${BOOT_IFACE}/address 2>/dev/null | tr 'A-F' 'a-f' || true)"
+      fi
+      if [ -z "$BOOT_MAC" ]; then
+        BOOT_MAC="$(ip -o link | awk '/link\/ether/ {print tolower($17); exit}')"
+      fi
+
+      FIRMWARE_MODE="bios"
+      [ -d /sys/firmware/efi ] && FIRMWARE_MODE="uefi"
+
+      HOSTNAME_CUR="$(hostname 2>/dev/null || true)"
+      IPV4="$(hostname -I 2>/dev/null | awk '{print $1}')"
+      CPU="$(awk -F: '/model name/{gsub(/^ +/,"",$2); print $2; exit}' /proc/cpuinfo 2>/dev/null || true)"
+      RAM="$(awk '/MemTotal/{printf "%.1f GiB", $2/1024/1024}' /proc/meminfo 2>/dev/null || true)"
+      DISK="$(lsblk -dn -o NAME,SIZE,TYPE,MODEL 2>/dev/null | awk '$3=="disk"{print $1":"$2":"$4}' | paste -sd ',' -)"
+
+      python3 - <<PY2
+      import json, urllib.request
+      payload={
+        "mac": "${BOOT_MAC}",
+        "hostname": "${HOSTNAME_CUR}",
+        "ip": "${IPV4}",
+        "hardware": {
+          "cpu": "${CPU}",
+          "ram": "${RAM}",
+          "disk": "${DISK}",
+          "firmware_mode": "${FIRMWARE_MODE}",
+          "boot_iface": "${BOOT_IFACE}",
+          "boot_mac": "${BOOT_MAC}"
+        }
+      }
+      req=urllib.request.Request("${API_URL}", data=json.dumps(payload).encode(), headers={"Content-Type":"application/json"})
+      with urllib.request.urlopen(req, timeout=8) as r:
+          r.read()
+      PY2
+
+      touch "$STAMP"
+
+- name: Task IR-38b - Install RISng discovery systemd service
+  copy:
+    dest: "{{ risng_workdir }}/etc/systemd/system/risng-discovery.service"
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=RISng live discovery collector
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/risng-discovery-autostart.sh
+      Restart=no
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Task IR-38c - Enable RISng discovery service
+  file:
+    src: "../risng-discovery.service"
+    dest: "{{ risng_workdir }}/etc/systemd/system/multi-user.target.wants/risng-discovery.service"
+    state: link
+
 - name: Task IR-39 - Create getty override directory
   file:
     path: "{{ risng_workdir }}/etc/systemd/system/getty@tty1.service.d"

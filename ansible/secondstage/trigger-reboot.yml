@@ -1,0 +1,34 @@
+---
+- name: Stage1/Stage2 helper - trigger reboot on selected client
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - vars/risdeploy_components.yml
+  vars:
+    target_ip: ""
+  tasks:
+    - name: Ensure target_ip is provided
+      ansible.builtin.assert:
+        that:
+          - target_ip | length > 6
+        fail_msg: "target_ip missing, call with -e target_ip=<ip>"
+
+    - name: Register target host for reboot
+      ansible.builtin.add_host:
+        name: reboot_target
+        ansible_host: "{{ target_ip }}"
+        ansible_user: "{{ reboot_user | default(risdeploy_ssh_user, true) }}"
+        ansible_password: "{{ reboot_password | default(omit, true) }}"
+        ansible_become: true
+        ansible_become_password: "{{ reboot_password | default(omit, true) }}"
+        ansible_ssh_private_key_file: "{{ reboot_ssh_key_file | default(omit, true) }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes"
+
+- name: Reboot target host
+  hosts: reboot_target
+  gather_facts: false
+  tasks:
+    - name: Trigger reboot without requiring Python on target
+      ansible.builtin.raw: |
+        nohup sh -c 'sleep 1; /sbin/reboot || /usr/sbin/reboot || reboot' >/dev/null 2>&1 &
+      changed_when: true

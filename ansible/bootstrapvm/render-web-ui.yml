@@ -1,0 +1,12 @@
+---
+- name: Fast re-render of RISng web UI only
+  hosts: bootstrapvm
+  become: true
+  gather_facts: false
+
+  vars:
+    ssh_user: "risng"
+    ssh_user_home: "/home/risng"
+
+  roles:
+    - webserver

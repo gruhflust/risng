@@ -1,51 +1,376 @@
-from flask import Flask, render_template_string, request, redirect
+from flask import Flask, render_template_string, request, redirect, jsonify
 import json
 import re
 import subprocess
+import os
+import time
+import socket
 from pathlib import Path
+from datetime import datetime, timezone
 
 app = Flask(__name__)
 
-LEASES_FILE = Path('/var/lib/dhcp/dhcpd.leases')
+LEASES_FILES = [Path('/var/lib/dhcp/dhcpd.leases'), Path('/var/lib/dhcp/dhcpd.leases~')]
 MAP_FILE = Path('/etc/risng/mac_role_map.json')
 DISCOVERY_DIR = Path('/var/lib/tftpboot/runtime/discovery')
-UPDATE_PLAYBOOK = "{{ ssh_user_home }}/botrepo/risng_code/ansible/bootstrapvm/update-dhcp-hosts.yml"
+SECONDSTAGE_TARGETS_FILE = Path('/etc/risng/secondstage_targets.json')
+STATIC_HOSTS_FILE = Path('/etc/dhcp/static-hosts.conf')
+FORGOTTEN_HOSTS_FILE = Path('/var/lib/tftpboot/runtime/forgotten_hosts.json')
+NGINX_ACCESS_LOG = Path('/var/log/nginx/risng-pxe.access.log')
+STATE_FILE = Path('/var/lib/tftpboot/runtime/webui_state.json')
+DEPLOY_STATE_FILE = Path('/var/lib/tftpboot/runtime/deploy_state.json')
+MANAGEMENT_STATE_FILE = Path('/var/lib/tftpboot/runtime/management_state.json')
+LOG_DIR = Path('/var/lib/tftpboot/runtime/webui_logs')
+VALIDATION_SUMMARY = Path('{{ ssh_user_home }}/risdeploy-validation-summary.json')
 
-ROLES = ["iCWP", "iFDO", "iCMD", "FDPS", "CORRP", "live-ris"]
+PLAYBOOK_ROOT_CANDIDATES = [
+    '{{ ssh_user_home }}/risng/ansible',
+    '{{ ssh_user_home }}/botrepo/risng/ansible',
+    '/home/risng/risng/ansible',
+    '/home/master/risng/ansible',
+]
+
+ROLES = ["iCWP", "iFDO", "iCMD", "FDPS", "CORRP", "live-ris", "localdisk"]
+DEFAULT_COMPONENTS = ["graphics-gnome", "common-linux-monitoring-base"]
+AUTO_LOCALBOOT_ON_SUCCESS = True
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def load_json(path: Path, default):
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            return default
+    return default
+
+
+def save_json(path: Path, data):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, sort_keys=True))
 
 
 def load_map():
-    if MAP_FILE.exists():
-        try:
-            return json.loads(MAP_FILE.read_text())
-        except Exception:
-            return {}
-    return {}
+    return load_json(MAP_FILE, {})
 
 
 def save_map(data):
-    MAP_FILE.parent.mkdir(parents=True, exist_ok=True)
-    MAP_FILE.write_text(json.dumps(data, indent=2, sort_keys=True))
+    save_json(MAP_FILE, data)
+
+
+def load_secondstage_targets():
+    return load_json(SECONDSTAGE_TARGETS_FILE, {})
+
+
+def save_secondstage_targets(data):
+    save_json(SECONDSTAGE_TARGETS_FILE, data)
+
+
+def load_management_state():
+    data = load_json(MANAGEMENT_STATE_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def save_management_state(data):
+    save_json(MANAGEMENT_STATE_FILE, data if isinstance(data, dict) else {})
+
+
+def update_management_state(mac: str, **fields):
+    state = load_management_state()
+    current = state.get(mac, {}) if isinstance(state.get(mac, {}), dict) else {}
+    current.update({k: v for k, v in fields.items() if v is not None})
+    current['mac'] = mac
+    current['last_seen'] = now_iso()
+    state[mac] = current
+    save_management_state(state)
+    return current
+
+
+def load_deploy_state():
+    data = load_json(DEPLOY_STATE_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def save_deploy_state(data):
+    save_json(DEPLOY_STATE_FILE, data if isinstance(data, dict) else {})
+
+
+def load_forgotten_hosts():
+    data = load_json(FORGOTTEN_HOSTS_FILE, [])
+    if isinstance(data, list):
+        return set(str(x).lower() for x in data if isinstance(x, str))
+    return set()
+
+
+def save_forgotten_hosts(items):
+    save_json(FORGOTTEN_HOSTS_FILE, sorted(set(str(x).lower() for x in items)))
+
+
+def resolve_ansible_root() -> Path:
+    for root in PLAYBOOK_ROOT_CANDIDATES:
+        rp = Path(root)
+        if rp.exists() and (rp / 'ansible.cfg').exists() and (rp / 'inventory/hosts.yml').exists():
+            return rp
+    return Path(PLAYBOOK_ROOT_CANDIDATES[0])
+
+
+def ansible_cmd(playbook_rel: str) -> tuple[str, str]:
+    root = resolve_ansible_root()
+    cfg = root / 'ansible.cfg'
+    inv = root / 'inventory/hosts.yml'
+    pb = root / playbook_rel
+    cmd = f"ANSIBLE_CONFIG={cfg} ansible-playbook -i {inv} {pb}"
+    return cmd, str(root)
+
+
+def launch_job(job_name: str, command: str, context: dict | None = None, cwd: str | None = None):
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_path = LOG_DIR / f"{job_name}-{int(time.time())}.log"
+    wrapped_command = f"{command}; rc=$?; echo __RISNG_EXIT_CODE__:$rc >> {log_path}; exit $rc"
+    with open(log_path, 'ab') as lf:
+        proc = subprocess.Popen(
+            ['bash', '-lc', wrapped_command],
+            cwd=cwd or os.getcwd(),
+            stdout=lf,
+            stderr=lf,
+            env={**os.environ, 'HOME': '{{ ssh_user_home }}'},
+        )
+    state = load_json(STATE_FILE, {})
+    state['job'] = {
+        'name': job_name,
+        'pid': proc.pid,
+        'started_at': now_iso(),
+        'log_path': str(log_path),
+        'status': 'RUNNING',
+        'command': command,
+        'context': context or {},
+    }
+    save_json(STATE_FILE, state)
+
+
+def load_validation_index():
+    data = load_json(VALIDATION_SUMMARY, {})
+    out = {}
+    for h in data.get('hosts', []):
+        ip = h.get('ip', '')
+        if ip:
+            out[ip] = bool(h.get('overall_ok'))
+    return out
+
+
+def refresh_job_state():
+    state = load_json(STATE_FILE, {})
+    job = state.get('job')
+    if not job:
+        return state
+    pid = int(job.get('pid', 0) or 0)
+    if pid > 0:
+        try:
+            os.kill(pid, 0)
+            job['status'] = 'RUNNING'
+        except OSError:
+            if job.get('status') == 'RUNNING':
+                job['status'] = 'FINISHED'
+                job['finished_at'] = now_iso()
+                log_path = str(job.get('log_path', '') or '').strip()
+                if log_path and Path(log_path).exists():
+                    try:
+                        lines = Path(log_path).read_text(errors='ignore').splitlines()
+                        for line in reversed(lines[-20:]):
+                            if line.startswith('__RISNG_EXIT_CODE__:'):
+                                rc = int(line.split(':', 1)[1].strip())
+                                job['exit_code'] = rc
+                                if rc != 0:
+                                    job['status'] = 'FAILED'
+                                break
+                    except Exception:
+                        pass
+
+    # post-process assign+deploy -> localdisk after successful validation
+    ctx = job.get('context', {}) if isinstance(job.get('context', {}), dict) else {}
+    if AUTO_LOCALBOOT_ON_SUCCESS and job.get('name') == 'assign-deploy' and job.get('status') == 'FINISHED' and not ctx.get('post_processed'):
+        ip = ctx.get('target_ip', '')
+        mac = ctx.get('target_mac', '')
+        if ip and mac and load_validation_index().get(ip):
+            m = load_map()
+            if mac in m:
+                m[mac]['role'] = 'localdisk'
+                save_map(m)
+                update_cmd, root = ansible_cmd('bootstrapvm/update-dhcp-hosts.yml')
+                launch_job('post-deploy-localboot', update_cmd, {'target_ip': ip, 'target_mac': mac}, cwd=root)
+        ctx['post_processed'] = True
+        job['context'] = ctx
+
+    state['job'] = job
+    save_json(STATE_FILE, state)
+    return state
+
+
+def get_effective_management_ip(mac: str, fallback_ip: str = '') -> str:
+    mac = (mac or '').strip().lower()
+    fallback_ip = (fallback_ip or '').strip()
+    if not mac:
+        return fallback_ip
+
+    management_state = load_management_state()
+    if isinstance(management_state.get(mac, {}), dict):
+        runtime_ip = str(management_state.get(mac, {}).get('runtime_ip', '') or '').strip()
+        if runtime_ip:
+            return runtime_ip
+        last_runtime_ip = str(management_state.get(mac, {}).get('last_runtime_ip', '') or '').strip()
+        if last_runtime_ip:
+            return last_runtime_ip
+
+    for lease in parse_leases():
+        if str(lease.get('mac', '')).strip().lower() == mac:
+            lease_ip = str(lease.get('ip', '') or '').strip()
+            if lease_ip:
+                return lease_ip
+
+    static_hosts = parse_static_hosts()
+    if isinstance(static_hosts.get(mac, {}), dict):
+        static_ip = str(static_hosts.get(mac, {}).get('ip', '') or '').strip()
+        if static_ip:
+            return static_ip
+
+    return fallback_ip
+
+
+def request_reboot_best_effort(ip: str):
+    if not ip:
+        return
+    base_cmd, root = ansible_cmd('secondstage/trigger-reboot.yml')
+    # credential fallback for different client phases
+    variants = [
+        f"{base_cmd} -e target_ip={ip} -e reboot_user=root -e reboot_ssh_key_file={{ ssh_user_home }}/.ssh/id_ed25519",
+        f"{base_cmd} -e target_ip={ip} -e reboot_user=root -e reboot_password=root",
+    ]
+    cmd = " || ".join(variants)
+    launch_job('reboot', cmd, {'target_ip': ip}, cwd=root)
+
+
+def run_apply_async():
+    update_cmd, root = ansible_cmd('bootstrapvm/update-dhcp-hosts.yml')
+    launch_job('assign-apply', update_cmd, cwd=root)
+
+
+def run_repair_dhcp_async():
+    repair_cmd, root = ansible_cmd('bootstrapvm/repair-dhcp.yml')
+    launch_job('repair-dhcp', repair_cmd, cwd=root)
+
+
+def run_assign_deploy_async(target_mac: str, target_ip: str):
+    update_cmd, root = ansible_cmd('bootstrapvm/update-dhcp-hosts.yml')
+    deploy_cmd, _ = ansible_cmd('secondstage/risdeploy.yml')
+    validate_cmd, _ = ansible_cmd('secondstage/risdeploy-validation.yml')
+    deploy_state = load_deploy_state()
+    deploy_state[target_mac] = 'DEPLOYING'
+    save_deploy_state(deploy_state)
+    cmd = f"{update_cmd} && {deploy_cmd} -e risdeploy_target_mac={target_mac} && {validate_cmd} -e risdeploy_validation_target_mac={target_mac}"
+    launch_job('assign-deploy', cmd, {'target_mac': target_mac, 'target_ip': target_ip, 'post_processed': False}, cwd=root)
+
+
+def delete_host_records(mac: str):
+    m = load_map()
+    if mac in m:
+        del m[mac]
+        save_map(m)
+
+    s2 = load_secondstage_targets()
+    if mac in s2:
+        del s2[mac]
+        save_secondstage_targets(s2)
+
+    deploy_state = load_deploy_state()
+    if mac in deploy_state:
+        del deploy_state[mac]
+        save_deploy_state(deploy_state)
+
+    management_state = load_management_state()
+    if mac in management_state:
+        del management_state[mac]
+        save_management_state(management_state)
+
+    forgotten = load_forgotten_hosts()
+    if mac in forgotten:
+        forgotten.remove(mac)
+        save_forgotten_hosts(forgotten)
+
+    d = DISCOVERY_DIR / f"{mac}.json"
+    if d.exists():
+        d.unlink()
+
+    mac_slug = mac.replace(':', '-').lower()
+    pxe_override = Path(f"/var/lib/tftpboot/pxelinux.cfg/01-{mac_slug}")
+    grub_override = Path(f"/var/lib/tftpboot/boot/grub/hosts/{mac.lower()}.cfg")
+    for path in (pxe_override, grub_override):
+        if path.exists():
+            path.unlink()
+
+
+def forget_host_records(mac: str):
+    delete_host_records(mac)
+    forgotten = load_forgotten_hosts()
+    forgotten.add(mac)
+    save_forgotten_hosts(forgotten)
+
+
+def parse_static_hosts():
+    items = {}
+    if not STATIC_HOSTS_FILE.exists():
+        return items
+    current = {}
+    for raw in STATIC_HOSTS_FILE.read_text(errors='ignore').splitlines():
+        line = raw.strip()
+        if line.startswith('host ') and line.endswith('{'):
+            current = {'name': line.split()[1]}
+            continue
+        if line.startswith('hardware ethernet '):
+            current['mac'] = line.split()[2].rstrip(';').lower()
+            continue
+        if line.startswith('fixed-address '):
+            current['ip'] = line.split()[1].rstrip(';')
+            continue
+        if line == '}':
+            mac = current.get('mac')
+            if mac:
+                items[mac] = {'mac': mac, 'ip': current.get('ip', ''), 'hostname': current.get('name', '')}
+            current = {}
+    return items
 
 
 def parse_leases():
     items = {}
-    if not LEASES_FILE.exists():
-        return []
-    current = {}
-    for line in LEASES_FILE.read_text(errors='ignore').splitlines():
-        line = line.strip()
-        if line.startswith('lease '):
-            current = {'ip': line.split()[1]}
-        elif line.startswith('hardware ethernet '):
-            current['mac'] = line.split()[2].rstrip(';').lower()
-        elif line.startswith('client-hostname '):
-            current['hostname'] = line.split(' ', 1)[1].strip().strip(';').strip('"')
-        elif line == '}':
-            mac = current.get('mac')
-            if mac:
-                items[mac] = {'mac': mac, 'ip': current.get('ip', ''), 'hostname': current.get('hostname', '')}
-            current = {}
+    lease_re = re.compile(r'^lease\s+([0-9.]+)\s+\{')
+    mac_re = re.compile(r'^hardware\s+ethernet\s+([0-9a-f:]{17});', re.IGNORECASE)
+    host_re = re.compile(r'^client-hostname\s+"(.*)";')
+
+    for lf in LEASES_FILES:
+        if not lf.exists():
+            continue
+        current = {}
+        for raw in lf.read_text(errors='ignore').splitlines():
+            line = raw.strip()
+            m = lease_re.match(line)
+            if m:
+                current = {'ip': m.group(1)}
+                continue
+            m = mac_re.match(line)
+            if m:
+                current['mac'] = m.group(1).lower()
+                continue
+            m = host_re.match(line)
+            if m:
+                current['hostname'] = m.group(1)
+                continue
+            if line == '}':
+                mac = current.get('mac')
+                if mac:
+                    items[mac] = {'mac': mac, 'ip': current.get('ip', ''), 'hostname': current.get('hostname', '')}
+                current = {}
     return sorted(items.values(), key=lambda x: x.get('mac', ''))
 
 
@@ -59,23 +384,252 @@ def load_discovery(mac):
         return {}
 
 
+def list_discovery_files():
+    DISCOVERY_DIR.mkdir(parents=True, exist_ok=True)
+    out = []
+    for p in sorted(DISCOVERY_DIR.glob('*.json')):
+        mac = p.stem.lower()
+        if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+            continue
+        out.append({'mac': mac, 'hw': load_discovery(mac)})
+    return out
+
+
+def parse_install_progress_ips():
+    progress = {}
+    if not NGINX_ACCESS_LOG.exists():
+        return progress
+    lines = NGINX_ACCESS_LOG.read_text(errors='ignore').splitlines()[-2000:]
+    for ln in lines:
+        parts = ln.split(' ', 3)
+        if len(parts) < 4:
+            continue
+        ip = parts[0]
+        if '/kickstart/' in ln:
+            progress[ip] = 'INSTALL_RUNNING'
+        elif '/centos/7/os/x86_64/' in ln and progress.get(ip) != 'INSTALL_RUNNING':
+            progress[ip] = 'STAGE2_FETCH'
+    return progress
+
+
+def infer_role_from_hostname(hostname: str) -> str:
+    h = (hostname or '').lower()
+    if 'cmd' in h:
+        return 'iCMD'
+    if 'cwp' in h:
+        return 'iCWP'
+    if 'fdo' in h:
+        return 'iFDO'
+    if 'fdps' in h:
+        return 'FDPS'
+    if 'corrp' in h:
+        return 'CORRP'
+    return 'iCWP'
+
+
+def ssh_reachable(ip: str, timeout: float = 0.35) -> bool:
+    if not ip:
+        return False
+    try:
+        with socket.create_connection((ip, 22), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+@app.route('/api/discovery', methods=['POST'])
+def api_discovery():
+    payload = request.get_json(silent=True) or {}
+    mac = str(payload.get('mac', '')).strip().lower()
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return jsonify({'ok': False, 'error': 'invalid mac'}), 400
+    hw = payload.get('hardware', {}) if isinstance(payload.get('hardware', {}), dict) else {}
+    record = {
+        'mac': mac,
+        'hostname': payload.get('hostname', ''),
+        'ip': payload.get('ip', ''),
+        'timestamp': now_iso(),
+        'hardware': hw,
+    }
+    DISCOVERY_DIR.mkdir(parents=True, exist_ok=True)
+    (DISCOVERY_DIR / f"{mac}.json").write_text(json.dumps(record, indent=2, sort_keys=True))
+    update_management_state(mac, runtime_ip=record.get('ip',''), last_runtime_ip=record.get('ip',''), phase='DISCOVERED')
+    return jsonify({'ok': True, 'mac': mac})
+
+
 @app.route('/')
 def index():
     role_map = load_map()
-    leases = parse_leases()
+    secondstage = load_secondstage_targets()
+    forgotten = load_forgotten_hosts()
+    leases = {l['mac']: l for l in parse_leases() if l.get('mac', '').lower() not in forgotten}
+    static_hosts = {k: v for k, v in parse_static_hosts().items() if k.lower() not in forgotten}
+    progress = parse_install_progress_ips()
+    validation_index = load_validation_index()
+    deploy_state = load_deploy_state()
+    management_state = load_management_state()
+    state = refresh_job_state()
+
+    known_macs = set(leases.keys()) | set(static_hosts.keys()) | set(role_map.keys()) | set(secondstage.keys())
+    for d in list_discovery_files():
+        known_macs.add(d['mac'])
+
     rows = []
-    for l in leases:
-        mac = l['mac']
+    for mac in sorted(known_macs):
+        lease = leases.get(mac, {})
+        stat = static_hosts.get(mac, {})
         meta = role_map.get(mac, {})
-        hw = load_discovery(mac)
+        s2 = secondstage.get(mac, {})
+        d = load_discovery(mac)
+
+        mgmt = management_state.get(mac, {}) if isinstance(management_state.get(mac, {}), dict) else {}
+        runtime_ip = lease.get('ip', '') or mgmt.get('runtime_ip', '') or stat.get('ip', '')
+        assigned_ip = meta.get('ip') or s2.get('ip', '') or mgmt.get('assigned_ip', '')
+        ip = assigned_ip or runtime_ip
+        update_management_state(mac, runtime_ip=runtime_ip or None, assigned_ip=assigned_ip or None, name=(meta.get('name') or s2.get('name') or lease.get('hostname','') or stat.get('hostname','') or mgmt.get('name') or None), role=(meta.get('role') or s2.get('boot_profile') or mgmt.get('role') or None))
+        role_eff = meta.get('role') or s2.get('boot_profile') or infer_role_from_hostname(meta.get('name') or s2.get('name') or lease.get('hostname','') or stat.get('hostname',''))
+
+        status = 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else ('LEASED' if mac in leases else 'CONFIGURED'))
+        reachable_now = ssh_reachable(runtime_ip or ip)
+        if (meta.get('role') == 'localdisk' or s2.get('boot_profile') == 'localdisk') and ip and validation_index.get(ip):
+            status = 'BOOT_LOCAL_SET'
+        elif ip and validation_index.get(ip):
+            status = 'INSTALLED'
+        elif deploy_state.get(mac) == 'DEPLOYING':
+            status = 'DEPLOYING'
+        elif assigned_ip and reachable_now:
+            status = 'DEPLOYABLE'
+        elif reachable_now:
+            status = 'MANAGABLE'
+        elif runtime_ip and runtime_ip in progress:
+            status = progress[runtime_ip]
+
         rows.append({
             'mac': mac,
-            'ip': meta.get('ip') or l.get('ip', ''),
-            'hostname': meta.get('name') or l.get('hostname', ''),
-            'role': meta.get('role', ''),
-            'hw': hw,
+            'ip': ip,
+            'runtime_ip': runtime_ip,
+            'hostname': meta.get('name') or s2.get('name') or lease.get('hostname','') or stat.get('hostname',''),
+            'role': role_eff,
+            'secondstage_enabled': bool(s2.get('secondstage_enabled')),
+            'components': ','.join(s2.get('secondstage_components', [])) if isinstance(s2.get('secondstage_components', []), list) else '',
+            'hw': d.get('hardware', d if isinstance(d, dict) else {}),
+            'status': status,
         })
-    return render_template_string(TEMPLATE, rows=rows, roles=ROLES)
+
+    known_ips = {r['runtime_ip'] or r['ip'] for r in rows if (r.get('runtime_ip') or r.get('ip'))}
+    for ip, st in progress.items():
+        if ip in known_ips:
+            continue
+        rows.append({'mac': 'n/a', 'ip': ip, 'runtime_ip': ip, 'hostname': '', 'role': '', 'secondstage_enabled': False, 'components': '', 'hw': {}, 'status': st})
+
+    diagnostics = {
+        'lease_files': [str(p) for p in LEASES_FILES if p.exists()],
+        'lease_count': len(leases),
+        'static_host_count': len(static_hosts),
+        'discovery_count': len(list_discovery_files()),
+        'mapped_count': len(role_map),
+    }
+    return render_template_string(TEMPLATE, rows=rows, roles=ROLES, diagnostics=diagnostics, job=state.get('job', {}))
+
+
+@app.route('/set_boot', methods=['POST'])
+def set_boot():
+    mac = request.form.get('mac', '').strip().lower()
+    mode = request.form.get('mode', '').strip().lower()
+    ip = request.form.get('ip', '').strip()
+    runtime_ip = request.form.get('runtime_ip', '').strip()
+    name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
+    role_hint = request.form.get('role_hint', '').strip() or 'iCMD'
+
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return 'invalid mac', 400
+    if mode not in ('pxe', 'localdisk'):
+        return 'invalid mode', 400
+
+    role = 'localdisk' if mode == 'localdisk' else role_hint
+    if role not in ROLES:
+        role = 'iCMD'
+
+    m = load_map(); m[mac] = {'role': role, 'ip': ip, 'name': name}; save_map(m)
+    update_management_state(mac, assigned_ip=ip or None, name=name, role=role, phase='ASSIGNED')
+    s2 = load_secondstage_targets()
+    cur = s2.get(mac, {})
+    s2[mac] = {
+        'name': name,
+        'mac': mac,
+        'ip': ip,
+        'boot_profile': role,
+        'secondstage_enabled': bool(cur.get('secondstage_enabled', role != 'live-ris')),
+        'secondstage_components': cur.get('secondstage_components', DEFAULT_COMPONENTS),
+        'updated_at': now_iso(),
+    }
+    save_secondstage_targets(s2)
+
+    run_apply_async()
+    return redirect('/')
+
+
+@app.route('/delete_host', methods=['POST'])
+def delete_host():
+    mac = request.form.get('mac', '').strip().lower()
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return 'invalid mac', 400
+    delete_host_records(mac)
+    run_apply_async()
+    return redirect('/')
+
+
+@app.route('/forget_host', methods=['POST'])
+def forget_host():
+    mac = request.form.get('mac', '').strip().lower()
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return 'invalid mac', 400
+    forget_host_records(mac)
+    run_repair_dhcp_async()
+    return redirect('/')
+
+
+@app.route('/reboot', methods=['POST'])
+def reboot_host():
+    mac = request.form.get('mac', '').strip().lower()
+    fallback_ip = request.form.get('runtime_ip', '').strip() or request.form.get('ip', '').strip()
+    ip = get_effective_management_ip(mac, fallback_ip) if mac else fallback_ip
+    request_reboot_best_effort(ip)
+    return redirect('/')
+
+
+@app.route('/assign_deploy', methods=['POST'])
+def assign_deploy():
+    mac = request.form.get('mac', '').strip().lower()
+    role = request.form.get('role', '').strip()
+    ip = request.form.get('ip', '').strip()
+    runtime_ip = request.form.get('runtime_ip', '').strip()
+    name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
+    enable_secondstage = request.form.get('secondstage_enabled', 'on') == 'on'
+
+    if ip and not re.match(r'^\d{1,3}(?:\.\d{1,3}){3}$', ip):
+        return 'invalid ip', 400
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return 'invalid mac', 400
+    if role not in ROLES:
+        return 'invalid role', 400
+
+    m = load_map(); m[mac] = {'role': role, 'ip': ip, 'name': name}; save_map(m)
+    s2 = load_secondstage_targets()
+    s2[mac] = {
+        'name': name,
+        'mac': mac,
+        'ip': ip,
+        'boot_profile': role,
+        'secondstage_enabled': bool(enable_secondstage and role != 'live-ris'),
+        'secondstage_components': DEFAULT_COMPONENTS,
+        'updated_at': now_iso(),
+    }
+    save_secondstage_targets(s2)
+
+    update_management_state(mac, runtime_ip=(runtime_ip or None), assigned_ip=(ip or None), name=name, role=role, phase='DEPLOYING')
+    run_assign_deploy_async(mac, ip)
+    return redirect('/')
 
 
 @app.route('/assign', methods=['POST'])
@@ -83,32 +637,65 @@ def assign():
     mac = request.form.get('mac', '').strip().lower()
     role = request.form.get('role', '').strip()
     ip = request.form.get('ip', '').strip()
+    runtime_ip = request.form.get('runtime_ip', '').strip()
     name = request.form.get('name', '').strip() or f"auto-{mac.replace(':','-')}"
+    enable_secondstage = request.form.get('secondstage_enabled', 'on') == 'on'
 
+    if ip and not re.match(r'^\d{1,3}(?:\.\d{1,3}){3}$', ip):
+        return 'invalid ip', 400
     if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
         return 'invalid mac', 400
     if role not in ROLES:
         return 'invalid role', 400
 
-    data = load_map()
-    data[mac] = {'role': role, 'ip': ip, 'name': name}
-    save_map(data)
+    m = load_map(); m[mac] = {'role': role, 'ip': ip, 'name': name}; save_map(m)
+    s2 = load_secondstage_targets()
+    s2[mac] = {
+        'name': name,
+        'mac': mac,
+        'ip': ip,
+        'boot_profile': role,
+        'secondstage_enabled': bool(enable_secondstage and role != 'live-ris'),
+        'secondstage_components': DEFAULT_COMPONENTS,
+        'updated_at': now_iso(),
+    }
+    save_secondstage_targets(s2)
 
-    subprocess.Popen(['ansible-playbook', UPDATE_PLAYBOOK])
+    run_apply_async()
     return redirect('/')
 
 
 TEMPLATE = """{% raw %}
-<html><body style="font-family: sans-serif;">
-<h1>RISng Control UI (Prototype)</h1>
-<p>Booted MACs + role mapping. Saving triggers DHCP refresh.</p>
+<html><head><meta http-equiv="refresh" content="5"></head><body style="font-family: sans-serif;">
+<h1>RISng Web UI – Discovery & Assignment</h1>
+<p>Unknown PXE clients can post hardware inventory to <code>/api/discovery</code>. Assigning a role updates DHCP + secondstage target registry and triggers DHCP apply.</p>
+<p><b>Diagnostics:</b> leases={{ diagnostics.lease_count }} static_hosts={{ diagnostics.static_host_count }} discovery={{ diagnostics.discovery_count }} mapped={{ diagnostics.mapped_count }} files={{ diagnostics.lease_files }}</p>
+<p><b>Job:</b> {% if job %}{{ job.name }} | {{ job.status }}{% if job.exit_code is defined %} | rc={{ job.exit_code }}{% endif %} | target={{ job.context.target_ip if job.context else '' }} | log={{ job.log_path }}{% else %}none{% endif %}</p>
+<style>
+  table { border-collapse: collapse; }
+  td, th { border: 1px solid #777; }
+  tr.status-configured td:first-child { background: #0f5132; color: #fff; font-weight: 600; }
+  tr.status-install_running td:first-child, tr.status-stage2_fetch td:first-child { background: #0b5ed7; color: #fff; font-weight: 600; }
+  tr.status-deploying td:first-child { background: #6f42c1; color: #fff; font-weight: 700; }
+  tr.status-installed td:first-child { background: #8fd19e; color: #000; font-weight: 600; }
+  tr.status-leased td:first-child { background: #ffb74d; color: #000; font-weight: 600; }
+  tr.status-leased td:nth-child(3) { background: #8fd19e; }
+  tr.status-managable td:first-child { background: #cde8ff; color: #000; font-weight: 600; }
+  tr.status-deployable td:first-child { background: #0b5ed7; color: #fff; font-weight: 700; }
+  tr.status-assigned td:first-child { background: #b39ddb; color: #000; font-weight: 600; }
+  tr.status-boot_local_set td:first-child { background: #ffe08a; color: #000; font-weight: 700; }
+</style>
 <table border="1" cellpadding="6" cellspacing="0">
-<tr><th>MAC</th><th>IP</th><th>Hostname</th><th>HW Info</th><th>Role Mapping</th></tr>
+<tr><th>Status</th><th>MAC</th><th>Runtime IP</th><th>Assigned IP</th><th>Hostname</th><th>Role</th><th>SecondStage</th><th>HW Info</th><th>Assign/Update</th><th>Actions</th></tr>
 {% for r in rows %}
-<tr>
+<tr class="status-{{ r.status | lower }}">
+  <td>{{ r.status }}</td>
   <td>{{ r.mac }}</td>
+  <td>{{ r.runtime_ip }}</td>
   <td>{{ r.ip }}</td>
   <td>{{ r.hostname }}</td>
+  <td>{{ r.role }}</td>
+  <td>{{ 'on' if r.secondstage_enabled else 'off' }}</td>
   <td>
     CPU: {{ r.hw.get('cpu','n/a') }}<br>
     RAM: {{ r.hw.get('ram','n/a') }}<br>
@@ -118,13 +705,41 @@ TEMPLATE = """{% raw %}
     <form action="/assign" method="post">
       <input type="hidden" name="mac" value="{{ r.mac }}"/>
       <input type="text" name="ip" value="{{ r.ip }}" size="13"/>
+      <input type="hidden" name="runtime_ip" value="{{ r.runtime_ip }}"/>
       <input type="text" name="name" value="{{ r.hostname }}" size="14"/>
       <select name="role">
         {% for role in roles %}
         <option value="{{ role }}" {% if r.role == role %}selected{% endif %}>{{ role }}</option>
         {% endfor %}
       </select>
+      <label><input type="checkbox" name="secondstage_enabled" {% if r.secondstage_enabled %}checked{% endif %}/> secondstage</label>
       <button type="submit">Assign + Apply</button>
+      <button formaction="/assign_deploy" formmethod="post" type="submit">Assign + Deploy</button>
+    </form>
+  </td>
+  <td>
+    <form action="/set_boot" method="post" style="margin-bottom:4px;">
+      <input type="hidden" name="mac" value="{{ r.mac }}"/>
+      <input type="hidden" name="ip" value="{{ r.ip }}"/>
+      <input type="hidden" name="runtime_ip" value="{{ r.runtime_ip }}"/>
+      <input type="hidden" name="name" value="{{ r.hostname }}"/>
+      <input type="hidden" name="role_hint" value="{{ r.role if r.role else 'iCMD' }}"/>
+      <button name="mode" value="pxe" type="submit">Set PXE</button>
+      <button name="mode" value="localdisk" type="submit">Set Local Disk</button>
+    </form>
+    <form action="/reboot" method="post" style="display:inline;">
+      <input type="hidden" name="mac" value="{{ r.mac }}"/>
+      <input type="hidden" name="ip" value="{{ r.ip }}"/>
+      <input type="hidden" name="runtime_ip" value="{{ r.runtime_ip }}"/>
+      <button type="submit">Reboot</button>
+    </form>
+    <form action="/delete_host" method="post" style="display:inline;" onsubmit="return confirm('Delete assignment only?');">
+      <input type="hidden" name="mac" value="{{ r.mac }}"/>
+      <button type="submit">Delete Assignment</button>
+    </form>
+    <form action="/forget_host" method="post" style="display:inline;" onsubmit="return confirm('Forget host completely? It will disappear from leased/discovery and must rediscover on next boot.');">
+      <input type="hidden" name="mac" value="{{ r.mac }}"/>
+      <button type="submit">Forget Host</button>
     </form>
   </td>
 </tr>

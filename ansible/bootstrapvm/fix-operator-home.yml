@@ -1,0 +1,21 @@
+---
+- name: Repair RISng operator home permissions needed for ansible control path
+  hosts: bootstrapvm
+  become: true
+  gather_facts: false
+
+  vars:
+    risng_operator_user: risng
+    risng_operator_home: /home/risng
+
+  tasks:
+    - name: Ensure operator .ansible directories exist with correct ownership
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ risng_operator_user }}"
+        group: "{{ risng_operator_user }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { path: "{{ risng_operator_home }}/.ansible", mode: "0755" }
+        - { path: "{{ risng_operator_home }}/.ansible/cp", mode: "0700" }
