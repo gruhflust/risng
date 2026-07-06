@@ -44,16 +44,20 @@ xterm*|rxvt*)
     ;;
 esac
 
-# Auto-detect RISng checkout path
-if [ -d "$HOME/risng" ]; then
-    RISNG_DIR="$HOME/risng"
-elif [ -d "$HOME/botrepo/risng_code" ]; then
-    RISNG_DIR="$HOME/botrepo/risng_code"
-elif [ -d "$HOME/botrepo/risng" ]; then
-    RISNG_DIR="$HOME/botrepo/risng"
-else
-    RISNG_DIR="$HOME/risng"
-fi
+# Auto-detect RISng checkout path. Prefer a checkout that actually contains
+# the bootstrap playbooks; stale compatibility directories must not win.
+risng_detect_dir() {
+    local candidate
+    for candidate in "$HOME/botrepo/risng_code" "$HOME/risng" "$HOME/botrepo/risng"; do
+        if [ -f "$candidate/ansible/bootstrapvm/risng-setup.yml" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    printf '%s\n' "$HOME/risng"
+}
+
+RISNG_DIR="$(risng_detect_dir)"
 
 RISNG_CODE_DIR="$RISNG_DIR"
 RISNG_ANSIBLE_DIR="$RISNG_CODE_DIR/ansible"
@@ -67,8 +71,13 @@ run_risng_playbook() {
     local extra_opts="$1"
     local playbook="$2"
     local logfile="$3"
-    local inventory="${4:-$RISNG_INVENTORY_DEFAULT}"
-    shift 4
+    local inventory="$RISNG_INVENTORY_DEFAULT"
+    if [ "$#" -ge 4 ] && [ -n "$4" ]; then
+        inventory="$4"
+        shift 4
+    else
+        shift 3
+    fi
 
     mkdir -p "$HOME/.ansible/cp"
     chmod 700 "$HOME/.ansible/cp" 2>/dev/null || true
@@ -90,6 +99,19 @@ run_risng_playbook() {
         /*|"") ;;
         *) resolved_playbook="$RISNG_ANSIBLE_DIR/$playbook" ;;
     esac
+
+    if [ ! -f "$resolved_playbook" ]; then
+        echo "ERROR: playbook not found: $resolved_playbook" >&2
+        echo "       RISNG_DIR=$RISNG_DIR" >&2
+        echo "       RISNG_ANSIBLE_DIR=$RISNG_ANSIBLE_DIR" >&2
+        return 1
+    fi
+
+    if [ -n "$resolved_inventory" ] && [ ! -f "$resolved_inventory" ]; then
+        echo "ERROR: inventory not found: $resolved_inventory" >&2
+        echo "       RISNG_DIR=$RISNG_DIR" >&2
+        return 1
+    fi
 
     local cmd=(ansible-playbook)
 

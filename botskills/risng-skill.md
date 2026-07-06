@@ -83,3 +83,11 @@ RISng teilt PXE/Bootstrap-Mechanik mit ironscope, ergänzt Secondstage- und Anfo
   `/etc/systemd/system/default.target`, `display-manager.service` und
   `graphical.target.wants/display-manager.service` rebootfest gesetzt und
   `daemon_reload` ausgefuehrt.
+- `getisos`-Alias-Fehler `ERROR: the playbook ... could not be found` entstand
+  aus fragiler Checkout-Erkennung: alte/stale Kompatibilitaetspfade wie
+  `$HOME/risng` konnten vor dem echten Checkout `$HOME/botrepo/risng_code`
+  gewinnen. Die Bashrc-Erkennung muss ein Checkout nur akzeptieren, wenn dort
+  `ansible/bootstrapvm/risng-setup.yml` existiert; `run_risng_playbook` prueft
+  Playbook und Inventory vor dem Ansible-Aufruf und meldet die aufgeloesten
+  Pfade. `risng-setup.yml` verlinkt `.bashrc` bevorzugt aus
+  `/home/risng/botrepo/risng_code`.
