@@ -125,6 +125,7 @@
           [User]
           SystemAccount=false
           Hidden=false
+          XSession=gnome
       when: risng_accountsservice_root.stat.exists | default(false)
 
     - name: 00.08g Ensure risng GNOME config directory exists
@@ -146,7 +147,7 @@
     - name: 00.09 Check whether minimal GNOME login stack is already present
       ansible.builtin.shell: |
         set -euo pipefail
-        for pkg in gdm3 gnome-shell gnome-session; do
+        for pkg in gdm3 gnome-shell gnome-session gnome-terminal task-gnome-desktop dbus-x11 dconf-cli accountsservice xdg-user-dirs; do
           dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed" || exit 1
         done
       args:
@@ -176,8 +177,12 @@
           - gnome-shell
           - gnome-session
           - gnome-terminal
+          - task-gnome-desktop
           - dbus-x11
           - dconf-cli
+          - accountsservice
+          - xdg-user-dirs
+          - x11-xserver-utils
           - xserver-xorg
         state: present
         update_cache: true
@@ -188,14 +193,54 @@
         DEBIAN_FRONTEND: noninteractive
       when: risng_gnome_stack_check.rc != 0
 
+    - name: 00.09c1 Recheck AccountsService after GUI stack install
+      ansible.builtin.stat:
+        path: /var/lib/AccountsService
+      register: risng_accountsservice_root
+      changed_when: false
+
+    - name: 00.09c2 Ensure AccountsService users directory exists after GUI stack install
+      ansible.builtin.file:
+        path: /var/lib/AccountsService/users
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: risng_accountsservice_root.stat.exists | default(false)
+
+    - name: 00.09c3 Ensure risng is visible on graphical login screen after GUI stack install
+      ansible.builtin.copy:
+        dest: /var/lib/AccountsService/users/risng
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [User]
+          SystemAccount=false
+          Hidden=false
+          XSession=gnome
+      when: risng_accountsservice_root.stat.exists | default(false)
+
+    - name: 00.09c4 Ensure system dconf directories exist for graphical defaults
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      loop:
+        - /etc/dconf/profile
+        - /etc/dconf/db/local.d
+
     - name: 00.09d Ensure graphical.target is default
       ansible.builtin.command: systemctl set-default graphical.target
       changed_when: false
 
-    - name: 00.09e Ensure gdm3 is enabled for next boot (do not start during feuer console run)
+    - name: 00.09e Ensure gdm3 is running and enabled for graphical login
       ansible.builtin.systemd:
         name: gdm3
         enabled: true
+        state: started
 
     - name: 00.09ea Ensure display-manager.service points to gdm3
       ansible.builtin.file:
@@ -227,8 +272,8 @@
     - name: 00.09f Note about deferred graphical login activation
       ansible.builtin.debug:
         msg: >-
-          gdm3 is configured for boot and display-manager.service is linked to gdm3, but not started during feuer to avoid interrupting the active console session.
-          Reboot to reach graphical login automatically.
+          gdm3 is running, enabled for boot, and display-manager.service is linked to gdm3.
+          The risng user is prepared for local GNOME login.
 
     # moved earlier: risng group/user bootstrap
     # moved earlier: risng group/user bootstrap
