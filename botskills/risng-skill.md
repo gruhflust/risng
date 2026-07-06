@@ -72,3 +72,14 @@ Administration/redfish/ → Redfish-Diagnose
 
 ## Agent-Protocol-Kontext
 RISng teilt PXE/Bootstrap-Mechanik mit ironscope, ergänzt Secondstage- und Anforderungs-/Validierungsschicht.
+
+## Aktueller Staging-Fix 2026-07-06
+- `ansible/bootstrapvm/risng-setup.yml` hatte das gleiche Risiko wie SPEC: Der
+  GDM3 Display-Manager wurde waehrend des Stagings mit `state: started`
+  gestartet. Das kann lokale Konsolen-/Staging-Sessions uebernehmen und den
+  Staging-Lauf abbrechen lassen.
+- Fix: GDM3 wird fuer den naechsten Boot enabled, aber nicht mehr waehrend des
+  Playbooks gestartet. Zusaetzlich werden die systemd-Links fuer
+  `/etc/systemd/system/default.target`, `display-manager.service` und
+  `graphical.target.wants/display-manager.service` rebootfest gesetzt und
+  `daemon_reload` ausgefuehrt.

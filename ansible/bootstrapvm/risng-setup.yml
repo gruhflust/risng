@@ -236,11 +236,10 @@
       ansible.builtin.command: systemctl set-default graphical.target
       changed_when: false
 
-    - name: 00.09e Ensure gdm3 is running and enabled for graphical login
+    - name: 00.09e Ensure gdm3 is enabled for graphical login after reboot
       ansible.builtin.systemd:
         name: gdm3
         enabled: true
-        state: started
 
     - name: 00.09ea Ensure display-manager.service points to gdm3
       ansible.builtin.file:
@@ -249,22 +248,53 @@
         state: link
         force: true
 
-    - name: 00.09eb Verify default target after configuration
+    - name: 00.09eb Ensure graphical.target is the persistent default target
+      ansible.builtin.file:
+        src: /lib/systemd/system/graphical.target
+        dest: /etc/systemd/system/default.target
+        state: link
+        force: true
+
+    - name: 00.09ec Ensure graphical target wants directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/system/graphical.target.wants
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: 00.09ed Ensure graphical.target pulls in gdm3 after reboot
+      ansible.builtin.file:
+        src: /etc/systemd/system/display-manager.service
+        dest: /etc/systemd/system/graphical.target.wants/display-manager.service
+        state: link
+        force: true
+
+    - name: 00.09ee Reload systemd after graphical target link changes
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: 00.09ef Re-assert gdm3 enablement for reboot persistence
+      ansible.builtin.systemd:
+        name: gdm3
+        enabled: true
+
+    - name: 00.09eg Verify default target after configuration
       ansible.builtin.command: systemctl get-default
       register: risng_default_target
       changed_when: false
 
-    - name: 00.09ec Fail if default target is not graphical.target
+    - name: 00.09eh Fail if default target is not graphical.target
       ansible.builtin.fail:
         msg: "Expected default target graphical.target, got {{ risng_default_target.stdout | default('unknown') }}"
       when: (risng_default_target.stdout | default('')) != 'graphical.target'
 
-    - name: 00.09ed Verify gdm3 enablement state
+    - name: 00.09ei Verify gdm3 enablement state
       ansible.builtin.command: systemctl is-enabled gdm3
       register: risng_gdm3_enabled_state
       changed_when: false
 
-    - name: 00.09ee Fail if gdm3 is not enabled for boot
+    - name: 00.09ej Fail if gdm3 is not enabled for boot
       ansible.builtin.fail:
         msg: "Expected gdm3 enabled for boot, got state={{ risng_gdm3_enabled_state.stdout | default('unknown') }}"
       when: (risng_gdm3_enabled_state.stdout | default('')) not in ['enabled', 'alias', 'static', 'indirect']
@@ -272,7 +302,7 @@
     - name: 00.09f Note about deferred graphical login activation
       ansible.builtin.debug:
         msg: >-
-          gdm3 is running, enabled for boot, and display-manager.service is linked to gdm3.
+          gdm3 is enabled for boot, and display-manager.service is linked to gdm3.
           The risng user is prepared for local GNOME login.
 
     # moved earlier: risng group/user bootstrap
