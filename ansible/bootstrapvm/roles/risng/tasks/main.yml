@@ -21,31 +21,48 @@
 # Step 0.1: Prepare ISO mountpoint and extract vmlinuz/initrd (NEW)
 # -------------------------------------------------------------------
 
-- name: Task IR-03 - Fetch Debian Live ISO checksums when URL is undefined
-  ansible.builtin.uri:
-    url: "{{ debian_live_iso_base_url }}/SHA256SUMS"
-    return_content: true
-  register: debian_live_iso_checksums
+- name: Task IR-03 - Define Debian Live ISO base URL candidates when URL is undefined
+  ansible.builtin.set_fact:
+    debian_live_iso_base_url_candidates:
+      - "{{ debian_live_iso_base_url }}"
+      - "https://cdimage.debian.org/debian-cd/current-live/amd64/iso-hybrid"
   when: debian_live_iso_url | length == 0
 
-- name: Task IR-03a - Reset Debian Live ISO detection facts
+- name: Task IR-03a - Probe Debian Live ISO checksum endpoints when URL is undefined
+  ansible.builtin.uri:
+    url: "{{ item }}/SHA256SUMS"
+    return_content: true
+  register: debian_live_iso_probe_results
+  failed_when: false
+  loop: "{{ debian_live_iso_base_url_candidates | unique }}"
+  when: debian_live_iso_url | length == 0
+
+- name: Task IR-03b - Reset Debian Live ISO detection facts
   ansible.builtin.set_fact:
-    debian_live_iso_filename: "{{ debian_live_iso_filename | default('') }}"
-    debian_live_iso_checksum: "{{ debian_live_iso_checksum | default('') }}"
-  when: debian_live_iso_url | length == 0 and debian_live_iso_checksums.status == 200
+    debian_live_iso_base_url: ""
+    debian_live_iso_filename: ""
+    debian_live_iso_checksum: ""
+  when: debian_live_iso_url | length == 0
 
 - name: Task IR-04 - Determine Debian Live ISO filename and checksum when needed
   vars:
-    candidate_filename: "{{ debian_live_iso_checksums.content | regex_search('debian-live-(?:testing|[0-9.]+)-amd64-' ~ item ~ '\\.iso') | default('', true) }}"
-    candidate_checksum: "{{ debian_live_iso_checksums.content | regex_search('([a-f0-9]{64})\\s+debian-live-(?:testing|[0-9.]+)-amd64-' ~ item ~ '\\.iso', '\\1') | default('', true) }}"
+    iso_matches: "{{ item.0.content | default('') | regex_findall('^([a-f0-9]{64})\\s+(debian-live-(?:testing|[0-9.]+)-amd64-' ~ item.1 ~ '\\.iso)$', multiline=True) }}"
+    candidate_checksum: "{{ iso_matches[0][0] if iso_matches | length > 0 else '' }}"
+    candidate_filename: "{{ iso_matches[0][1] if iso_matches | length > 0 else '' }}"
   ansible.builtin.set_fact:
+    debian_live_iso_base_url: "{{ item.0.item }}"
     debian_live_iso_filename: "{{ candidate_filename }}"
     debian_live_iso_checksum: "{{ candidate_checksum }}"
-    debian_live_iso_url: "{{ debian_live_iso_base_url }}/{{ candidate_filename }}"
-  loop: "{{ debian_live_iso_flavors }}"
+    debian_live_iso_url: "{{ item.0.item }}/{{ candidate_filename }}"
+  loop: "{{ debian_live_iso_probe_results.results | default([]) | product(debian_live_iso_flavors) | list }}"
   loop_control:
-    label: "{{ item }}"
-  when: debian_live_iso_url | length == 0 and debian_live_iso_checksums.status == 200 and debian_live_iso_filename | length == 0 and candidate_filename | length > 0 and candidate_checksum | length > 0
+    label: "{{ item.0.item }} {{ item.1 }}"
+  when:
+    - debian_live_iso_url | length == 0
+    - (item.0.status | default(0)) == 200
+    - debian_live_iso_filename | length == 0
+    - candidate_filename | length > 0
+    - candidate_checksum | length > 0
 
 - name: Task IR-05 - Fail when Debian Live ISO filename or checksum cannot be determined
   ansible.builtin.fail:
@@ -380,4 +397,3 @@
 # Step 8: Generate bootloader binaries
 # -------------------------------------------------------------------
 - import_tasks: bootloader_generation.yml
-
