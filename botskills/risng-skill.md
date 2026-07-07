@@ -84,13 +84,13 @@ RISng teilt PXE/Bootstrap-Mechanik mit ironscope, ergänzt Secondstage- und Anfo
   `graphical.target.wants/display-manager.service` rebootfest gesetzt und
   `daemon_reload` ausgefuehrt.
 - `getisos`-Alias-Fehler `ERROR: the playbook ... could not be found` entstand
-  aus fragiler Checkout-Erkennung: alte/stale Kompatibilitaetspfade wie
-  `$HOME/risng` konnten vor dem echten Checkout `$HOME/botrepo/risng_code`
-  gewinnen. Die Bashrc-Erkennung muss ein Checkout nur akzeptieren, wenn dort
-  `ansible/bootstrapvm/risng-setup.yml` existiert; `run_risng_playbook` prueft
-  Playbook und Inventory vor dem Ansible-Aufruf und meldet die aufgeloesten
-  Pfade. `risng-setup.yml` verlinkt `.bashrc` bevorzugt aus
-  `/home/risng/botrepo/risng_code`.
+  aus fragiler Checkout-Erkennung. Die Bashrc-Erkennung darf nur den RISng-
+  Checkout `~/risng` akzeptieren, wenn dort `ansible/bootstrapvm/risng-setup.yml`
+  existiert; `run_risng_playbook` prueft Playbook und Inventory vor dem
+  Ansible-Aufruf und meldet die aufgeloesten Pfade. `risng-setup.yml` darf fuer
+  Bootstrap-/Bashrc-Pfade nicht mehr auf alte `botrepo/risng_code`-Layouts
+  zeigen, sondern muss den laufenden RISng-Checkout aus `playbook_dir` verwenden
+  und `/home/risng/risng` darauf verlinken.
 - `getisos`-Downloadfehler `Connection failure: The read operation timed out`
   bei `Download Debian net-install ISO` entstand durch den Ansible-Default von
   10s fuer `get_url`. RISng nutzt jetzt wie ironscope zentrale Defaults

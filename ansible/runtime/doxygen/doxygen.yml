@@ -7,7 +7,7 @@
   vars:
     run_as_user: "{{ ssh_user | default('ironscope') }}"
     user_home: "/home/{{ run_as_user }}"
-    source_dir: "{{ lookup('env', 'DOXYGEN_SOURCE_DIR') | default(user_home ~ '/botrepo/risng_code', true) }}"
+    source_dir: "{{ lookup('env', 'DOXYGEN_SOURCE_DIR') | default(user_home ~ '/risng', true) }}"
     output_root: "{{ lookup('env', 'DOXYGEN_OUTPUT_ROOT') | default(user_home ~ '/docdeliver', true) }}"
     run_id: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
     output_dir: "{{ output_root }}/{{ run_id }}-doxygen"

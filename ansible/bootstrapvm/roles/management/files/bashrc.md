@@ -48,7 +48,7 @@ esac
 # the bootstrap playbooks; stale compatibility directories must not win.
 risng_detect_dir() {
     local candidate
-    for candidate in "$HOME/botrepo/risng_code" "$HOME/risng" "$HOME/botrepo/risng"; do
+    for candidate in "$HOME/risng"; do
         if [ -f "$candidate/ansible/bootstrapvm/risng-setup.yml" ]; then
             printf '%s\n' "$candidate"
             return 0

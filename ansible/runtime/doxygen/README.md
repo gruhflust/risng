@@ -10,7 +10,7 @@ Playbook: `ansible/runtime/doxygen/doxygen.yml`
 - writes `RUNINFO.txt` with source path + detected git branch/commit
 
 ## Defaults
-- Source tree: `~/botrepo/risng_code`
+- Source tree: `~/risng`
 - Output root: `~/docdeliver`
 
 ## Override via env

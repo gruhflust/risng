@@ -408,58 +408,21 @@
           No readable bootstrap invoker SSH public key found; used /home/risng/.ssh/id_ed25519.pub fallback in authorized_keys.
       when: risng_operator_pubkey_raw is not defined or risng_operator_pubkey_raw.content is not defined
 
-    - name: 00.16 Build candidate source paths for botrepo checkout
+    - name: 00.16 Set RISng checkout root from running playbook
       ansible.builtin.set_fact:
-        risng_botrepo_source_candidates:
-          - "{{ ssh_user_home }}/botrepo"
-          - "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo"
-          - "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo"
-          - "/root/botrepo"
+        risng_checkout_root: "{{ playbook_dir }}/../.."
+        risng_checkout_bashrc_template_path: "{{ playbook_dir }}/roles/management/templates/bashrc.j2"
 
-    - name: 00.17 Probe botrepo source candidates
+    - name: 00.17 Probe running RISng checkout
       ansible.builtin.stat:
-        path: "{{ item }}"
-      loop: "{{ risng_botrepo_source_candidates | unique }}"
-      register: risng_botrepo_source_candidate_stats
+        path: "{{ risng_checkout_root }}/ansible/bootstrapvm/risng-setup.yml"
+      register: risng_checkout_setup_stat
       changed_when: false
 
-    - name: 00.18 Pick first existing botrepo source path
-      ansible.builtin.set_fact:
-        risng_botrepo_source_path: "{{ (risng_botrepo_source_candidate_stats.results | selectattr('stat.isdir', 'defined') | selectattr('stat.isdir', 'equalto', true) | map(attribute='item') | list | first) | default('') }}"
-
-    - name: 00.18a Normalize source path and guard against self-copy loops
-      ansible.builtin.set_fact:
-        risng_botrepo_source_path_effective: "{{ '' if (risng_botrepo_source_path | default('')) in ['/home/risng', '/home/risng/botrepo'] else (risng_botrepo_source_path | default('')) }}"
-
-    - name: 00.19 Ensure /home/risng/botrepo exists
-      ansible.builtin.file:
-        path: /home/risng/botrepo
-        state: directory
-        owner: risng
-        group: risng
-        mode: "0755"
-
-    - name: 00.20 Sync botrepo into /home/risng/botrepo (including .git) when source exists
-      ansible.builtin.shell: |
-        set -euo pipefail
-        if command -v rsync >/dev/null 2>&1; then
-          rsync -a --delete "{{ risng_botrepo_source_path_effective }}/" "/home/risng/botrepo/"
-        else
-          rm -rf /home/risng/botrepo/*
-          cp -a "{{ risng_botrepo_source_path_effective }}/." "/home/risng/botrepo/"
-        fi
-        chown -R risng:risng /home/risng/botrepo
-      args:
-        executable: /bin/bash
-      when: (risng_botrepo_source_path_effective | default('') | length) > 0
-
-    - name: 00.21 Warn when no safe botrepo source path was found
-      ansible.builtin.debug:
-        msg: >-
-          No safe local botrepo source directory found for bootstrap copy.
-          Selected={{ risng_botrepo_source_path | default('UNSET') }}; checked={{ risng_botrepo_source_candidates | unique | join(', ') }}.
-          To avoid self-copy loops, /home/risng and /home/risng/botrepo are excluded as source.
-      when: (risng_botrepo_source_path_effective | default('') | length) == 0
+    - name: 00.18 Fail when running RISng checkout cannot be resolved
+      ansible.builtin.fail:
+        msg: "No RISng checkout found at {{ risng_checkout_root }} from playbook_dir={{ playbook_dir }}"
+      when: not (risng_checkout_setup_stat.stat.exists | default(false))
 
     - name: 00.21a Inspect /home/risng/risng path state
       ansible.builtin.stat:
@@ -489,9 +452,9 @@
         - not (risng_home_link_target.stat.islnk | default(false))
         - (risng_home_link_target_entries.files | default([]) | length) == 0
 
-    - name: 00.21ac Ensure /home/risng/risng symlink points to /home/risng/botrepo/risng_code
+    - name: 00.21ac Ensure /home/risng/risng symlink points to running RISng checkout
       ansible.builtin.file:
-        src: /home/risng/botrepo/risng_code
+        src: "{{ risng_checkout_root }}"
         dest: /home/risng/risng
         owner: risng
         group: risng
@@ -519,7 +482,7 @@
     - name: 00.22 Build candidate paths for RISng management bashrc template
       ansible.builtin.set_fact:
         risng_management_bashrc_template_candidates:
-          - /home/risng/botrepo/risng_code/ansible/bootstrapvm/roles/management/templates/bashrc.j2
+          - "{{ risng_checkout_bashrc_template_path }}"
           - /home/risng/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2
 
     - name: 00.22a Probe RISng management bashrc template candidates
@@ -563,8 +526,7 @@
       ansible.builtin.debug:
         msg:
           - "RISng effective ssh_user={{ ssh_user }} ssh_user_home={{ ssh_user_home }}"
-          - "RISng source path for botrepo sync(selected)={{ risng_botrepo_source_path | default('UNRESOLVED') }}"
-          - "RISng source path for botrepo sync(effective)={{ risng_botrepo_source_path_effective | default('UNRESOLVED') }}"
+          - "RISng checkout root={{ risng_checkout_root | default('UNRESOLVED') }}"
           - "RISng bashrc link=/home/risng/.bashrc -> {{ risng_management_bashrc_template_path | default('UNRESOLVED') }}"
 
 
@@ -676,7 +638,7 @@
     - name: 02.97 Build candidate paths for final risng .bashrc template
       ansible.builtin.set_fact:
         risng_final_bashrc_template_candidates:
-          - "{{ ssh_user_home }}/botrepo/risng_code/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
+          - "{{ playbook_dir }}/roles/management/templates/bashrc.j2"
           - "{{ ssh_user_home }}/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
 
     - name: 02.97a Probe final risng .bashrc template candidates
@@ -720,19 +682,15 @@
         group: "{{ ssh_user }}"
         mode: "0644"
 
-    - name: 02.98 Determine deployed RISng commit with robust fallback to botrepo
+    - name: 02.98 Determine deployed RISng commit from RISng checkouts
       ansible.builtin.shell: |
         set -euo pipefail
         for repo in \
-          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo" \
+          "{{ playbook_dir }}/../.." \
           "{{ lookup('ansible.builtin.env', 'HOME') }}/risng" \
-          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
           "/home/{{ ansible_env.SUDO_USER | default('', true) }}/risng" \
-          "/home/risng/botrepo" \
           "/home/risng/risng" \
-          "{{ ssh_user_home }}/botrepo" \
-          "{{ ssh_user_home }}/risng" \
-          "/root/botrepo"
+          "{{ ssh_user_home }}/risng"
         do
           [ -d "$repo/.git" ] || continue
           if out="$(git -C "$repo" log -1 --pretty=format:%h 2>/dev/null)" && [ -n "$out" ]; then
@@ -747,19 +705,15 @@
       changed_when: false
       failed_when: false
 
-    - name: 02.98 Determine deployed RISng branch with robust fallback to botrepo
+    - name: 02.98 Determine deployed RISng branch from RISng checkouts
       ansible.builtin.shell: |
         set -euo pipefail
         for repo in \
-          "{{ lookup('ansible.builtin.env', 'HOME') }}/botrepo" \
+          "{{ playbook_dir }}/../.." \
           "{{ lookup('ansible.builtin.env', 'HOME') }}/risng" \
-          "/home/{{ ansible_env.SUDO_USER | default('', true) }}/botrepo" \
           "/home/{{ ansible_env.SUDO_USER | default('', true) }}/risng" \
-          "/home/risng/botrepo" \
           "/home/risng/risng" \
-          "{{ ssh_user_home }}/botrepo" \
-          "{{ ssh_user_home }}/risng" \
-          "/root/botrepo"
+          "{{ ssh_user_home }}/risng"
         do
           [ -d "$repo/.git" ] || continue
           if out="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)" && [ -n "$out" ]; then
