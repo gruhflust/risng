@@ -91,3 +91,9 @@ RISng teilt PXE/Bootstrap-Mechanik mit ironscope, ergänzt Secondstage- und Anfo
   Playbook und Inventory vor dem Ansible-Aufruf und meldet die aufgeloesten
   Pfade. `risng-setup.yml` verlinkt `.bashrc` bevorzugt aus
   `/home/risng/botrepo/risng_code`.
+- `getisos`-Downloadfehler `Connection failure: The read operation timed out`
+  bei `Download Debian net-install ISO` entstand durch den Ansible-Default von
+  10s fuer `get_url`. RISng nutzt jetzt wie ironscope zentrale Defaults
+  `iso_download_timeout: 180`, `iso_download_retries: 5`,
+  `iso_download_retry_delay: 10` fuer Live-ISO, Netinstall-ISO und Netboot-
+  Tarball.

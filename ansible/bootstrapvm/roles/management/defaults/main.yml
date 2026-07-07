@@ -10,7 +10,9 @@ iso_download_dir:   "{{ pxe_tmp_dir }}/iso"
 pxe_tmp_owner:      "{{ ansible_user_id | default('root') }}"
 pxe_tmp_group:      "{{ ansible_user_id | default('root') }}"
 pxe_tmp_mode:       "0775"
-
+iso_download_timeout: 180
+iso_download_retries: 5
+iso_download_retry_delay: 10
 
 pxe_timeout:        100
 pxe_default_label:  live-ris

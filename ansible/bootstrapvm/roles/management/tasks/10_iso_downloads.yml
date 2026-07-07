@@ -92,7 +92,12 @@
         group: "{{ pxe_tmp_group }}"
         mode: "0644"
         force: true
+        timeout: "{{ iso_download_timeout | default(60) }}"
         unsafe_writes: true
+      register: debian_live_iso_download
+      retries: "{{ iso_download_retries | default(5) }}"
+      delay: "{{ iso_download_retry_delay | default(10) }}"
+      until: debian_live_iso_download is succeeded
   when: not liveiso.stat.exists or liveiso.stat.size | default(0) < 1000000000
 
 # Remaining tasks unchanged
@@ -148,7 +153,12 @@
     group: "{{ pxe_tmp_group }}"
     mode: "0644"
     force: true
+    timeout: "{{ iso_download_timeout | default(60) }}"
     unsafe_writes: true
+  register: netinstall_iso_download
+  retries: "{{ iso_download_retries | default(5) }}"
+  delay: "{{ iso_download_retry_delay | default(10) }}"
+  until: netinstall_iso_download is succeeded
   when: not netiso.stat.exists
 
 # ------------------ Debian Netboot tarball -----------------------------------
@@ -165,7 +175,12 @@
     group: "{{ pxe_tmp_group }}"
     mode: "0644"
     force: true
+    timeout: "{{ iso_download_timeout | default(60) }}"
     unsafe_writes: true
+  register: netboot_tarball_download
+  retries: "{{ iso_download_retries | default(5) }}"
+  delay: "{{ iso_download_retry_delay | default(10) }}"
+  until: netboot_tarball_download is succeeded
   when: not nettgz.stat.exists
 
 - name: 02 19 07a Ensure netboot_extract_dir exists
