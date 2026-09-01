@@ -6,8 +6,8 @@ keyboard --vckeymap=de --xlayouts='de'
 timezone Europe/Berlin --utc
 network --bootproto=dhcp --device=bootif --activate --onboot=on --noipv6
 url --url=http://{{ tftp_server_ip }}/{{ rhel98_repo_relative }}
-rootpw --iscrypted {{ rhel98_root_password_hash }}
-user --name={{ rhel98_operator_name }} --groups=wheel --password={{ rhel98_operator_password_hash }} --iscrypted
+rootpw --lock
+user --name={{ rhel98_operator_name }} --groups=wheel --lock
 firewall --enabled --service=ssh
 selinux --enforcing
 bootloader --location=mbr
@@ -29,4 +29,12 @@ systemctl enable sshd || true
 install -d -m 0700 /root/.ssh
 curl -fsSL "http://{{ tftp_server_ip }}/bootstrap/controlhost_id_ed25519.pub" >> /root/.ssh/authorized_keys || true
 chmod 0600 /root/.ssh/authorized_keys || true
+install -d -m 0700 /home/{{ rhel98_operator_name }}/.ssh
+curl -fsSL "http://{{ tftp_server_ip }}/bootstrap/controlhost_id_ed25519.pub" >> /home/{{ rhel98_operator_name }}/.ssh/authorized_keys || true
+chown -R {{ rhel98_operator_name }}:{{ rhel98_operator_name }} /home/{{ rhel98_operator_name }}/.ssh
+chmod 0600 /home/{{ rhel98_operator_name }}/.ssh/authorized_keys || true
+cat >/etc/sudoers.d/90-risng <<'EOF'
+{{ rhel98_operator_name }} ALL=(ALL) NOPASSWD:ALL
+EOF
+chmod 0440 /etc/sudoers.d/90-risng
 %end

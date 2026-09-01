@@ -1,16 +1,4 @@
 ---
-- name: RHEL 9.8 | Assert entitled ISO source and credential inputs
-  ansible.builtin.assert:
-    that:
-      - rhel98_iso_sha256 | length == 64
-      - rhel98_root_password_hash | length > 0
-      - rhel98_operator_password_hash | length > 0
-    fail_msg: >-
-      RHEL 9.8 requires a locally supplied entitled ISO, its SHA-256 checksum,
-      and password hashes. Set rhel98_iso_sha256, rhel98_root_password_hash,
-      and rhel98_operator_password_hash outside Git before enabling this role.
-  no_log: true
-
 - name: RHEL 9.8 | Ensure staging directories exist
   ansible.builtin.file:
     path: "{{ item }}"
@@ -38,6 +26,14 @@
     fail_msg: >-
       Place the entitled RHEL 9.8 DVD ISO at {{ rhel98_iso_path }} before
       running feuer with rhel98_install_enabled=true.
+
+- name: RHEL 9.8 | Require the operator-supplied ISO checksum
+  ansible.builtin.assert:
+    that:
+      - rhel98_iso_sha256 | length == 64
+    fail_msg: >-
+      Set rhel98_iso_sha256 to the verified SHA-256 of {{ rhel98_iso_path }}
+      before staging RHEL 9.8.
 
 - name: RHEL 9.8 | Verify ISO checksum
   ansible.builtin.stat:

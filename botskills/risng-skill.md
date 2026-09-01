@@ -80,9 +80,10 @@ Historical feature branches are preserved as annotated
 **Sonst:** ginit watcher terror guck status
 
 ### RHEL 9.8 mockup
-- Branch `RIS8-mockup` adds the disabled-by-default `rhel98_install` role.
-- The role expects an operator-supplied entitled DVD ISO plus SHA-256 and
-  password hashes outside Git, then publishes a local HTTP/TFTP Anaconda path.
+- Branch `RIS8-mockup` adds the enabled-by-default `rhel98_install` role.
+- The role expects an operator-supplied entitled DVD ISO plus SHA-256 outside
+  Git, then publishes a local HTTP/TFTP Anaconda path. Initial access is
+  key-only through the staged control-host public key.
 - DHCP profile `rhel98` selects the `RHEL 9.8 AutoInstall` BIOS/UEFI option.
 
 ## Wrapper-Funktionen

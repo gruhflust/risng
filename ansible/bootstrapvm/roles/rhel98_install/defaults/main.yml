@@ -1,7 +1,7 @@
 ---
 # RHEL 9.8 PXE autoinstall mockup. Red Hat media must be supplied by an
 # entitled operator; it is never downloaded or stored in this repository.
-rhel98_install_enabled: false
+rhel98_install_enabled: true
 rhel98_iso_filename: "rhel-9.8-x86_64-dvd.iso"
 rhel98_iso_path: "{{ iso_download_dir }}/{{ rhel98_iso_filename }}"
 rhel98_iso_sha256: ""
@@ -14,11 +14,7 @@ rhel98_kernel: "vmlinuz"
 rhel98_initrd: "initrd.img"
 rhel98_repo_rebuild_always: false
 
-# Password hashes are intentionally mandatory deployment inputs. Do not commit
-# values here; provide them through encrypted inventory or extra vars.
-rhel98_root_password_hash: ""
 rhel98_operator_name: "risng"
-rhel98_operator_password_hash: ""
 
 rhel98_install_net_args: >-
   ip=dhcp
