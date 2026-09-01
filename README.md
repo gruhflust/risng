@@ -20,7 +20,9 @@ sed -n '1,260p' botskills/risng-skill.md
 | `ansible/bootstrapvm/roles/management/` | Management-Bashrc, Helper, lokale Repo-/SecondStage-Vorbereitung |
 | `ansible/secondstage/` | `risdeploy`, Dryrun und Validierung fuer installierte Clients |
 | `ansible/runtime/` | Report-, Doxygen- und Runtime-Helfer |
-| `Information/Agent-Tasks/` | aufgabenbezogene Requirements-/Change-Dokumente |
+| `docs/requirements/information/Agent-Tasks/` | aufgabenbezogene Requirements-/Change-Dokumente |
+| `build/functions/admin/` | Diagnose- und Administrationshelfer |
+| `build/tools/python/` | NetBox-, VLAN- und Testdaten-Werkzeuge |
 
 ## Operativer Einstieg
 
@@ -75,6 +77,6 @@ Das generierte Paketquellen-Manifest liegt auf dem RISng-Server unter:
 
 ## Detaillierte Doku
 
-- `RISng_README.md` beschreibt den urspruenglichen PXE-/CentOS-Staging-Durchbruch.
+- `docs/history/RISng_README.md` beschreibt den urspruenglichen PXE-/CentOS-Staging-Durchbruch.
 - `ansible/secondstage/README.md` beschreibt das aktuelle SecondStage-Modell.
 - `botskills/risng-skill.md` ist die verbindliche Kurzreferenz fuer Pfade, Aliases und aktuelle Fallstricke.

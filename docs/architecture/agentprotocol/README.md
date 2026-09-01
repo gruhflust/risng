@@ -23,9 +23,9 @@ Im Kontext der anderen Repos ist `risng` die **fachliche RIS-/Secondstage-Schich
 
 - `ansible/bootstrapvm/` — Bootstrap-/PXE-/Paketvorbereitung
 - `ansible/secondstage/` — RISng-Secondstage-Deployment und Validierung
-- `Information/` — RIS-Anforderungen, SRD, Aufgaben- und Testdokumente
-- `Administration/` — Debug-/Diagnosehilfen für DHCP, DNS, PXE, Redfish
-- `python/` — NetBox-/VLAN-/Testdaten-Hilfen
+- `docs/requirements/information/` — RIS-Anforderungen, SRD, Aufgaben- und Testdokumente
+- `build/functions/admin/` — Debug-/Diagnosehilfen für DHCP, DNS, PXE, Redfish
+- `build/tools/python/` — NetBox-/VLAN-/Testdaten-Hilfen
 
 ## Wesentliche Commit-Linie
 
@@ -71,4 +71,4 @@ Im Kontext der anderen Repos ist `risng` die **fachliche RIS-/Secondstage-Schich
 1. RIS-Anforderungen immer mit Commit und Testcheckliste verknüpfen.
 2. Secondstage-Änderungen brauchen eine kurze Validierungsnotiz.
 3. Bootstrap-Fixes aus `spec` nur übernehmen, wenn sie fachlich RISng betreffen.
-4. Historische Inhalte in `OldCode/` nicht als aktuelle Wahrheit behandeln.
+4. Historische Inhalte in `build/legacy/oldcode/` nicht als aktuelle Wahrheit behandeln.

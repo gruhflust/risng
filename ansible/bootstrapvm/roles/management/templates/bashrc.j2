@@ -64,8 +64,9 @@ RISNG_ANSIBLE_DIR="$RISNG_CODE_DIR/ansible"
 RISNG_ANSIBLE_CFG="$RISNG_ANSIBLE_DIR/ansible.cfg"
 RISNG_INVENTORY_DEFAULT="$RISNG_ANSIBLE_DIR/inventory/hosts.yml"
 RISNG_SETUP_PLAYBOOK="$RISNG_ANSIBLE_DIR/bootstrapvm/risng-setup.yml"
-RISNG_ADMIN_DIR="$RISNG_CODE_DIR/Administration"
-RISNG_PYTHON_DIR="$RISNG_CODE_DIR/python"
+RISNG_BUILD_DIR="$RISNG_CODE_DIR/build"
+RISNG_ADMIN_DIR="$RISNG_BUILD_DIR/functions/admin"
+RISNG_PYTHON_DIR="$RISNG_BUILD_DIR/tools/python"
 
 run_risng_playbook() {
     local extra_opts="$1"
@@ -486,7 +487,7 @@ zeigma() {
   done
 
   # ---------- Boot-Konfiguration ----------
-  "$REPO/code/Administration/collect_bootconfig.sh"
+  "$RISNG_ADMIN_DIR/collect_bootconfig.sh"
 
   # ---------- Kopieren nach OneDrive ----------
   mkdir -p "$ODIR"

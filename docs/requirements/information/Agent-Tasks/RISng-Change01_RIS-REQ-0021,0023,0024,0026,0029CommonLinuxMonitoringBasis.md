@@ -14,7 +14,7 @@ Fokus: **Monitoring-/Diagnose-Basis auf dem RISng-Staging-Host** reproduzierbar 
 ---
 
 ## Inhaltliche Ableitung aus Umsetzungsplanung
-Aus `Information/Umsetzungsplanung.md` ergeben sich für diesen Task insbesondere:
+Aus `docs/requirements/information/Umsetzungsplanung.md` ergeben sich für diesen Task insbesondere:
 
 - SNMP-Grundpakete und zugehörige Perl XML/IO-Module
 - `collectl` inkl. Plugin-Basis
@@ -38,7 +38,7 @@ Aus `Information/Umsetzungsplanung.md` ergeben sich für diesen Task insbesonder
 - Fehlerbild muss klar im Log sichtbar sein.
 
 ### 4) Dokumentation + Traceability
-- `Information/RIS_REQ_Commit_Matrix.md` für diese RIS-REQs auf `IN_PROGRESS`/`DONE` pflegen.
+- `docs/requirements/information/RIS_REQ_Commit_Matrix.md` für diese RIS-REQs auf `IN_PROGRESS`/`DONE` pflegen.
 - Umsetzungsartefakte + Commit-Hashes + Validierung ergänzen.
 
 ---
@@ -66,4 +66,3 @@ feat(secondstage): implement common linux monitoring package baseline
 
 RIS-REQ: RIS-REQ-0021, RIS-REQ-0023, RIS-REQ-0024, RIS-REQ-0026, RIS-REQ-0029
 ```
-

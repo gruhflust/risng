@@ -1,6 +1,6 @@
 # Agenten-Handlungsanweisung – RISng SecondStage (SRD-traceable)
 
-Diese Datei operationalisiert `Information/Umsetzungsplanung.md` in konkrete Arbeitsregeln für Agenten.
+Diese Datei operationalisiert `docs/requirements/information/Umsetzungsplanung.md` in konkrete Arbeitsregeln für Agenten.
 
 ## Ziel
 
@@ -16,11 +16,11 @@ Alle Umsetzungen im Branch `Projects/IOPC-3412/SecondStage` müssen **vollständ
 ## Verbindlicher Arbeitsablauf pro Umsetzung
 
 1. **Anforderung wählen**
-   - Starte immer aus `Information/RIS_REQ_Commit_Matrix.md`.
+   - Starte immer aus `docs/requirements/information/RIS_REQ_Commit_Matrix.md`.
    - Wähle eine oder mehrere `RIS-REQ-*` mit Status `OPEN` / `IN_PROGRESS`.
 
 2. **Umsetzung planen**
-   - Leite aus `Information/Umsetzungsplanung.md` konkrete Tasks ab.
+   - Leite aus `docs/requirements/information/Umsetzungsplanung.md` konkrete Tasks ab.
    - Benenne betroffene Dateien/Rollen vorab.
 
 3. **Implementieren**
@@ -38,7 +38,7 @@ RIS-REQ: RIS-REQ-XXXX, RIS-REQ-YYYY
 ```
 
 5. **Trace-Matrix aktualisieren (Pflicht)**
-   - In `Information/RIS_REQ_Commit_Matrix.md` die betroffenen Zeilen pflegen:
+   - In `docs/requirements/information/RIS_REQ_Commit_Matrix.md` die betroffenen Zeilen pflegen:
      - `Status`
      - `Commits` (Hash-Liste)
      - `Umsetzungsartefakte`
@@ -85,4 +85,4 @@ Diese Handlungsanweisung gilt für alle Agentenarbeiten im Kontext:
 
 - Repository: `risng`
 - Branch: `Projects/IOPC-3412/SecondStage`
-- Planungsquelle: `Information/Umsetzungsplanung.md`
+- Planungsquelle: `docs/requirements/information/Umsetzungsplanung.md`

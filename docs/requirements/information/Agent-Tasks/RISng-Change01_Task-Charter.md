@@ -11,8 +11,8 @@ Den ersten gruppierten Common-Block aus der Umsetzungsplanung operativ umsetzen 
 2. RISdeploy-Client-Staging-Automatik (`risdeploy` / `risdeploy-dryrun` Transparenz)
 
 ## Geltende Regeln
-- `Information/Agenten-Handlungsanweisung-SecondStage.md`
-- `Information/RIS_REQ_Commit_Matrix.md`
+- `docs/requirements/information/Agenten-Handlungsanweisung-SecondStage.md`
+- `docs/requirements/information/RIS_REQ_Commit_Matrix.md`
 
 ## Zugeordnete RIS-REQs (Change01)
 - RIS-REQ-0021

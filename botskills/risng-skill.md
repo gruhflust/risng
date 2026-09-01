@@ -2,7 +2,7 @@
 
 ## Repo-Info
 - **Root:** `~/.openclaw/workspace/risng`
-- **Branch:** `main`
+- **Branch:** `migration` (based on `main`; intended staging baseline)
 - **Remote:** `github-risng:gruhflust/risng` | **Key:** `~/.ssh/risng`
 - **Zweck:** RISng Secondstage-PXE + Management-State-UI + Web-Render
 - **Status:** Management-State-Entwicklung (Change02), Web-Render-Fehler-Detection
@@ -29,9 +29,17 @@ ansible/secondstage/  ★ RISng Secondstage-Kern ★
 ansible/runtime/      → Runtime-Payloads
 ansible/inventory/    → hosts.yml, vlans.yml
 ansible/group_vars/
-Information/Agent-Tasks/  → Agent-Aufgaben
-logs/                 → Runtime-Logs
-Administration/redfish/ → Redfish-Diagnose
+build/functions/admin/ → Diagnose- und Verwaltungsfunktionen
+build/tools/python/    → NetBox-, VLAN- und Testwerkzeuge
+docs/requirements/information/Agent-Tasks/ → Agent-Aufgaben
+docs/history/          → historische PXE-/Staging-Dokumentation
+
+## Migration layout
+
+The repository root is intentionally limited to `README.md`, `ansible/`,
+`botskills/`, `build/`, and `docs/`. Deployment material remains below
+`ansible/`; non-deployed build helpers are under `build/`; requirements,
+history, and architecture documents are below `docs/`.
 ```
 
 ## RISng-Spezifika
