@@ -24,8 +24,8 @@ Im Kontext der anderen Repos ist `risng` die **fachliche RIS-/Secondstage-Schich
 - `ansible/bootstrapvm/` — Bootstrap-/PXE-/Paketvorbereitung
 - `ansible/secondstage/` — RISng-Secondstage-Deployment und Validierung
 - `docs/requirements/information/` — RIS-Anforderungen, SRD, Aufgaben- und Testdokumente
-- `build/functions/admin/` — Debug-/Diagnosehilfen für DHCP, DNS, PXE, Redfish
-- `build/tools/python/` — NetBox-/VLAN-/Testdaten-Hilfen
+- `ansible/operator/administration/` — Debug-/Diagnosehilfen für DHCP, DNS, PXE, Redfish
+- `ansible/operator/python/` — NetBox-/VLAN-/Testdaten-Hilfen
 
 ## Wesentliche Commit-Linie
 

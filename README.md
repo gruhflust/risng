@@ -21,8 +21,7 @@ sed -n '1,260p' botskills/risng-skill.md
 | `ansible/secondstage/` | `risdeploy`, Dryrun und Validierung fuer installierte Clients |
 | `ansible/runtime/` | Report-, Doxygen- und Runtime-Helfer |
 | `docs/requirements/information/Agent-Tasks/` | aufgabenbezogene Requirements-/Change-Dokumente |
-| `build/functions/admin/` | Diagnose- und Administrationshelfer |
-| `build/tools/python/` | NetBox-, VLAN- und Testdaten-Werkzeuge |
+| `ansible/operator/` | Bashrc-Vorlage, Diagnosehelfer und Python-Operator-Werkzeuge |
 | `ansible/artifacts/BackgroundPic.png` | Hintergrundbild des lokalen RISng-GNOME-Benutzers |
 
 ## Operativer Einstieg

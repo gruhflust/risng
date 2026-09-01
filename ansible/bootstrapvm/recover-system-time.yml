@@ -1,0 +1,57 @@
+---
+# Recover a stale VM clock before HTTPS downloads. HTTP is intentional here:
+# TLS cannot establish a trustworthy time reference with an invalid local clock.
+- name: Recover system time before apt and HTTPS downloads (best effort)
+  ansible.builtin.shell: |
+    python3 - <<'PY'
+    import email.utils
+    import subprocess
+    import time
+    import urllib.request
+
+    urls = [
+        'http://deb.debian.org/debian',
+        'http://security.debian.org/debian-security',
+    ]
+    max_drift_seconds = 300
+    now = int(time.time())
+
+    for url in urls:
+        try:
+            request = urllib.request.Request(url, headers={'User-Agent': 'risng-time-recovery/1.0'})
+            header = urllib.request.urlopen(request, timeout=10).headers.get('Date', '')
+            if not header:
+                continue
+            timestamp = int(email.utils.parsedate_to_datetime(header).timestamp())
+            drift = abs(timestamp - now)
+            print(f'reference={url} drift_seconds={drift}')
+            if drift > max_drift_seconds:
+                subprocess.run(['timedatectl', 'set-ntp', 'false'], check=False)
+                result = subprocess.run(['date', '-u', '-s', f'@{timestamp}'], check=False)
+                subprocess.run(['timedatectl', 'set-ntp', 'true'], check=False)
+                print(f'changed={result.returncode == 0}')
+            else:
+                subprocess.run(['timedatectl', 'set-ntp', 'true'], check=False)
+                print('changed=false')
+            raise SystemExit(0)
+        except Exception as exc:
+            print(f'warning: {url}: {exc}')
+
+    subprocess.run(['timedatectl', 'set-ntp', 'true'], check=False)
+    print('changed=false no_reference_time_available')
+    PY
+  args:
+    executable: /bin/bash
+  register: risng_system_time_recovery
+  changed_when: "'changed=True' in (risng_system_time_recovery.stdout | default(''))"
+  failed_when: false
+
+- name: Show time status used for download troubleshooting
+  ansible.builtin.shell: |
+    timedatectl status || true
+    echo '---'
+    date -u
+  args:
+    executable: /bin/bash
+  changed_when: false
+  failed_when: false

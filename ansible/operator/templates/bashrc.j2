@@ -64,9 +64,9 @@ RISNG_ANSIBLE_DIR="$RISNG_CODE_DIR/ansible"
 RISNG_ANSIBLE_CFG="$RISNG_ANSIBLE_DIR/ansible.cfg"
 RISNG_INVENTORY_DEFAULT="$RISNG_ANSIBLE_DIR/inventory/hosts.yml"
 RISNG_SETUP_PLAYBOOK="$RISNG_ANSIBLE_DIR/bootstrapvm/risng-setup.yml"
-RISNG_BUILD_DIR="$RISNG_CODE_DIR/build"
-RISNG_ADMIN_DIR="$RISNG_BUILD_DIR/functions/admin"
-RISNG_PYTHON_DIR="$RISNG_BUILD_DIR/tools/python"
+RISNG_OPERATOR_DIR="$RISNG_ANSIBLE_DIR/operator"
+RISNG_ADMIN_DIR="$RISNG_OPERATOR_DIR/administration"
+RISNG_PYTHON_DIR="$RISNG_OPERATOR_DIR/python"
 
 run_risng_playbook() {
     local extra_opts="$1"
@@ -191,7 +191,7 @@ if [ -x /usr/bin/dircolors ]; then
     alias pingpartnertest='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/pingpartner-pytest.yml" "$HOME/pingpartner-pytest.log"'
     alias pingpartnertest_snapshot='run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_snapshot/pingpartner-pytest.yml" "$HOME/pingpartner-pytest.log"'
     alias pingpartnertest_increment='mkdir -p "$HOME/testresults" && run_risng_playbook "" "$RISNG_ANSIBLE_DIR/runtime/report_increment/pingpartner-pytest_increment.yml" "$HOME/testresults/pingpartner-pytest_increment.log"'
-
+    
     # Qperf / iMIX Tests
 
     # EANTC mix variants (keep legacy flows untouched)

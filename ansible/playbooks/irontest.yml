@@ -14,7 +14,7 @@
     - name: Render pytest script for host
       delegate_to: localhost
       ansible.builtin.template:
-        src: "{{ playbook_dir }}/../../build/tools/python/pnt_pytest.py.j2"
+        src: "{{ playbook_dir }}/../operator/python/pnt_pytest.py.j2"
         dest: "/tmp/irontest/{{ inventory_hostname }}/pnt_pytest.py"
       vars:
         device_name: "{{ inventory_hostname }}"

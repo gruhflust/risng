@@ -17,7 +17,7 @@ ansible/bootstrapvm/roles/
   debian-live/    → Debian-Live-ISO
   netinstall/     → Netinstall-Profile
   webserver/      → Webserver
-  management/     → Bashrc deployen
+  management/     → lokale Repo-/PXE-Vorbereitung
   tools/          → Hilfs-Tools
   systemupdate/   → Paket-Updates
   risng/          → ★ RISng Secondstage ★
@@ -29,8 +29,9 @@ ansible/secondstage/  ★ RISng Secondstage-Kern ★
 ansible/runtime/      → Runtime-Payloads
 ansible/inventory/    → hosts.yml, vlans.yml
 ansible/group_vars/
-build/functions/admin/ → Diagnose- und Verwaltungsfunktionen
-build/tools/python/    → NetBox-, VLAN- und Testwerkzeuge
+ansible/operator/      → Bashrc-Vorlage und Operator-Werkzeuge
+ansible/operator/administration/ → Diagnose- und Verwaltungsfunktionen
+ansible/operator/python/ → NetBox-, VLAN- und Testwerkzeuge
 docs/requirements/information/Agent-Tasks/ → Agent-Aufgaben
 docs/history/          → historische PXE-/Staging-Dokumentation
 ```
@@ -65,7 +66,7 @@ Historical feature branches are preserved as annotated
 - `b8a5672` — Rename render-web-ui alias to ris-render-web-ui
 - `571a8fc` — Use active operator home for web UI render path resolution
 
-### Bashrc-Aliases (aus bashrc.md + bashrc-root-risng)
+### Bashrc-Aliases (aus ansible/operator/templates/bashrc.j2)
 **PXE:** feuer getisos getrispackes pxe pxe-setup pxe-cleanup
 **Network:** network-restart network-reset repair-dhcp heal trigger dhcpstatic
 **State:** risk-state risk-state-reset risk-state-export risk-state-import
@@ -111,6 +112,9 @@ RISng teilt PXE/Bootstrap-Mechanik mit ironscope, ergänzt Secondstage- und Anfo
   `iso_download_timeout: 180`, `iso_download_retries: 5`,
   `iso_download_retry_delay: 10` fuer Live-ISO, Netinstall-ISO und Netboot-
   Tarball.
+- `ansible/bootstrapvm/recover-system-time.yml` is imported by both
+  `risng-setup.yml` and `getisos.yml`, so an isolated ISO prefetch gets the
+  same stale-clock recovery and diagnostics as a complete staging run.
 - The staged RISng GNOME user receives
   `ansible/artifacts/BackgroundPic.png`. The playbook annotates it root-side,
   sets system dconf defaults, runs `dconf update`, and then applies the value

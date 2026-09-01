@@ -8,6 +8,10 @@
   vars_files:
     - ../host_vars/bootstrapvm.yml
 
+  pre_tasks:
+    - name: Recover stale system time before ISO downloads
+      ansible.builtin.import_tasks: recover-system-time.yml
+
   tasks:
     - name: 00 Invoke management role to fetch ISO artifacts
       ansible.builtin.import_role:

@@ -6,69 +6,8 @@
   gather_facts: true   
   
   pre_tasks:
-    - name: 00.00 Recover snapshot system time before apt/HTTPS (best effort)
-      ansible.builtin.shell: |
-        python3 - <<'PY'
-        import email.utils
-        import subprocess
-        import time
-        import urllib.request
-
-        urls = [
-            'http://deb.debian.org/debian',
-            'http://security.debian.org/debian-security',
-        ]
-        max_drift_seconds = 300
-        now = int(time.time())
-
-        for url in urls:
-            try:
-                header = urllib.request.urlopen(url, timeout=10).headers.get('Date', '')
-                if not header:
-                    continue
-                ts = int(email.utils.parsedate_to_datetime(header).timestamp())
-                drift = abs(ts - now)
-                print(f'reference={url} epoch={ts} drift_seconds={drift}')
-                if drift > max_drift_seconds:
-                    subprocess.run(['timedatectl', 'set-ntp', 'false'], check=False)
-                    result = subprocess.run(['date', '-u', '-s', f'@{ts}'], check=False)
-                    subprocess.run(['timedatectl', 'set-ntp', 'true'], check=False)
-                    if result.returncode == 0:
-                        print('changed=true')
-                    else:
-                        print(f'changed=false date_set_rc={result.returncode}')
-                else:
-                    subprocess.run(['timedatectl', 'set-ntp', 'true'], check=False)
-                    print('changed=false')
-                raise SystemExit(0)
-            except Exception as exc:
-                print(f'warning: {url}: {exc}')
-
-        subprocess.run(['timedatectl', 'set-ntp', 'true'], check=False)
-        print('changed=false no_reference_time_available')
-        PY
-      args:
-        executable: /bin/bash
-      register: snapshot_time_recovery
-      changed_when: "'changed=true' in (snapshot_time_recovery.stdout | default(''))"
-      failed_when: false
-
-    - name: 00.00a Show current system time status
-      ansible.builtin.shell: |
-        timedatectl status || true
-        echo '---'
-        date -u
-      args:
-        executable: /bin/bash
-      register: timedatectl_status
-      changed_when: false
-      failed_when: false
-
-    - name: 00.00b Debug time status after snapshot recovery
-      ansible.builtin.debug:
-        msg:
-          - "{{ snapshot_time_recovery.stdout_lines | default([]) }}"
-          - "{{ timedatectl_status.stdout_lines | default([]) }}"
+    - name: 00.00 Recover system time before apt and HTTPS downloads
+      ansible.builtin.import_tasks: "{{ playbook_dir }}/recover-system-time.yml"
 
     - import_tasks: "{{ playbook_dir }}/detect_interfaces.yml"
 
@@ -411,7 +350,7 @@
     - name: 00.16 Set RISng checkout root from running playbook
       ansible.builtin.set_fact:
         risng_checkout_root: "{{ playbook_dir }}/../.."
-        risng_checkout_bashrc_template_path: "{{ playbook_dir }}/roles/management/templates/bashrc.j2"
+        risng_checkout_bashrc_template_path: "{{ playbook_dir }}/../operator/templates/bashrc.j2"
 
     - name: 00.17 Probe running RISng checkout
       ansible.builtin.stat:
@@ -483,7 +422,7 @@
       ansible.builtin.set_fact:
         risng_management_bashrc_template_candidates:
           - "{{ risng_checkout_bashrc_template_path }}"
-          - /home/risng/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2
+          - /home/risng/risng/ansible/operator/templates/bashrc.j2
 
     - name: 00.22a Probe RISng management bashrc template candidates
       ansible.builtin.stat:
@@ -638,8 +577,8 @@
     - name: 02.97 Build candidate paths for final risng .bashrc template
       ansible.builtin.set_fact:
         risng_final_bashrc_template_candidates:
-          - "{{ playbook_dir }}/roles/management/templates/bashrc.j2"
-          - "{{ ssh_user_home }}/risng/ansible/bootstrapvm/roles/management/templates/bashrc.j2"
+          - "{{ playbook_dir }}/../operator/templates/bashrc.j2"
+          - "{{ ssh_user_home }}/risng/ansible/operator/templates/bashrc.j2"
 
     - name: 02.97a Probe final risng .bashrc template candidates
       ansible.builtin.stat:

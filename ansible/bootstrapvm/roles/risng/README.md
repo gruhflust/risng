@@ -46,7 +46,7 @@ Alle Tasks unterhalb der Rolle sind global eindeutig nummeriert und ohne Dopplun
 
 ## Aliase und Hilfsfunktionen für ISO-Downloads und Playbooks
 
-* Die Management-Rolle liefert eine `.bashrc` aus (`roles/management/templates/bashrc.j2`), die die risng-Aliase bereitstellt. Wer die Aliase vorab lokal nutzen möchte, kann den bestehenden Helfer `./getrisngbashrc.sh` aus dem Repository-Stamm ausführen; das Skript kopiert die Bashrc-Vorlage ins Home-Verzeichnis und entfernt Windows-Zeilenenden.
+* Die kanonische `.bashrc` liegt unter `ansible/operator/templates/bashrc.j2` und stellt die RISng-Aliase bereit. Das Staging-Playbook verlinkt sie in das Home des RISng-Operators.
 * Der Alias `getisos` ruft `bootstrapvm/getisos.yml` mit denselben Tasks auf, die auch im vollständigen Setup verwendet werden, lädt jedoch ausschließlich die ISO-Artefakte vor. Das ist hilfreich, wenn die Images vor dem eigentlichen Build aktualisiert werden sollen.
 * Der Alias `report_snapshot` startet `runtime/report_snapshot/report_clients.yml`, sammelt DHCP-Leases, fragt die Clients per SSH ab und schreibt JSON/PDF-Berichte ins Home-Verzeichnis. Über `unreport` (Playbook `playbooks/unreport.yml`) können diese Berichte sowie PXE-Logs wieder bereinigt werden.
 * Der Alias `slavelantest` führt `runtime/report_snapshot/slavelantest.yml` aus, um VLAN-Interfaces und IPs auf vorhandenen PXE-Clients anzulegen. Das Playbook nutzt die in `bootstrapvm/roles/dhcp` hinterlegten `dhcp_static_hosts` und protokolliert seinen Lauf in `~/slavelantest.log`.
