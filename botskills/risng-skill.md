@@ -81,9 +81,10 @@ Historical feature branches are preserved as annotated
 
 ### RHEL 9.8 mockup
 - Branch `RIS8-mockup` adds the enabled-by-default `rhel98_install` role.
-- The role expects an operator-supplied entitled DVD ISO plus SHA-256 outside
-  Git, then publishes a local HTTP/TFTP Anaconda path. Initial access is
-  key-only through the staged control-host public key.
+- `getisos` and `feuer` fetch the configured entitled DVD ISO with retries and
+  SHA-256 validation. URL/headers/checksum remain external variables, never
+  Git content; source mode `local` remains available as an offline fallback.
+  Initial access is key-only through the staged control-host public key.
 - DHCP profile `rhel98` selects the `RHEL 9.8 AutoInstall` BIOS/UEFI option.
 
 ## Wrapper-Funktionen

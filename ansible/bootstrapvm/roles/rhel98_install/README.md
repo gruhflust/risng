@@ -3,13 +3,17 @@
 This role publishes a second BIOS/UEFI PXE menu entry, `RHEL 9.8 AutoInstall`.
 It is enabled by default and never downloads Red Hat media.
 
-To enable it, place an entitled RHEL 9.8 DVD ISO at
-`/var/tmp/pxe-build/iso/rhel-9.8-x86_64-dvd.iso` on the staging host (or
-override `rhel98_iso_path`), then provide these values through encrypted
-inventory or extra vars:
+The default `url` source mode fetches the ISO during `getisos` and `feuer`.
+Provide these values through encrypted inventory or extra vars:
 
 - `rhel98_install_enabled=true`
+- `rhel98_iso_url`
 - `rhel98_iso_sha256`
+
+Use `rhel98_iso_headers` for entitlement headers when required by the Red Hat
+source. Alternatively set `rhel98_iso_source_mode=local` and place the ISO at
+`/var/tmp/pxe-build/iso/rhel-9.8-x86_64-dvd.iso` (or override
+`rhel98_iso_path`).
 
 The role validates the ISO checksum, extracts it to the local HTTP tree,
 publishes kernel/initrd to TFTP, and renders a RHEL 9 kickstart. Assign the

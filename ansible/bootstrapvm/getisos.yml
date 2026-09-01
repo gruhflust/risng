@@ -17,3 +17,9 @@
       ansible.builtin.import_role:
         name: management
         tasks_from: 10_iso_downloads.yml
+
+    - name: 01 Fetch the configured RHEL 9.8 installer ISO
+      ansible.builtin.import_role:
+        name: rhel98_install
+        tasks_from: fetch_iso.yml
+      when: rhel98_install_enabled | default(false) | bool

@@ -1,0 +1,47 @@
+---
+- name: RHEL 9.8 | Ensure ISO cache directory exists
+  ansible.builtin.file:
+    path: "{{ iso_download_dir }}"
+    state: directory
+    owner: "{{ pxe_tmp_owner }}"
+    group: "{{ pxe_tmp_group }}"
+    mode: "{{ pxe_tmp_mode }}"
+
+- name: RHEL 9.8 | Validate ISO source configuration
+  ansible.builtin.assert:
+    that:
+      - rhel98_iso_source_mode in ['url', 'local']
+      - rhel98_iso_sha256 | length == 64
+      - rhel98_iso_source_mode != 'url' or rhel98_iso_url | length > 0
+    fail_msg: >-
+      Set rhel98_iso_source_mode to local or URL. URL mode requires
+      rhel98_iso_url and rhel98_iso_sha256; supply Red Hat entitlement headers
+      through rhel98_iso_headers outside Git when the source requires them.
+
+- name: RHEL 9.8 | Check cached ISO checksum
+  ansible.builtin.stat:
+    path: "{{ rhel98_iso_path }}"
+    checksum_algorithm: sha256
+  register: rhel98_cached_iso
+
+- name: RHEL 9.8 | Download ISO with checksum validation
+  ansible.builtin.get_url:
+    url: "{{ rhel98_iso_url }}"
+    dest: "{{ rhel98_iso_path }}"
+    checksum: "sha256:{{ rhel98_iso_sha256 }}"
+    headers: "{{ rhel98_iso_headers }}"
+    validate_certs: "{{ rhel98_iso_validate_certs | bool }}"
+    owner: "{{ pxe_tmp_owner }}"
+    group: "{{ pxe_tmp_group }}"
+    mode: "0644"
+    force: true
+    timeout: "{{ iso_download_timeout | default(180) }}"
+    unsafe_writes: true
+  register: rhel98_iso_download
+  retries: "{{ iso_download_retries | default(5) }}"
+  delay: "{{ iso_download_retry_delay | default(10) }}"
+  until: rhel98_iso_download is succeeded
+  no_log: true
+  when:
+    - rhel98_iso_source_mode == 'url'
+    - not rhel98_cached_iso.stat.exists or (rhel98_cached_iso.stat.checksum | default('')) != rhel98_iso_sha256

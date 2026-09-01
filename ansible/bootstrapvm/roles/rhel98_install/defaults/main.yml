@@ -4,6 +4,10 @@
 rhel98_install_enabled: true
 rhel98_iso_filename: "rhel-9.8-x86_64-dvd.iso"
 rhel98_iso_path: "{{ iso_download_dir }}/{{ rhel98_iso_filename }}"
+rhel98_iso_source_mode: "url"
+rhel98_iso_url: "{{ lookup('ansible.builtin.env', 'RHEL98_ISO_URL') | default('', true) }}"
+rhel98_iso_headers: {}
+rhel98_iso_validate_certs: true
 rhel98_iso_sha256: ""
 rhel98_iso_extract_dir: "{{ pxe_tmp_dir }}/rhel98-iso"
 rhel98_repo_relative: "rhel/9.8"

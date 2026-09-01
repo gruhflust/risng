@@ -1,11 +1,13 @@
 ---
+- name: RHEL 9.8 | Fetch ISO from configured source when required
+  ansible.builtin.import_tasks: fetch_iso.yml
+
 - name: RHEL 9.8 | Ensure staging directories exist
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     mode: "0755"
   loop:
-    - "{{ iso_download_dir }}"
     - "{{ rhel98_iso_extract_dir }}"
     - "{{ rhel98_repo_root }}"
     - "{{ rhel98_target }}"
@@ -13,7 +15,7 @@
     - "{{ pxelinux_dir }}"
     - "{{ grub_dir }}"
 
-- name: RHEL 9.8 | Check locally supplied ISO
+- name: RHEL 9.8 | Check fetched ISO
   ansible.builtin.stat:
     path: "{{ rhel98_iso_path }}"
   register: rhel98_iso_file
