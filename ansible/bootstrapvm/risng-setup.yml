@@ -674,10 +674,10 @@
         group: "{{ ssh_user }}"
         mode: "0755"
 
-    - name: 02.98 Deploy risng wallpaper base image
+    - name: 02.98 Deploy RISng wallpaper from repository artifact
       ansible.builtin.copy:
-        src: "{{ playbook_dir }}/roles/management/files/risng.background.png"
-        dest: "{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png"
+        src: "{{ playbook_dir }}/../artifacts/BackgroundPic.png"
+        dest: "{{ ssh_user_home }}/.local/share/backgrounds/BackgroundPic.png"
         owner: "{{ ssh_user }}"
         group: "{{ ssh_user }}"
         mode: "0644"
@@ -744,37 +744,75 @@
           (git-commit: {{ risng_git_commit.stdout | default('unknown', true) | trim | default('unknown') }} [branch {{ risng_git_branch.stdout | default('unknown', true) | trim | default('unknown') }}])
       changed_when: false
 
-    - name: 02.98 Annotate risng wallpaper with timestamp
-      ansible.builtin.command:
-        argv:
-          - mogrify
-          - -gravity
-          - north
-          - -pointsize
-          - "36"
-          - -fill
-          - "#FFFFFF"
-          - -undercolor
-          - "#000000B3"
-          - -annotate
-          - "+0+120"
-          - "{{ risng_wallpaper_label }}"
-          - "{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png"
-      become: true
-      become_user: "{{ ssh_user }}"
+    - name: 02.98 Annotate RISng wallpaper with timestamp
+      ansible.builtin.shell: |
+        set -euo pipefail
+        mogrify \
+          -gravity north \
+          -pointsize 36 \
+          -fill '#FFFFFF' \
+          -undercolor '#000000B3' \
+          -annotate +0+120 {{ risng_wallpaper_label | quote }} \
+          {{ (ssh_user_home ~ '/.local/share/backgrounds/BackgroundPic.png') | quote }}
+        chown "{{ ssh_user }}:{{ ssh_user }}" {{ (ssh_user_home ~ '/.local/share/backgrounds/BackgroundPic.png') | quote }}
+      args:
+        executable: /bin/bash
       when:
         - risng_wallpaper_label | default('') | length > 0
 
-    - name: 02.98 Apply risng wallpaper in GNOME via gsettings (psutil-free)
+    - name: 02.98 Ensure system dconf profile directory exists for RISng wallpaper defaults
+      ansible.builtin.file:
+        path: /etc/dconf/profile
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: 02.98 Ensure system dconf profile is configured for RISng wallpaper defaults
+      ansible.builtin.copy:
+        dest: /etc/dconf/profile/user
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          user-db:user
+          system-db:local
+
+    - name: 02.98 Ensure dconf local defaults directory exists for RISng wallpaper
+      ansible.builtin.file:
+        path: /etc/dconf/db/local.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: 02.98 Configure GNOME wallpaper defaults for the RISng user
+      ansible.builtin.copy:
+        dest: /etc/dconf/db/local.d/00-risng-wallpaper
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [org/gnome/desktop/background]
+          picture-uri='file://{{ ssh_user_home }}/.local/share/backgrounds/BackgroundPic.png'
+          picture-uri-dark='file://{{ ssh_user_home }}/.local/share/backgrounds/BackgroundPic.png'
+          picture-options='zoom'
+
+    - name: 02.98 Update dconf database for RISng wallpaper defaults
+      ansible.builtin.command:
+        argv:
+          - /usr/bin/dconf
+          - update
+      changed_when: false
+
+    - name: 02.98 Apply RISng wallpaper to the prepared GNOME user profile
       ansible.builtin.shell: |
         set -euo pipefail
-        if command -v gsettings >/dev/null 2>&1; then
-          dbus-launch gsettings set org.gnome.desktop.background picture-uri "file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png" || true
-          dbus-launch gsettings set org.gnome.desktop.background picture-uri-dark "file://{{ ssh_user_home }}/.local/share/backgrounds/risng.background.png" || true
+        if command -v gsettings >/dev/null 2>&1 && command -v dbus-run-session >/dev/null 2>&1; then
+          runuser -u "{{ ssh_user }}" -- dbus-run-session gsettings set org.gnome.desktop.background picture-uri "file://{{ ssh_user_home }}/.local/share/backgrounds/BackgroundPic.png"
+          runuser -u "{{ ssh_user }}" -- dbus-run-session gsettings set org.gnome.desktop.background picture-uri-dark "file://{{ ssh_user_home }}/.local/share/backgrounds/BackgroundPic.png"
         fi
       args:
         executable: /bin/bash
-      become: true
-      become_user: "{{ ssh_user }}"
       changed_when: false
       failed_when: false

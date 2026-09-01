@@ -111,3 +111,8 @@ RISng teilt PXE/Bootstrap-Mechanik mit ironscope, ergänzt Secondstage- und Anfo
   `iso_download_timeout: 180`, `iso_download_retries: 5`,
   `iso_download_retry_delay: 10` fuer Live-ISO, Netinstall-ISO und Netboot-
   Tarball.
+- The staged RISng GNOME user receives
+  `ansible/artifacts/BackgroundPic.png`. The playbook annotates it root-side,
+  sets system dconf defaults, runs `dconf update`, and then applies the value
+  through a temporary user D-Bus session. This avoids silent wallpaper failures
+  when no graphical user session exists during staging.
