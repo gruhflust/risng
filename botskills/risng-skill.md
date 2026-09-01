@@ -2,7 +2,7 @@
 
 ## Repo-Info
 - **Root:** `~/.openclaw/workspace/risng`
-- **Branch:** `migration` (based on `main`; intended staging baseline)
+- **Branch:** `IOPC-3412/migration` (based on `main`; intended staging baseline)
 - **Remote:** `github-risng:gruhflust/risng` | **Key:** `~/.ssh/risng`
 - **Zweck:** RISng Secondstage-PXE + Management-State-UI + Web-Render
 - **Status:** Management-State-Entwicklung (Change02), Web-Render-Fehler-Detection
@@ -33,6 +33,7 @@ build/functions/admin/ → Diagnose- und Verwaltungsfunktionen
 build/tools/python/    → NetBox-, VLAN- und Testwerkzeuge
 docs/requirements/information/Agent-Tasks/ → Agent-Aufgaben
 docs/history/          → historische PXE-/Staging-Dokumentation
+```
 
 ## Migration layout
 
@@ -40,7 +41,12 @@ The repository root is intentionally limited to `README.md`, `ansible/`,
 `botskills/`, `build/`, and `docs/`. Deployment material remains below
 `ansible/`; non-deployed build helpers are under `build/`; requirements,
 history, and architecture documents are below `docs/`.
-```
+
+## Branch archival policy
+
+Historical feature branches are preserved as annotated
+`archive/branches/<branch-name>` tags. Active development is limited to
+`main` and `IOPC-3412/migration`.
 
 ## RISng-Spezifika
 
