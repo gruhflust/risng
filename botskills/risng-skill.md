@@ -22,6 +22,7 @@ ansible/bootstrapvm/roles/
   systemupdate/   → Paket-Updates
   risng/          → ★ RISng Secondstage ★
   risng_install/  → RISng-Installer
+  rhel98_install/ → optionaler RHEL-9.8-PXE-Autoinstall-Mockup
   gopass/         → gopass-Integration
 ansible/bootstrapvm/
 ansible/playbooks/    → 5 Playbooks
@@ -77,6 +78,12 @@ Historical feature branches are preserved as annotated
 **Gopass:** gopass-fetch gopass-push gopass-init
 **Git:** iron pnt gitgud
 **Sonst:** ginit watcher terror guck status
+
+### RHEL 9.8 mockup
+- Branch `RIS8-mockup` adds the disabled-by-default `rhel98_install` role.
+- The role expects an operator-supplied entitled DVD ISO plus SHA-256 and
+  password hashes outside Git, then publishes a local HTTP/TFTP Anaconda path.
+- DHCP profile `rhel98` selects the `RHEL 9.8 AutoInstall` BIOS/UEFI option.
 
 ## Wrapper-Funktionen
 - `run_risng_playbook [opts] playbook logfile [inventory]` — Auto-detects RISNG_DIR

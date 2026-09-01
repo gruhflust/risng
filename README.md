@@ -19,6 +19,7 @@ sed -n '1,260p' botskills/risng-skill.md
 | `ansible/bootstrapvm/roles/risng_install/` | lokaler CentOS-Installpfad, Kickstart, Stage2, RPM-Staging |
 | `ansible/bootstrapvm/roles/management/` | Management-Bashrc, Helper, lokale Repo-/SecondStage-Vorbereitung |
 | `ansible/secondstage/` | `risdeploy`, Dryrun und Validierung fuer installierte Clients |
+| `ansible/bootstrapvm/roles/rhel98_install/` | optionaler RHEL-9.8-PXE-Autoinstall-Mockup mit lokalem Entitlement-ISO |
 | `ansible/runtime/` | Report-, Doxygen- und Runtime-Helfer |
 | `docs/requirements/information/Agent-Tasks/` | aufgabenbezogene Requirements-/Change-Dokumente |
 | `ansible/operator/` | Bashrc-Vorlage, Diagnosehelfer und Python-Operator-Werkzeuge |

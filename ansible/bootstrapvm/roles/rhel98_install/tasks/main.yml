@@ -1,0 +1,150 @@
+---
+- name: RHEL 9.8 | Assert entitled ISO source and credential inputs
+  ansible.builtin.assert:
+    that:
+      - rhel98_iso_sha256 | length == 64
+      - rhel98_root_password_hash | length > 0
+      - rhel98_operator_password_hash | length > 0
+    fail_msg: >-
+      RHEL 9.8 requires a locally supplied entitled ISO, its SHA-256 checksum,
+      and password hashes. Set rhel98_iso_sha256, rhel98_root_password_hash,
+      and rhel98_operator_password_hash outside Git before enabling this role.
+  no_log: true
+
+- name: RHEL 9.8 | Ensure staging directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ iso_download_dir }}"
+    - "{{ rhel98_iso_extract_dir }}"
+    - "{{ rhel98_repo_root }}"
+    - "{{ rhel98_target }}"
+    - "{{ pxe_tftp_dir }}/kickstart"
+    - "{{ pxelinux_dir }}"
+    - "{{ grub_dir }}"
+
+- name: RHEL 9.8 | Check locally supplied ISO
+  ansible.builtin.stat:
+    path: "{{ rhel98_iso_path }}"
+  register: rhel98_iso_file
+
+- name: RHEL 9.8 | Fail when entitled ISO is unavailable
+  ansible.builtin.assert:
+    that:
+      - rhel98_iso_file.stat.exists
+      - rhel98_iso_file.stat.size | default(0) > 1000000000
+    fail_msg: >-
+      Place the entitled RHEL 9.8 DVD ISO at {{ rhel98_iso_path }} before
+      running feuer with rhel98_install_enabled=true.
+
+- name: RHEL 9.8 | Verify ISO checksum
+  ansible.builtin.stat:
+    path: "{{ rhel98_iso_path }}"
+    checksum_algorithm: sha256
+  register: rhel98_iso_checksum
+
+- name: RHEL 9.8 | Fail on ISO checksum mismatch
+  ansible.builtin.assert:
+    that:
+      - rhel98_iso_checksum.stat.checksum == rhel98_iso_sha256
+    fail_msg: >-
+      SHA-256 mismatch for {{ rhel98_iso_path }}. Refusing to publish an
+      unverified RHEL installer.
+
+- name: RHEL 9.8 | Probe published installer artifacts
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ rhel98_repo_root }}/.treeinfo"
+    - "{{ rhel98_repo_root }}/BaseOS/repodata/repomd.xml"
+    - "{{ rhel98_repo_root }}/images/pxeboot/vmlinuz"
+    - "{{ rhel98_repo_root }}/images/pxeboot/initrd.img"
+  register: rhel98_repo_probe
+
+- name: RHEL 9.8 | Determine whether ISO extraction is required
+  ansible.builtin.set_fact:
+    rhel98_repo_needs_rebuild: >-
+      {{
+        (rhel98_repo_rebuild_always | bool)
+        or ((rhel98_repo_probe.results | rejectattr('stat.exists') | list | length) > 0)
+      }}
+
+- name: RHEL 9.8 | Reset extracted ISO workspace when required
+  ansible.builtin.file:
+    path: "{{ rhel98_iso_extract_dir }}"
+    state: absent
+  when: rhel98_repo_needs_rebuild | bool
+
+- name: RHEL 9.8 | Recreate extracted ISO workspace when required
+  ansible.builtin.file:
+    path: "{{ rhel98_iso_extract_dir }}"
+    state: directory
+    mode: "0755"
+  when: rhel98_repo_needs_rebuild | bool
+
+- name: RHEL 9.8 | Extract entitled ISO when required
+  ansible.builtin.command:
+    argv:
+      - bsdtar
+      - -C
+      - "{{ rhel98_iso_extract_dir }}"
+      - -xf
+      - "{{ rhel98_iso_path }}"
+  when: rhel98_repo_needs_rebuild | bool
+
+- name: RHEL 9.8 | Publish extracted installer tree through RISng HTTP root
+  ansible.builtin.command:
+    argv:
+      - rsync
+      - -a
+      - --delete
+      - "{{ rhel98_iso_extract_dir }}/"
+      - "{{ rhel98_repo_root }}/"
+  when: rhel98_repo_needs_rebuild | bool
+
+- name: RHEL 9.8 | Validate published installer tree
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ rhel98_repo_root }}/.treeinfo"
+    - "{{ rhel98_repo_root }}/BaseOS/repodata/repomd.xml"
+    - "{{ rhel98_repo_root }}/images/pxeboot/vmlinuz"
+    - "{{ rhel98_repo_root }}/images/pxeboot/initrd.img"
+  register: rhel98_published_probe
+
+- name: RHEL 9.8 | Fail when published installer tree is incomplete
+  ansible.builtin.assert:
+    that:
+      - rhel98_published_probe.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: "RHEL 9.8 installer tree is incomplete under {{ rhel98_repo_root }}."
+
+- name: RHEL 9.8 | Copy PXE kernel and initrd
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ rhel98_repo_root }}/images/pxeboot/{{ item.source }}"
+    dest: "{{ rhel98_target }}/{{ item.destination }}"
+    mode: "0644"
+  loop:
+    - { source: "vmlinuz", destination: "{{ rhel98_kernel }}" }
+    - { source: "initrd.img", destination: "{{ rhel98_initrd }}" }
+
+- name: RHEL 9.8 | Render kickstart profile
+  ansible.builtin.template:
+    src: kickstart.cfg.j2
+    dest: "{{ pxe_tftp_dir }}/kickstart/rhel98.cfg"
+    mode: "0600"
+  no_log: true
+
+- name: RHEL 9.8 | Publish BIOS PXE menu entry
+  ansible.builtin.template:
+    src: bootentry-pxelinux.cfg.j2
+    dest: "{{ pxelinux_dir }}/30-rhel98.cfg"
+    mode: "0644"
+
+- name: RHEL 9.8 | Publish UEFI PXE menu entry
+  ansible.builtin.template:
+    src: bootentry-grub.cfg.j2
+    dest: "{{ grub_dir }}/30-rhel98.cfg"
+    mode: "0644"

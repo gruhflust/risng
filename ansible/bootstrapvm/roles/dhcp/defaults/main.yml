@@ -43,6 +43,9 @@ dhcp_boot_profiles:
   spec:
     uefi: "bootx64.efi"
     bios: "pxelinux.0"
+  rhel98:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
   localdisk:
     uefi: "bootx64.efi"
     bios: "pxelinux.0"
@@ -75,6 +78,9 @@ dhcp_boot_menu_defaults:
   spec:
     bios_label: "icwp"
     uefi_menuentry: "CentOS 7.8 AutoInstall (iCWP)"
+  rhel98:
+    bios_label: "rhel98"
+    uefi_menuentry: "RHEL 9.8 AutoInstall"
   localdisk:
     bios_label: "localdisk"
     uefi_menuentry: "Boot from local disk"

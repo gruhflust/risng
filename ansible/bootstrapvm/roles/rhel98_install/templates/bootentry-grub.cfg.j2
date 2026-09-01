@@ -1,0 +1,4 @@
+menuentry "RHEL 9.8 AutoInstall" {
+    linux {{ rhel98_target_relative }}/{{ rhel98_kernel }} inst.stage2=http://{{ tftp_server_ip }}/{{ rhel98_repo_relative }} inst.repo=http://{{ tftp_server_ip }}/{{ rhel98_repo_relative }} ks=http://{{ tftp_server_ip }}/kickstart/rhel98.cfg {{ rhel98_install_net_args }} {{ rhel98_install_extra_args }}
+    initrd {{ rhel98_target_relative }}/{{ rhel98_initrd }}
+}

@@ -502,6 +502,8 @@
     # - netinstall
     - risng
     - risng_install
+    - role: rhel98_install
+      when: rhel98_install_enabled | default(false) | bool
 
   post_tasks:
     - name: 01.99 Build feuer artifact checklist

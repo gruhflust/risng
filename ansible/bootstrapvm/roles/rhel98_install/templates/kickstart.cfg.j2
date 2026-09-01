@@ -1,0 +1,32 @@
+#version=RHEL9
+install
+text
+lang en_US.UTF-8
+keyboard --vckeymap=de --xlayouts='de'
+timezone Europe/Berlin --utc
+network --bootproto=dhcp --device=bootif --activate --onboot=on --noipv6
+url --url=http://{{ tftp_server_ip }}/{{ rhel98_repo_relative }}
+rootpw --iscrypted {{ rhel98_root_password_hash }}
+user --name={{ rhel98_operator_name }} --groups=wheel --password={{ rhel98_operator_password_hash }} --iscrypted
+firewall --enabled --service=ssh
+selinux --enforcing
+bootloader --location=mbr
+zerombr
+clearpart --all --initlabel
+autopart --type=lvm
+reboot
+
+%packages
+@^minimal-environment
+kexec-tools
+%end
+
+%post --log=/root/risng-rhel98-post.log
+set -euxo pipefail
+echo 'RISNG_ROLE=rhel98' > /etc/risng-role
+hostnamectl set-hostname rhel98-client
+systemctl enable sshd || true
+install -d -m 0700 /root/.ssh
+curl -fsSL "http://{{ tftp_server_ip }}/bootstrap/controlhost_id_ed25519.pub" >> /root/.ssh/authorized_keys || true
+chmod 0600 /root/.ssh/authorized_keys || true
+%end
