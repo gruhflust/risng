@@ -79,7 +79,15 @@ Historical feature branches are preserved as annotated
 **Git:** iron pnt gitgud
 **Sonst:** ginit watcher terror guck status
 
-### RHEL 9.8 mockup
+### RIS7 ISO-Analyse (Doku)
+- `docs/requirements/information/RIS7-ISO-Analyse.md` dokumentiert die
+  gemountete RIS7-DVD `LP3_iCAS_PhII-RIS_7.0-00_engver202602-rhel9.6-x86_64.iso`
+  (Mountpoint `RIS7/` im macagent-Workspace): LP3 3.31.0 auf RHEL 9.6,
+  zweistufiges Stage1/Stage2-Modell (pre-/post-script ELF, disserver-3.5.1,
+  logPoll.sh-Progress-Reporting), LP3-Repo-Layout (plattform/products/drivers),
+  Puppet-Rollen (icwp, itg, atg, epp, disserver, ...) und Vergleich/RIS8-Ableitung.
+
+## RHEL 9.8 mockup
 - Branch `RIS8-mockup` adds the enabled-by-default `rhel98_install` role.
 - `getisos` and `feuer` fetch the configured entitled DVD ISO with retries and
   SHA-256 validation. URL/headers/checksum remain external variables, never
