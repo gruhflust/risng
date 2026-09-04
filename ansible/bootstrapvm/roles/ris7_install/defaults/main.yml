@@ -1,0 +1,68 @@
+---
+# RIS7 (LP3 iCAS_PhII-RIS 7.0-00) PXE autoinstall.
+# The RIS7 ISO is operator-supplied (Red Hat / Lindorfer build artifact); it
+# is never downloaded from a public URL or stored in this repository.
+ris7_install_enabled: true
+
+# ISO identity
+ris7_iso_filename: "LP3_iCAS_PhII-RIS_7.0-00_engver202602-rhel9.6-x86_64.iso"
+ris7_iso_path: "{{ iso_download_dir }}/ris7.iso"
+
+# Source mode: 'url' (operator-supplied URL, e.g. internal artifact store)
+# or 'local' (ISO already staged at ris7_iso_path).
+ris7_iso_source_mode: "local"
+ris7_iso_url: "{{ lookup('ansible.builtin.env', 'RIS7_ISO_URL') | default('', true) }}"
+ris7_iso_headers: {}
+ris7_iso_validate_certs: true
+# Verified SHA-256 of LP3_iCAS_PhII-RIS_7.0-00_engver202602-rhel9.6-x86_64.iso
+# (14005698560 bytes).
+ris7_iso_sha256: "d464f72c18c46142a7b3be7be7b990a6ce51af1ef518a32e00c19347885709c4"
+
+# Extracted ISO workspace (temporal, reset on rebuild)
+ris7_iso_extract_dir: "{{ pxe_tmp_dir }}/ris7-iso"
+
+# Published installer tree (served from pxe_tftp_dir via nginx HTTP root)
+ris7_repo_relative: "ris/7.0"
+ris7_repo_root: "{{ pxe_tftp_dir }}/{{ ris7_repo_relative }}"
+
+# PXE kernel/initrd target
+ris7_target_relative: "images/ris7"
+ris7_target: "{{ pxe_tftp_dir }}/{{ ris7_target_relative }}"
+ris7_kernel: "vmlinuz"
+ris7_initrd: "initrd.img"
+
+# PXE menu entries
+ris7_bios_label: "ris7"
+ris7_uefi_menuentry: "RIS7 (iCAS_PhII)"
+ris7_bios_fragment: "{{ pxelinux_dir }}/25-ris7.cfg"
+ris7_grub_fragment: "{{ grub_dir }}/25-ris7.cfg"
+
+# If false (default), ISO extract/sync runs only when critical artifacts are missing.
+ris7_repo_rebuild_always: false
+
+# LP3 kernel parameters (see RIS7 isolinux.cfg / EFI grub.cfg)
+ris7_lp_product: "iCAS_PhII"
+
+# Network args for RIS7 installer PXE boot.
+# ${net_default_mac} is a PXE-bootloader runtime variable (same pattern as
+# rhel98_install); the LP3 ks.cfg %pre derives the MAC from BOOTIF on the
+# kernel command line.
+ris7_install_net_args: >-
+  ip=dhcp
+  bootdev=bootif
+  BOOTIF=01-${net_default_mac}
+  rd.bootif=1
+  rd.neednet=1
+  inst.waitfornet=60
+  rd.net.timeout.carrier=60
+  rd.net.timeout.ifup=120
+  rd.retry=180
+  noipv6
+
+# Optional extra kernel args appended to installer entries.
+ris7_install_extra_args: ""
+
+# Kickstart identity: root password is locked (RIS7 ISO ks.cfg secret hash
+# is NOT replicated); the RIS user 'nor' is created by the LP3 stage1/stage2
+# flow, not by anaconda.
+ris7_rootpw_locked: true

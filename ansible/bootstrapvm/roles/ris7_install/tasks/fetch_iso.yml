@@ -1,0 +1,49 @@
+---
+# RIS7 ISO fetch (getisos path). Mirrors rhel98_install/fetch_iso.yml.
+# The RIS7 ISO is an operator-supplied artifact; in 'local' mode the file is
+# simply validated, in 'url' mode it is downloaded with checksum enforcement.
+
+- name: RIS7 | Ensure ISO cache directory exists
+  ansible.builtin.file:
+    path: "{{ iso_download_dir }}"
+    state: directory
+    owner: "{{ pxe_tmp_owner | default('root') }}"
+    group: "{{ pxe_tmp_group | default('root') }}"
+    mode: "0755"
+
+- name: RIS7 | Validate ISO source configuration
+  ansible.builtin.assert:
+    that:
+      - ris7_iso_source_mode in ['url', 'local']
+      - ris7_iso_sha256 | length == 64
+      - ris7_iso_source_mode != 'url' or ris7_iso_url | length > 0
+    fail_msg: >-
+      Set ris7_iso_source_mode to local or URL. URL mode requires
+      ris7_iso_url and ris7_iso_sha256; supply entitlement headers through
+      ris7_iso_headers outside Git when the source requires them.
+
+- name: RIS7 | Check cached ISO checksum
+  ansible.builtin.stat:
+    path: "{{ ris7_iso_path }}"
+    checksum_algorithm: sha256
+  register: ris7_cached_iso
+
+- name: RIS7 | Download ISO with checksum validation
+  ansible.builtin.get_url:
+    url: "{{ ris7_iso_url }}"
+    dest: "{{ ris7_iso_path }}"
+    checksum: "sha256:{{ ris7_iso_sha256 }}"
+    headers: "{{ ris7_iso_headers }}"
+    validate_certs: "{{ ris7_iso_validate_certs | bool }}"
+    mode: "0644"
+    force: true
+    timeout: "{{ iso_download_timeout | default(180) }}"
+    unsafe_writes: true
+  register: ris7_iso_download
+  retries: "{{ iso_download_retries | default(5) }}"
+  delay: "{{ iso_download_retry_delay | default(10) }}"
+  until: ris7_iso_download is succeeded
+  no_log: true
+  when:
+    - ris7_iso_source_mode == 'url'
+    - not ris7_cached_iso.stat.exists or (ris7_cached_iso.stat.checksum | default('')) != ris7_iso_sha256
