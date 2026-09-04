@@ -1,0 +1,190 @@
+---
+# RIS7 repo publish (feuer path). Mirrors rhel98_install/tasks/main.yml.
+# Extracts the operator-supplied RIS7 ISO once, publishes the installer tree
+# under the RISng HTTP root, and copies kernel/initrd to the PXE target.
+#
+# The LP3 installer flow expects (relative to the ks= base URL, i.e.
+# <tftp>/ris/7.0):
+#   BaseOS/ AppStream/                    (default anaconda url --url repo)
+#   components/{plattform,products}/      (lp_settings.json repositories)
+#   components/os-updates/.present        (ks.cfg os-updates readiness probe)
+#   stage1/stage1.sh                      (self-extracting pre-script bootstrap)
+#   setup.tar.xz  logPoll.sh  ks.cfg
+#   media.repo  lp_settings.json  extra_files.json
+#   RPM-GPG-KEY-redhat-{release,beta}
+#
+# The stage1 payload (pre-script, post-script, stage1lib/, savedata/,
+# remotelog/, obmcli, plattform, stage2) is embedded in stage1.sh; the LP3
+# flow runs the binaries from the working directory '/', which during
+# %pre/%post resolves to the base URL root. We therefore additionally
+# extract the stage1 payload into the repo root so the cd /-relative paths
+# resolve against the published tree (same layout as the DVD root).
+
+- name: RIS7 | Fetch ISO from configured source when required
+  ansible.builtin.import_tasks: fetch_iso.yml
+
+- name: RIS7 | Ensure staging directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ ris7_iso_extract_dir }}"
+    - "{{ ris7_repo_root }}"
+    - "{{ ris7_target }}"
+    - "{{ pxe_tftp_dir }}/kickstart"
+    - "{{ pxelinux_dir }}"
+    - "{{ grub_dir }}"
+
+- name: RIS7 | Check fetched ISO
+  ansible.builtin.stat:
+    path: "{{ ris7_iso_path }}"
+  register: ris7_iso_file
+
+- name: RIS7 | Fail when operator-supplied RIS7 ISO is unavailable
+  ansible.builtin.assert:
+    that:
+      - ris7_iso_file.stat.exists
+      - ris7_iso_file.stat.size | default(0) > 10000000000
+    fail_msg: >-
+      Place the RIS7 ISO (LP3_iCAS_PhII-RIS 7.0-00, ~14 GB) at
+      {{ ris7_iso_path }} before running feuer with ris7_install_enabled=true.
+
+- name: RIS7 | Require the operator-supplied ISO checksum
+  ansible.builtin.assert:
+    that:
+      - ris7_iso_sha256 | length == 64
+    fail_msg: "Set ris7_iso_sha256 to the verified SHA-256 of {{ ris7_iso_path }} before staging RIS7."
+
+- name: RIS7 | Verify ISO checksum
+  ansible.builtin.stat:
+    path: "{{ ris7_iso_path }}"
+    checksum_algorithm: sha256
+  register: ris7_iso_checksum
+
+- name: RIS7 | Fail on ISO checksum mismatch
+  ansible.builtin.assert:
+    that:
+      - ris7_iso_checksum.stat.checksum == ris7_iso_sha256
+    fail_msg: >-
+      SHA-256 mismatch for {{ ris7_iso_path }}. Refusing to publish an
+      unverified RIS7 installer.
+
+- name: RIS7 | Probe published installer artifacts
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ ris7_repo_root }}/BaseOS/repodata/repomd.xml"
+    - "{{ ris7_repo_root }}/AppStream/repodata/repomd.xml"
+    - "{{ ris7_repo_root }}/components/plattform/repository/repodata"
+    - "{{ ris7_repo_root }}/components/products/repository/repodata"
+    - "{{ ris7_repo_root }}/stage1/stage1.sh"
+    - "{{ ris7_repo_root }}/setup.tar.xz"
+    - "{{ ris7_repo_root }}/logPoll.sh"
+    - "{{ ris7_repo_root }}/lp_settings.json"
+    - "{{ ris7_repo_root }}/ks.cfg"
+    - "{{ ris7_repo_root }}/images/pxeboot/vmlinuz"
+    - "{{ ris7_repo_root }}/images/pxeboot/initrd.img"
+  register: ris7_repo_probe
+
+- name: RIS7 | Determine whether ISO extraction is required
+  ansible.builtin.set_fact:
+    ris7_repo_needs_rebuild: >-
+      {{
+        (ris7_repo_rebuild_always | bool)
+        or ((ris7_repo_probe.results | rejectattr('stat.exists') | list | length) > 0)
+      }}
+
+- name: RIS7 | Reset extracted ISO workspace when required
+  ansible.builtin.file:
+    path: "{{ ris7_iso_extract_dir }}"
+    state: absent
+  when: ris7_repo_needs_rebuild | bool
+
+- name: RIS7 | Recreate extracted ISO workspace when required
+  ansible.builtin.file:
+    path: "{{ ris7_iso_extract_dir }}"
+    state: directory
+    mode: "0755"
+  when: ris7_repo_needs_rebuild | bool
+
+- name: RIS7 | Extract ISO when required (bsdtar handles ISO9660/Joliet)
+  ansible.builtin.command:
+    argv:
+      - bsdtar
+      - -C
+      - "{{ ris7_iso_extract_dir }}"
+      - -xf
+      - "{{ ris7_iso_path }}"
+  when: ris7_repo_needs_rebuild | bool
+
+- name: RIS7 | Create os-updates marker (absent on ISO, required by ks.cfg probe)
+  ansible.builtin.file:
+    path: "{{ ris7_iso_extract_dir }}/components/os-updates"
+    state: directory
+    mode: "0755"
+  when: ris7_repo_needs_rebuild | bool
+
+- name: RIS7 | Write os-updates .present marker
+  ansible.builtin.copy:
+    dest: "{{ ris7_iso_extract_dir }}/components/os-updates/.present"
+    content: "RISng PXE staging: os-updates repo provided empty.\n"
+    mode: "0644"
+  when: ris7_repo_needs_rebuild | bool
+
+- name: RIS7 | Extract stage1 payload into repo root (cd /-relative LP3 paths)
+  ansible.builtin.command:
+    argv:
+      - sh
+      - -c
+      - "sed -e '1,/^exit$/d' '{{ ris7_iso_extract_dir }}/stage1/stage1.sh' | tar -C '{{ ris7_iso_extract_dir }}' -xf -"
+  when: ris7_repo_needs_rebuild | bool
+
+- name: RIS7 | Publish extracted installer tree through RISng HTTP root
+  ansible.builtin.command:
+    argv:
+      - rsync
+      - -a
+      - --delete
+      - "{{ ris7_iso_extract_dir }}/"
+      - "{{ ris7_repo_root }}/"
+  when: ris7_repo_needs_rebuild | bool
+
+- name: RIS7 | Validate published installer tree
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ ris7_repo_root }}/BaseOS/repodata/repomd.xml"
+    - "{{ ris7_repo_root }}/AppStream/repodata/repomd.xml"
+    - "{{ ris7_repo_root }}/components/plattform/repository/repodata"
+    - "{{ ris7_repo_root }}/components/products/repository/repodata"
+    - "{{ ris7_repo_root }}/components/os-updates/.present"
+    - "{{ ris7_repo_root }}/stage1/stage1.sh"
+    - "{{ ris7_repo_root }}/setup.tar.xz"
+    - "{{ ris7_repo_root }}/logPoll.sh"
+    - "{{ ris7_repo_root }}/pre-script"
+    - "{{ ris7_repo_root }}/post-script"
+    - "{{ ris7_repo_root }}/stage1lib"
+    - "{{ ris7_repo_root }}/lp_settings.json"
+    - "{{ ris7_repo_root }}/media.repo"
+    - "{{ ris7_repo_root }}/ks.cfg"
+    - "{{ ris7_repo_root }}/RPM-GPG-KEY-redhat-release"
+    - "{{ ris7_repo_root }}/images/pxeboot/vmlinuz"
+    - "{{ ris7_repo_root }}/images/pxeboot/initrd.img"
+  register: ris7_published_probe
+
+- name: RIS7 | Fail when published installer tree is incomplete
+  ansible.builtin.assert:
+    that:
+      - ris7_published_probe.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: "RIS7 installer tree is incomplete under {{ ris7_repo_root }}."
+
+- name: RIS7 | Copy PXE kernel and initrd
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ ris7_repo_root }}/images/pxeboot/{{ item.source }}"
+    dest: "{{ ris7_target }}/{{ item.destination }}"
+    mode: "0644"
+  loop:
+    - { source: "vmlinuz", destination: "{{ ris7_kernel }}" }
+    - { source: "initrd.img", destination: "{{ ris7_initrd }}" }
