@@ -26,7 +26,9 @@ Staginghost (Debian 13, RISng-Bootstrap-VM)
     │   ├── BaseOS/  AppStream/
     │   ├── components/{plattform,products,os-updates}/
     │   ├── stage1/stage1.sh  setup.tar.xz  logPoll.sh
-    │   ├── ks.cfg  (angepasst: http-Default-Repo, %include-Kommentar)
+    │   ├── pre-script  post-script  stage2  obmcli  plattform
+    │   ├── stage1lib/  savedata/  remotelog/        # stage1-Payload-Artefakte (cd /-Pfade)
+    │   ├── ks.cfg  (angepasst: rootpw --lock; %include /tmp/repos.cfg aktiv)
     │   ├── media.repo  lp_settings.json  extra_files.json
     │   ├── RPM-GPG-KEY-redhat-{release,beta}
     │   └── images/pxeboot/  isolinux/  boot/grub/  EFI/
@@ -43,10 +45,13 @@ Boot-Kette (PXE, BIOS + UEFI identisch):
 
 ## Anpassungen gegenüber der ISO-Original-ks.cfg
 
-- `%include /tmp/repos.cfg` wird **kommentiert**: pre-script erzeugt repos.cfg
-  nicht im PXE-Fall (es fehlt das DVD-Mount). Der `url --url`-Default-Repo des
-  Kickstarts (BaseOS+AppStream+components) deckt die `%packages`-Abhängigkeiten ab.
-  Gekennzeichnet mit `# RISng-PXE` im Template.
+- `%include /tmp/repos.cfg` bleibt **aktiv** (geprüft: pre-script erzeugt
+  `/tmp/repos.cfg` selbst aus `lp_settings.json` + `detect_baseurl()`, daher
+  vorhanden im DVD- und im PXE-Fall).
+- `stage1/stage1.sh` entpackt `pre-script` in den **aktuellen Arbeitssatz**
+  (`cd /` → `/pre-script`), `%post` ruft `/post-script` mit
+  `LD_LIBRARY_PATH=./stage1lib` auf. Beide Pfade werden deshalb zusätzlich
+  im HTTP-Repo-Root gepublished (wie auf der DVD-Root vorhanden).
 - Root-Passwort: `rootpw --lock` statt geheimer Hash (Hash aus ISO-ks.cfg
   wird NICHT übernommen, vgl. RIS7-Rollen-Spec §8).
 - Alles andere 1:1 (keyboard de, lang en, UTC, @packages-Liste, GPG-Key-Import).
@@ -86,7 +91,6 @@ Boot-Kette (PXE, BIOS + UEFI identisch):
 - `lp.cleardevices=disk0` wird im PXE-Fall weggelassen (erstmalige Installation
   auf leerer Zielfestplatte; gezielte Slot-Wechsel kommen später als
   zusätzliche Menüeinträge `RIS7 slot2` etc.).
-- Stage2-Binary + stage1lib: werden mit extrahiert (liegen im stage1-Payload /
-  ISO-Extrakt), pre-script entpackt sie selbst. `stage1lib/` wird zusätzlich
-  im Repo-Root gepublished, damit `LD_LIBRARY_PATH=./stage1lib` im %pre-Pfad
-  (cd /) aufgelöst werden kann — wie auf der DVD.
+- `stage1lib/`, `pre-script`, `post-script`, `obmcli`, `stage2`, `plattform`,
+  `savedata/`, `remotelog/` werden im Repo-Root gepublished (Entpack-Artefakte
+  des stage1-Payloads; `LD_LIBRARY_PATH=./stage1lib` + `cd /`-Pfade).
