@@ -70,16 +70,19 @@ Boot-Kette (PXE, BIOS + UEFI identisch):
 
 ## Validierungsstrategie
 
-- **Statisch:** `ansible-playbook --syntax-check` auf `risng-setup.yml` + `getisos.yml`;
-  Template-Render via `ansible localhost -m template` mit Test-Var-Set (tftp_server_ip, Pfade).
-- **Lokal-funktional (diese VM):** Publish-Pfad gegen einen lokalen
-  `/var/lib/tftpboot`-Mock ausführen ist zu riskant für die laufenden Dienste;
-  stattdessen: `bsdtar`-Extrakt-Test in einen Temp-Pfad + rsync-Preview (nichts
-  in `/var/lib` der laufenden Bootstrap-VM schreiben). Voll-Integrationstest
-  (PXE-Boot Testclient) auf dem realen RISng-Staginghost via `feuer`.
-- **Auf dem Staginghost:** `getisos` → `feuer` → `trigger-pxe-boot` mit
-  DHCP-Host-Override `boot_profile: ris7`; Boot-Fortschritt auf TTY des Clients;
-  DIS-Client-Verhalten ohne disserver (Still-Fall) beobachten.
+- **Statisch:** `ansible-playbook --syntax-check` auf `risng-setup.yml` + `getisos.yml`; Template-Render via `ansible localhost -m template` mit Test-Var-Set (tftp_server_ip, Pfade).
+- **Struktur:** ISO-Struktur-Validierung gegen das Workspace-Extrakt `RIS7/`: alle required Artefakte vorhanden; stage1-Payload-Extraktion (gleicher Befehl wie `publish_repo.yml`) erzeugt `pre-script`, `post-script`, `stage1lib/`, `savedata/`, `obmcli`, `plattform`, `RPM-GPG-KEY-LinuxPlattform-3`; `components/os-updates` ABSENT (Marker-Plan bestätigt); `RPM-GPG-KEY-redhat-{release,beta}` vorhanden.
+- **Lokal-funktional:** Voll-Integrationstest (PXE-Boot Testclient) auf dem realen RISng-Staginghost: `getisos` → `feuer` → `trigger-pxe-boot` mit DHCP-Host-Override `boot_profile: ris7`; Boot-Fortschritt auf TTY des Clients; DIS-Client-Verhalten ohne disserver (Still-Fall) beobachten. **Noch offen** (braucht Staginghost + Testclient).
+
+## Validierungsstatus (2026-09-04)
+
+| Check | Status | Hinweis |
+|---|---|---|
+| YAML-Syntax (alle ris7_install-Dateien) | PASS | `yaml.safe_load` |
+| Playbook-Syntax (risng-setup.yml, getisos.yml) | PASS | `--syntax-check` |
+| Template-Render (BIOS + UEFI-Fragment) | PASS | localhost-Test, identisches Muster wie rhel98 |
+| ISO-Struktur + stage1-Payload (vs. `RIS7/`) | PASS | alle Pfade, Marker-Plan bestätigt |
+| PXE-Boot Integration (Staginghost) | **OFFEN** | needs `feuer` on RISng-VM + test client |
 
 ## Offene Punkte (Bewusstsein, keine Blocker)
 

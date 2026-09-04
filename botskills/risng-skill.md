@@ -95,6 +95,28 @@ Historical feature branches are preserved as annotated
   Initial access is key-only through the staged control-host public key.
 - DHCP profile `rhel98` selects the `RHEL 9.8 AutoInstall` BIOS/UEFI option.
 
+## RIS7 PXE-Quelle (2026-09-04)
+- Rolle `ris7_install` (Default `ris7_install_enabled: true`) publiziert die
+  operator-supplied ISO `LP3_iCAS_PhII-RIS_7.0-00_engver202602-rhel9.6-x86_64.iso`
+  (~14 GB, SHA-256 `d464f72c18c…785709c4`) als komplette PXE-Quelle auf dem
+  RISng-Staginghost: `ris/7.0/`-Installer-Tree (HTTP), `images/ris7/` kernel+
+  initrd, `kickstart/ris7.cfg` (1:1 ISO-ks.cfg, nur `rootpw --lock` anstatt
+  ISO-Secret-Hash), BIOS/UEFI-Menü `RIS7 (iCAS_PhII)` (Fragments `25-ris7.cfg`),
+  DHCP-Boot-Profil `ris7`.
+- Stage1-Payload (pre-script/post-script/stage1lib/savedata) wird beim Publish
+  aus `stage1/stage1.sh` in den Repo-Root entpackt (`cd /`-Pfade der LP3).
+  `components/os-updates/.present`-Marker wird nachgelegt (auf ISO abwesend).
+- Kickstart `%pre` bleibt LP3-original (DIS-Erkennung am Base-URL, still-fall
+  ohne disserver), `%include /tmp/repos.cfg` aktiv (pre-script erzeugt es selbst
+  aus `lp_settings.json`).
+- Wiring: `risng-setup.yml` (roles), `getisos.yml` (ISO-fetch),
+  DHCP-`dhcp_boot_profiles` + `dhcp_boot_menu_defaults`, feuer-Artefakt-Checkliste.
+- Doku: `docs/requirements/information/Agent-Tasks/RIS7-PXE-Umsetzungsplanung.md`
+  + `docs/requirements/information/RIS7-Rollen-Spec.md` +
+  `docs/requirements/information/RIS7-ISO-Analyse.md`.
+- Offen: PXE-Boot-Integrationstest auf dem RISng-Staginghost
+  (`getisos` → `feuer` → `trigger-pxe-boot`, DHCP-Override `boot_profile: ris7`).
+
 ## Wrapper-Funktionen
 - `run_risng_playbook [opts] playbook logfile [inventory]` — Auto-detects RISNG_DIR
 - Eigenes ansible.cfg: `RISNG_ANSIBLE_CFG="$RISNG_CODE_DIR/ansible/ansible.cfg"`

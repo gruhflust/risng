@@ -20,6 +20,7 @@ sed -n '1,260p' botskills/risng-skill.md
 | `ansible/bootstrapvm/roles/management/` | Management-Bashrc, Helper, lokale Repo-/SecondStage-Vorbereitung |
 | `ansible/secondstage/` | `risdeploy`, Dryrun und Validierung fuer installierte Clients |
 | `ansible/bootstrapvm/roles/rhel98_install/` | optionaler RHEL-9.8-PXE-Autoinstall-Mockup mit lokalem Entitlement-ISO |
+| `ansible/bootstrapvm/roles/ris7_install/` | RIS7 (LP3 iCAS_PhII 7.0-00, RHEL 9.6) PXE-Autoinstall mit operator-supplied ISO |
 | `ansible/runtime/` | Report-, Doxygen- und Runtime-Helfer |
 | `docs/requirements/information/Agent-Tasks/` | aufgabenbezogene Requirements-/Change-Dokumente |
 | `ansible/operator/` | Bashrc-Vorlage, Diagnosehelfer und Python-Operator-Werkzeuge |
