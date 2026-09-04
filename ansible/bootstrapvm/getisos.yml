@@ -23,3 +23,9 @@
         name: rhel98_install
         tasks_from: fetch_iso.yml
       when: rhel98_install_enabled | default(false) | bool
+
+    - name: 02 Fetch the configured RIS7 (LP3 iCAS_PhII) installer ISO
+      ansible.builtin.import_role:
+        name: ris7_install
+        tasks_from: fetch_iso.yml
+      when: ris7_install_enabled | default(false) | bool

@@ -504,6 +504,8 @@
     - risng_install
     - role: rhel98_install
       when: rhel98_install_enabled | default(false) | bool
+    - role: ris7_install
+      when: ris7_install_enabled | default(false) | bool
 
   post_tasks:
     - name: 01.99 Build feuer artifact checklist
@@ -521,6 +523,12 @@
             label: "CentOS installer kernel"
           - path: "{{ spec_repo_root | default((pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/centos/7/os/x86_64') }}/images/pxeboot/initrd.img"
             label: "CentOS installer initrd"
+          - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/images/ris7/vmlinuz' }}"
+            label: "RIS7 (LP3 iCAS_PhII 7.0-00) PXE kernel"
+          - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/ris/7.0/stage1/stage1.sh' }}"
+            label: "RIS7 stage1 bootstrap"
+          - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/kickstart/ris7.cfg' }}"
+            label: "RIS7 kickstart profile"
 
     - name: 01.99a Collect feuer artifact stats
       ansible.builtin.stat:

@@ -46,6 +46,9 @@ dhcp_boot_profiles:
   rhel98:
     uefi: "bootx64.efi"
     bios: "pxelinux.0"
+  ris7:
+    uefi: "bootx64.efi"
+    bios: "pxelinux.0"
   localdisk:
     uefi: "bootx64.efi"
     bios: "pxelinux.0"
@@ -81,6 +84,9 @@ dhcp_boot_menu_defaults:
   rhel98:
     bios_label: "rhel98"
     uefi_menuentry: "RHEL 9.8 AutoInstall"
+  ris7:
+    bios_label: "ris7"
+    uefi_menuentry: "RIS7 (iCAS_PhII)"
   localdisk:
     bios_label: "localdisk"
     uefi_menuentry: "Boot from local disk"
