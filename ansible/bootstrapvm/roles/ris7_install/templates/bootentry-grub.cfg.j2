@@ -1,0 +1,4 @@
+menuentry "RIS7 (iCAS_PhII)" {
+    linux {{ ris7_target_relative }}/{{ ris7_kernel }} inst.stage2=http://{{ tftp_server_ip }}/{{ ris7_repo_relative }} inst.repo=http://{{ tftp_server_ip }}/{{ ris7_repo_relative }} ks=http://{{ tftp_server_ip }}/kickstart/ris7.cfg lp.product={{ ris7_lp_product }} inst.gpt inst.text {{ ris7_install_net_args }} {{ ris7_install_extra_args }}
+    initrd {{ ris7_target_relative }}/{{ ris7_initrd }}
+}

@@ -1,0 +1,24 @@
+---
+# RIS7 PXE autoinstall (feuer path).
+# Order: repo publish (kernel/initrd + installer tree) -> kickstart -> boot entries.
+
+- name: RIS7 | Publish RIS7 installer tree (ISO extract, repo, kernel/initrd)
+  ansible.builtin.import_tasks: publish_repo.yml
+
+- name: RIS7 | Publish kickstart profile
+  ansible.builtin.copy:
+    src: kickstart-ris7.cfg
+    dest: "{{ pxe_tftp_dir }}/kickstart/ris7.cfg"
+    mode: "0644"
+
+- name: RIS7 | Publish BIOS PXE menu entry
+  ansible.builtin.template:
+    src: bootentry-pxelinux.cfg.j2
+    dest: "{{ ris7_bios_fragment }}"
+    mode: "0644"
+
+- name: RIS7 | Publish UEFI PXE menu entry
+  ansible.builtin.template:
+    src: bootentry-grub.cfg.j2
+    dest: "{{ ris7_grub_fragment }}"
+    mode: "0644"
