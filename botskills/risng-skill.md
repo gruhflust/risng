@@ -87,6 +87,53 @@ Historical feature branches are preserved as annotated
   logPoll.sh-Progress-Reporting), LP3-Repo-Layout (plattform/products/drivers),
   Puppet-Rollen (icwp, itg, atg, epp, disserver, ...) und Vergleich/RIS8-Ableitung.
 
+## RIS8 – 3-Phasen-Umsetzung (aktive Aufgabe, Stand 2026-09-05)
+
+**Auftrag (dto 2026-09-05):** iCAS_PhII-Rollen (icmd/ifdo/isar/…) per PXE auf
+Alma 9.8 (fix) automatisch installieren; Rollenausprägung per MAC-Adresse über
+Ansible; Fortschrittsanzeige via Webserver auf RISng-Server. **Puppet verboten.**
+Kein volles `feuer` auf kleinen Test-VMs (64-GB-VM am 2026-09-05 vollgeschrieben;
+neue VM 89 GB: 192.168.188.207).
+
+**Doku (Single Source of Truth):**
+`docs/requirements/information/Agent-Tasks/RIS8-3-Phasen-Architektur.md`
+(Phasen, ISO-Daten, Paket-Plan P1–P11, offene Punkte)
+
+**Alma 9.8 (fix):** `AlmaLinux-9.8-x86_64-dvd.iso`, 15 151 923 200 B,
+SHA-256 `7a392bdc879afd159b30da39a356b7b26c1ddf618b01549164da9aadbc40d814`,
+Upstream `https://repo.almalinux.org/almalinux/9.8/` (BaseOS/AppStream/CRB + isos/).
+
+**LP3-Artefakte (RIS7-ISO, Mount im macagent-Workspace `/mnt/ris7iso`):**
+- `components/plattform/repository` 292 MB (plattform-tools, poco-1.9.4, disserver-3.5.1,
+  dfshwagent*, python-netsnmpagent, default-keys, srvadmin*, **puppet-agent → NICHT installieren**)
+- `components/products/repository` 290 MB (iCAS: jre-8, synergy, xfce4-*, libs_hmi_icas, gnuplot …)
+- `setup.tar.xz` 442 MB = Produkt-Rootfs-Referenz für Phase 3 (Puppet→Ansible-Quelltext)
+- `default-keys` RPM = SSH-Hostkeys + `/root/.ssh/authorized_keys` (Schlüsselhinterlegung)
+- `disserver` RPM 3.5.1 = `/disserver/`, `/etc/disserver.cfg`, `dis` CLI, httpd/rsyslog/sudoers
+
+**Rahmenregeln für die Umsetzung:**
+- Viele kleine Commits auf `RIS8-mockup`, jeweils `git push -u origin RIS8-mockup`
+- Nach jedem Paket: Botskill + Architektur-Doku aktuell halten
+- Testsystem: `user@192.168.188.207` (89 GB, Debian 13, PXE-NIC ens19, WAN ens18)
+- `risng-setup.yml`-Rollenblock (Phase 01): `almalinux98_install` aktivieren,
+  `ris7_install`/`risng_install`/`rhel98_install` deaktivieren (Platz sparen)
+- Fortschritt: `webserver`-Rolle (Flask `report_viewer.py`) um `/progress/` erweitern;
+  States unter `/var/lib/tftpboot/runtime/` (z.B. `progress_state.json`)
+- MAC→Rolle: `/etc/risng/mac_role_map.json` (existiert, `report_viewer.py` nutzt sie)
+
+**Fortschritt Paket-Plan (was schon committed / was offen):**
+- P1 Doku+Botskill: DONE (Commit folgt)
+- P2 `almalinux98_install`-Rolle (fetch/mirror/kickstart/pxe/dhcp): TODO
+- P3 Progress-API `/progress/` in webserver: TODO
+- P4 wiring getisos+risng-setup (almalinux98 on, rest off): TODO
+- P5 `lp3_repo` Rolle (plattform+products Publish): TODO
+- P6 Phase-2-Playbook (Basis-RPMs, nor, GPG, SNMP): TODO
+- P7 MAC→Inventory-Router: TODO
+- P8 `icas_base`-Ansible-Rolle: TODO
+- P9 Referenzrolle (dto-Auswahl): TODO
+- P10 Phase-3-Progress-Hooks: TODO
+- P11 Doku-Final + Validierungs-Checkliste: TODO
+
 ## RHEL 9.8 mockup
 - Branch `RIS8-mockup` adds the enabled-by-default `rhel98_install` role.
 - `getisos` and `feuer` fetch the configured entitled DVD ISO with retries and
