@@ -18,6 +18,7 @@ STATIC_HOSTS_FILE = Path('/etc/dhcp/static-hosts.conf')
 FORGOTTEN_HOSTS_FILE = Path('/var/lib/tftpboot/runtime/forgotten_hosts.json')
 NGINX_ACCESS_LOG = Path('/var/log/nginx/risng-pxe.access.log')
 STATE_FILE = Path('/var/lib/tftpboot/runtime/webui_state.json')
+PROGRESS_STATE_FILE = Path('/var/lib/tftpboot/runtime/progress_state.json')
 DEPLOY_STATE_FILE = Path('/var/lib/tftpboot/runtime/deploy_state.json')
 MANAGEMENT_STATE_FILE = Path('/var/lib/tftpboot/runtime/management_state.json')
 LOG_DIR = Path('/var/lib/tftpboot/runtime/webui_logs')
@@ -436,6 +437,105 @@ def ssh_reachable(ip: str, timeout: float = 0.35) -> bool:
         return False
 
 
+# --- RIS8 progress API ---------------------------------------------------------
+# Phase 1 kickstart (%pre/%post), phase 2/3 Ansible runs and the operator UI all
+# report through this endpoint. The state file is the single source of truth for
+# the web dashboard (see index()).
+
+PROGRESS_PHASES = ('1', '2', '3')
+PROGRESS_STATUSES = ('running', 'success', 'failed', 'skipped')
+
+
+def load_progress_state():
+    data = load_json(PROGRESS_STATE_FILE, {})
+    return data if isinstance(data, dict) else {}
+
+
+def save_progress_state(data):
+    data = data if isinstance(data, dict) else {}
+    PROGRESS_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    save_json(PROGRESS_STATE_FILE, data)
+
+
+def record_progress(mac: str, phase: str, step: str, status: str, hostname: str = '', message: str = ''):
+    mac = (mac or '').strip().lower()
+    if not re.match(r'^[0-9a-f]{2}(:[0-9a-f]{2}){5}$', mac):
+        return None
+    phase = (phase or '').strip()
+    if phase not in PROGRESS_PHASES:
+        phase = ''
+    status = (status or 'running').strip().lower()
+    if status not in PROGRESS_STATUSES:
+        status = 'running'
+    step = (step or '').strip()[:120]
+    hostname = (hostname or '').strip()[:64]
+    message = (message or '').strip()[:512]
+    state = load_progress_state()
+    entry = state.get(mac, {})
+    entry.update({
+        'mac': mac,
+        'hostname': hostname or entry.get('hostname', ''),
+        'phase': phase or entry.get('phase', ''),
+        'step': step,
+        'status': status,
+        'message': message or entry.get('message', ''),
+        'updated': now_iso(),
+    })
+    if not entry.get('first_seen'):
+        entry['first_seen'] = now_iso()
+    state[mac] = entry
+    save_progress_state(state)
+    if hostname:
+        update_management_state(mac, hostname=hostname, phase=(phase or entry.get('phase', '')))
+    return entry
+
+
+def forget_progress(mac: str):
+    mac = (mac or '').strip().lower()
+    state = load_progress_state()
+    if mac in state:
+        del state[mac]
+        save_progress_state(state)
+
+
+@app.route('/progress/', methods=['POST'])
+def api_progress_post():
+    # Form-encoded (curl from kickstart/ansible) and JSON are both accepted.
+    form = request.form.to_dict(force=True)
+    payload = request.get_json(silent=True) or {}
+    def pick(key: str, default: str = '') -> str:
+        v = form.get(key, payload.get(key, default))
+        return str(v).strip() if v is not None else default
+    entry = record_progress(
+        mac=pick('mac'),
+        phase=pick('phase'),
+        step=pick('step'),
+        status=pick('status', 'running'),
+        hostname=pick('hostname'),
+        message=pick('message'),
+    )
+    if entry is None:
+        return jsonify({'ok': False, 'error': 'invalid mac'}), 400
+    return jsonify({'ok': True, 'mac': entry['mac'], 'phase': entry['phase'], 'status': entry['status']})
+
+
+@app.route('/progress/<mac>', methods=['GET'])
+def api_progress_get(mac: str):
+    entry = load_progress_state().get(mac.strip().lower())
+    if entry is None:
+        return jsonify({'ok': False, 'error': 'unknown mac'}), 404
+    return jsonify({'ok': True, **entry})
+
+
+@app.route('/progress/reset/<mac>', methods=['POST'])
+def api_progress_reset(mac: str):
+    forget_progress(mac)
+    return jsonify({'ok': True, 'mac': mac.strip().lower()})
+
+
+# --- RIS8 progress API end -----------------------------------------------------
+
+
 @app.route('/api/discovery', methods=['POST'])
 def api_discovery():
     payload = request.get_json(silent=True) or {}
@@ -467,9 +567,11 @@ def index():
     validation_index = load_validation_index()
     deploy_state = load_deploy_state()
     management_state = load_management_state()
+    progress_state = load_progress_state()  # RIS8 phase progress (mac -> entry)
     state = refresh_job_state()
 
     known_macs = set(leases.keys()) | set(static_hosts.keys()) | set(role_map.keys()) | set(secondstage.keys())
+    known_macs |= {m for m in progress_state if m}
     for d in list_discovery_files():
         known_macs.add(d['mac'])
 
@@ -480,6 +582,7 @@ def index():
         meta = role_map.get(mac, {})
         s2 = secondstage.get(mac, {})
         d = load_discovery(mac)
+        p8 = progress_state.get(mac, {}) if isinstance(progress_state.get(mac, {}), dict) else {}
 
         mgmt = management_state.get(mac, {}) if isinstance(management_state.get(mac, {}), dict) else {}
         runtime_ip = lease.get('ip', '') or mgmt.get('runtime_ip', '') or stat.get('ip', '')
@@ -488,9 +591,12 @@ def index():
         update_management_state(mac, runtime_ip=runtime_ip or None, assigned_ip=assigned_ip or None, name=(meta.get('name') or s2.get('name') or lease.get('hostname','') or stat.get('hostname','') or mgmt.get('name') or None), role=(meta.get('role') or s2.get('boot_profile') or mgmt.get('role') or None))
         role_eff = meta.get('role') or s2.get('boot_profile') or infer_role_from_hostname(meta.get('name') or s2.get('name') or lease.get('hostname','') or stat.get('hostname',''))
 
-        status = 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else ('LEASED' if mac in leases else 'CONFIGURED'))
+        # RIS8 phase progress overrides the legacy status once a phase has been reported.
         reachable_now = ssh_reachable(runtime_ip or ip)
-        if (meta.get('role') == 'localdisk' or s2.get('boot_profile') == 'localdisk') and ip and validation_index.get(ip):
+        status = 'ASSIGNED' if mac in role_map else ('DISCOVERED' if d else ('LEASED' if mac in leases else 'CONFIGURED'))
+        if p8.get('phase') and p8.get('status'):
+            status = f"RIS8_P{p8.get('phase').upper()}:{p8.get('status').upper()}"
+        elif (meta.get('role') == 'localdisk' or s2.get('boot_profile') == 'localdisk') and ip and validation_index.get(ip):
             status = 'BOOT_LOCAL_SET'
         elif ip and validation_index.get(ip):
             status = 'INSTALLED'
@@ -507,8 +613,11 @@ def index():
             'mac': mac,
             'ip': ip,
             'runtime_ip': runtime_ip,
-            'hostname': meta.get('name') or s2.get('name') or lease.get('hostname','') or stat.get('hostname',''),
+            'hostname': meta.get('name') or s2.get('name') or lease.get('hostname','') or stat.get('hostname','') or p8.get('hostname',''),
             'role': role_eff,
+            'ris8_phase': p8.get('phase', ''),
+            'ris8_step': p8.get('step', ''),
+            'ris8_status': p8.get('status', ''),
             'secondstage_enabled': bool(s2.get('secondstage_enabled')),
             'components': ','.join(s2.get('secondstage_components', [])) if isinstance(s2.get('secondstage_components', []), list) else '',
             'hw': d.get('hardware', d if isinstance(d, dict) else {}),
@@ -685,7 +794,7 @@ TEMPLATE = """{% raw %}
   tr.status-boot_local_set td:first-child { background: #ffe08a; color: #000; font-weight: 700; }
 </style>
 <table border="1" cellpadding="6" cellspacing="0">
-<tr><th>Status</th><th>MAC</th><th>Runtime IP</th><th>Assigned IP</th><th>Hostname</th><th>Role</th><th>SecondStage</th><th>HW Info</th><th>Assign/Update</th><th>Actions</th></tr>
+<tr><th>Status</th><th>MAC</th><th>Runtime IP</th><th>Assigned IP</th><th>Hostname</th><th>Role</th><th>RIS8 Phase</th><th>SecondStage</th><th>HW Info</th><th>Assign/Update</th><th>Actions</th></tr>
 {% for r in rows %}
 <tr class="status-{{ r.status | lower }}">
   <td>{{ r.status }}</td>
@@ -694,6 +803,9 @@ TEMPLATE = """{% raw %}
   <td>{{ r.ip }}</td>
   <td>{{ r.hostname }}</td>
   <td>{{ r.role }}</td>
+  <td>
+    {% if r.ris8_phase %}P{{ r.ris8_phase }}: {{ r.ris8_step }} <em>({{ r.ris8_status }})</em>{% else %}-{% endif %}
+  </td>
   <td>{{ 'on' if r.secondstage_enabled else 'off' }}</td>
   <td>
     CPU: {{ r.hw.get('cpu','n/a') }}<br>
