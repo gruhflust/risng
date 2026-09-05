@@ -156,6 +156,41 @@
     dest: "{{ pxe_tftp_dir }}/kickstart/{{ almalinux98_kickstart_filename }}"
     mode: "0644"
 
+- name: almalinux98 | Ensure bootstrap key directory exists
+  ansible.builtin.file:
+    path: "{{ pxe_tftp_dir }}/bootstrap"
+    state: directory
+    mode: "0755"
+
+- name: almalinux98 | Probe controlhost SSH public key candidates
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ ssh_user_home | default('/home/risng') }}/.ssh/id_ed25519.pub"
+    - "/home/risng/.ssh/id_ed25519.pub"
+    - "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/id_ed25519.pub"
+    - "{{ lookup('ansible.builtin.env', 'HOME') }}/.ssh/id_rsa.pub"
+  register: almalinux98_ctrlkey_stats
+
+- name: almalinux98 | Pick first available controlhost public key
+  ansible.builtin.set_fact:
+    almalinux98_ctrlkey_pub: "{{ (almalinux98_ctrlkey_stats.results | selectattr('stat.exists', 'defined') | selectattr('stat.exists', 'equalto', true) | map(attribute='item') | list | first) | default('') }}"
+
+- name: almalinux98 | Publish controlhost SSH public key for phase-1 client bootstrap
+  ansible.builtin.copy:
+    src: "{{ almalinux98_ctrlkey_pub }}"
+    dest: "{{ pxe_tftp_dir }}/bootstrap/controlhost_id_ed25519.pub"
+    remote_src: true
+    mode: "0644"
+  when: almalinux98_ctrlkey_pub | default('') | length > 0
+
+- name: almalinux98 | Warn when no controlhost public key was published
+  ansible.builtin.debug:
+    msg: >-
+      No controlhost SSH public key found; the phase-1 kickstart SSH
+      provisioning will have no authorized key (operator must supply one).
+  when: (almalinux98_ctrlkey_pub | default('') | length) == 0
+
 - name: almalinux98 | Publish BIOS PXE menu entry
   ansible.builtin.template:
     src: bootentry-pxelinux.cfg.j2

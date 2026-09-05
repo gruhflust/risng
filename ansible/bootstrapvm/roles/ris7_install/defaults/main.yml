@@ -2,7 +2,10 @@
 # RIS7 (LP3 iCAS_PhII-RIS 7.0-00) PXE autoinstall.
 # The RIS7 ISO is operator-supplied (Red Hat / Lindorfer build artifact); it
 # is never downloaded from a public URL or stored in this repository.
-ris7_install_enabled: true
+#
+# RIS8 (Alma 9.8) supersede this legacy 14 GB ISO path. Disabled by default to
+# save disk on small test VMs; re-enable with -e ris7_install_enabled=true.
+ris7_install_enabled: false
 
 # ISO identity
 ris7_iso_filename: "LP3_iCAS_PhII-RIS_7.0-00_engver202602-rhel9.6-x86_64.iso"

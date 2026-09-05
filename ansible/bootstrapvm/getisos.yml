@@ -29,3 +29,9 @@
         name: ris7_install
         tasks_from: fetch_iso.yml
       when: ris7_install_enabled | default(false) | bool
+
+    - name: 03 Fetch the fixed AlmaLinux 9.8 installer ISO (RIS8 phase 1)
+      ansible.builtin.import_role:
+        name: almalinux98_install
+        tasks_from: fetch_iso.yml
+      when: almalinux98_install_enabled | default(true) | bool

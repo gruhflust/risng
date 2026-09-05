@@ -1,5 +1,9 @@
 ---
 # risng_install role defaults for CentOS 7.8 PXE autoinstall
+# RIS8 (Alma 9.8) is the new base-install path; the legacy CentOS 7.8 +
+# squashfs stage2 flow (4.8 GB ISO) is disabled by default to keep test VMs
+# lean. Re-enable with -e risng_install_enabled=true.
+risng_install_enabled: false
 spec_iso_mount: "{{ pxe_tmp_dir }}/mnt-spec"
 spec_target: "{{ pxe_tftp_dir }}/images/spec"
 spec_target_relative: "images/spec"

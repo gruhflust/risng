@@ -501,11 +501,14 @@
     # - debian-live
     # - netinstall
     - risng
-    - risng_install
+    - role: risng_install
+      when: risng_install_enabled | default(true) | bool
     - role: rhel98_install
       when: rhel98_install_enabled | default(false) | bool
     - role: ris7_install
       when: ris7_install_enabled | default(false) | bool
+    - role: almalinux98_install
+      when: almalinux98_install_enabled | default(true) | bool
 
   post_tasks:
     - name: 01.99 Build feuer artifact checklist
@@ -529,6 +532,16 @@
             label: "RIS7 stage1 bootstrap"
           - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/kickstart/ris7.cfg' }}"
             label: "RIS7 kickstart profile"
+          - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/almalinux/9.8/BaseOS/repodata/repomd.xml' }}"
+            label: "AlmaLinux 9.8 BaseOS repo (RIS8 phase 1)"
+          - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/almalinux/9.8/AppStream/repodata/repomd.xml' }}"
+            label: "AlmaLinux 9.8 AppStream repo (RIS8 phase 1)"
+          - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/images/almalinux98/vmlinuz' }}"
+            label: "AlmaLinux 9.8 PXE kernel (RIS8)"
+          - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/images/almalinux98/initrd.img' }}"
+            label: "AlmaLinux 9.8 PXE initrd (RIS8)"
+          - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/kickstart/almalinux98.cfg' }}"
+            label: "AlmaLinux 9.8 kickstart profile (RIS8 phase 1)"
 
     - name: 01.99a Collect feuer artifact stats
       ansible.builtin.stat:
