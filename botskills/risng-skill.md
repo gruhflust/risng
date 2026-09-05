@@ -2,7 +2,7 @@
 
 ## Repo-Info
 - **Root:** `~/.openclaw/workspace/risng`
-- **Branch:** `IOPC-3412/migration` (based on `main`; intended staging baseline)
+- **Branch:** `RIS8-mockup` (aktive RIS8-Umsetzung)
 - **Remote:** `github-risng:gruhflust/risng` | **Key:** `~/.ssh/risng`
 - **Zweck:** RISng Secondstage-PXE + Management-State-UI + Web-Render
 - **Status:** Management-State-Entwicklung (Change02), Web-Render-Fehler-Detection
@@ -22,7 +22,9 @@ ansible/bootstrapvm/roles/
   systemupdate/   → Paket-Updates
   risng/          → ★ RISng Secondstage ★
   risng_install/  → RISng-Installer
-  rhel98_install/ → optionaler RHEL-9.8-PXE-Autoinstall-Mockup
+  rhel98_install/ → optionaler RHEL-9.8-PXE-Autoinstall-Mockup (**aus**, 2026-09-05 `d605730`)
+  almalinux98_install/ → ★ AlmaLinux 9.8 PXE-Autoinstall (RIS8 Phase 1) ★
+  lp3_repo/        → LP3-Plattform- + Produkt-RPMs (RIS8 Phase 2 Quelle)
   gopass/         → gopass-Integration
 ansible/bootstrapvm/
 ansible/playbooks/    → 5 Playbooks
@@ -121,27 +123,19 @@ Upstream `https://repo.almalinux.org/almalinux/9.8/` (BaseOS/AppStream/CRB + iso
   States unter `/var/lib/tftpboot/runtime/` (z.B. `progress_state.json`)
 - MAC→Rolle: `/etc/risng/mac_role_map.json` (existiert, `report_viewer.py` nutzt sie)
 
-**Fortschritt Paket-Plan (Stand 2026-07-08, alle DONE-Pakete gepusht nach `origin/RIS8-mockup`):**
+**Fortschritt Paket-Plan (Stand 2026-09-05, alle DONE-Pakete gepusht nach `origin/RIS8-mockup`):**
 - P1 Doku+Botskill: **DONE** `c8101eb` (Architektur-Doku `docs/requirements/information/Agent-Tasks/RIS8-3-Phasen-Architektur.md`)
-- P2 `almalinux98_install`-Rolle: **DONE** `4f9ca0d` — `ansible/bootstrapvm/roles/almalinux98_install/`
-  - `defaults/main.yml`: fixiert Alma 9.8 (URL+SHA256 `7a392bdc...`), nur BaseOS+AppStream
-  - `tasks/fetch_iso.yml`: ISO-Download (getisos-Pfad), SHA256-Verifiziert, Idempotent
-  - `tasks/main.yml`: **keine** 15-GB-ISO-Extraktion — Repo-Mirror via `rsync` vom öffentlichen Mirror (`https://repo.almalinux.org/almalinux/9.8/{BaseOS,AppStream}/`), PXE kernel/initrd via loop-mount `images/pxeboot/`, Kickstart + PXE-Fragmente `28-almalinux98.cfg`, Controlhost-Public-Key nach `/bootstrap/controlhost_id_ed25519.pub`
-  - `templates/kickstart.cfg.j2`: Phase-1-Basis (rootpw gelocked, SSH-Key, MAC-basierter Fortschritt-POST in %pre/%post, `/etc/risng-role`=ris8-base)
-- P3 Progress-API in `webserver`: **DONE** `da6e430` — `report_viewer.py.j2`
-  - `POST /progress/` (Form oder JSON: mac, phase 1|2|3, step, status running|success|failed|skipped, hostname, message)
-  - `GET /progress/<mac>`, `POST /progress/reset/<mac>`; State `/var/lib/tftpboot/runtime/progress_state.json`
-  - Dashboard: neue Spalte "RIS8 Phase" + Status-Override `RIS8_P<n>:<STATUS>`
-- P4 wiring + Legacy-Aus: **DONE** `c8bb843` — `risng-setup.yml`/`getisos.yml` integrieren `almalinux98_install`; `ris7_install_enabled: false` und `risng_install_enabled: false` (CentOS 7.8) als Defaults → spart 14 GB + 4.8 GB; Live-RIS (Debian) bleibt aktiv
-- P5 `lp3_repo` Rolle (plattform+products Publish, ~580 MB, kein Puppet-RPM): **DONE** `2734d8a` + Wiring `cd22903`
-    - `ansible/bootstrapvm/roles/lp3_repo/`: NUR `plattform/`+`products/` via `rsync --exclude=puppet-*.rpm` nach `lp3/icas_phii/{plattform,products}/repository/`; Quelle gemountetes ISO-Dir ODER ISO-Datei (loop-mount ro)
-    - **Kein Puppet**: `--exclude=puppet-*.rpm` + `find`-Prüfe (kein anderes LP3-Paket braucht puppet-agent); lokal gegen gemountete RIS7-ISO getestet: 561 MB, jre-8+poco-foundation, 0x puppet — nächste Aufgabe
-- P6 Phase-2-Playbook `ris8-phase2.yml` (Basis-RPMs poco*/plattform-tools, User `nor`): **DONE** `f7b4cf8`
-    - `ansible/secondstage/ris8-phase2.yml`: Play 1 (bootstrapvm) liest Phase-1-Erfolg aus `progress_state.json` + IP aus DHCP-Lease/management_state, dynam. Gruppe `ris8_phase2_targets`, optional `-e ris8_target_mac=`
-    - Play 2 (Ziel): `ris8-lp3.repo` (gpgcheck=0) + `dnf install poco-* plattform-tools python-netsnmpagent disserver default-keys jre-8` + User `nor` (wheel) + `/etc/risng-role` RIS8_PHASE=2 + Progress-POST phase=2; rescue: Failure-POST + Re-Raise; Wrapper `operator/risng-phase2`; **Syntax OK**üst, Fortschritt-POST): TODO
-- **Status: P1-P6 DONE (gepusht). Phase 1 (Basis-Install) + Phase 2 (RPMs) komplett. Phase 3 (Rollen, Puppet zu Ansible) steht an (P7-P10).**
-- P7 MAC→Inventory-Router (bestehende `mac_role_map.json` + `secondstage`-Mechanik wiederverwenden): TODO
-- P8 `icas_base`-Ansible-Rolle (Puppet-Grundgerüst → Ansible): TODO
+- P2 `almalinux98_install`-Rolle: **DONE** `4f9ca0d` + Fixes `a78b9eb`+`83effde` — `ansible/bootstrapvm/roles/almalinux98_install/`
+  - **Stand 2026-09-05:** ISO-basierter Mirror (DVD mount + lokaler `rsync`), Kickstart mit korrekten `repo --baseurl` Direktiven, PXE-Fragmente `28-almalinux98.cfg` (BIOS+UEFI)
+  - **Validiert auf `user@192.168.188.207`:** 1184 BaseOS + 6501 AppStream RPMs, vmlinuz+initrd, Kickstart, Bootstrap-Key, HTTP 200 auf alle Endpunkte
+- P3 Progress-API in `webserver`: **DONE** `da6e430`
+- P4 wiring + Legacy-Aus: **DONE** `c8bb843` + `d605730` (rhel98_install_enabled → false)
+- P5 `lp3_repo` Rolle: **DONE** `2734d8a`+`cd22903` — **Validiert auf Test-VM:** 27 plattform + 46 products RPMs, 0 Puppet-RPMs
+- P6 Phase-2-Playbook `ris8-phase2.yml`: **DONE** `f7b4cf8`
+- P7 MAC→Inventory-Router `ris8-phase3.yml`: **DONE** `6d08b87`
+
+**Status: P1–P7 DONE (gepusht). Phase 1 + Phase 2 + Phase-3-Infrastruktur komplett. Phase 3 konfig (P8–P10) steht an.**
+- P8 `icas_base`-Ansible-Rolle (SNMP, DisServer-Client, rsyslog, sudoers, tftp-Layout): TODO
 - P9 Referenzrolle (dto-Auswahl, z.B. `icmd` oder `isar`): TODO
 - P10 Phase-3-Fortschritt-Hooks pro Rolle: TODO
 - P11 Doku-Final + Validierungs-Checkliste: TODO
@@ -158,13 +152,18 @@ Upstream `https://repo.almalinux.org/almalinux/9.8/` (BaseOS/AppStream/CRB + iso
 - Fortschritt-Endpunkt auf RISng-Server: `POST http://<risng>/progress/` (Phase 1 Kickstart postet bereits; Phase 2/3 posten über Playbook-Task).
 - Botskill-Status-Block immer aktuell halten (wie dieser).
 
-## RHEL 9.8 mockup
-- Branch `RIS8-mockup` adds the enabled-by-default `rhel98_install` role.
-- `getisos` and `feuer` fetch the configured entitled DVD ISO with retries and
-  SHA-256 validation. URL/headers/checksum remain external variables, never
-  Git content; source mode `local` remains available as an offline fallback.
-  Initial access is key-only through the staged control-host public key.
-- DHCP profile `rhel98` selects the `RHEL 9.8 AutoInstall` BIOS/UEFI option.
+## RHEL 9.8 mockup (DEAKTIVIERT 2026-09-05)
+- `d605730`: `rhel98_install_enabled` → `false`. Wurde durch `almalinux98_install` ersetzt
+  (Alma 9.8 statt RHEL 9.8). Rolle bleibt im Repo als Referenz, läuft standardmäßig nicht mehr.
+- DHCP-Profil `rhel98` bleibt definiert, wird aber nicht mehr befüllt.
+
+## AlmaLinux 9.8 (RIS8 Phase 1) – VALIDIERT 2026-09-05
+- **Rolle:** `almalinux98_install` (`risng-setup.yml` Reihenfolge: nach `rhel98_install`, vor `lp3_repo`)
+- **Strategie:** DVD-ISO (SHA256-verifiziert) einmal ro loop-monten → lokal `rsync` BaseOS+AppStream → PXE kernel/initrd `copy` → Kickstart + PXE-Fragmente rendern → unmount.
+  - **Warum:** Debian-13-`rsync` hat kein https-Modul; `rsync-ssl` akzeptiert keine URLs; `wget`-Mirror liefert nur HTML-Indizes. Die DVD-ISO hat das korrekte Anaconda-Layout `<comp>/{repodata,Packages}`.
+- **Kickstart:** zwei `repo --baseurl=http://<ip>/almalinux/9.8/{BaseOS,AppStream}` (nicht `url --urlpoint`, das ist kein gültiges Anaconda-Keyword)
+- **Validierung `user@192.168.188.207` (2026-09-05):** `ok=42 changed=16 failed=0`; 1184+6501 RPMs, vmlinuz (15 MB) + initrd (223 MB), `28-almalinux98.cfg` (BIOS+UEFI), `bootstrap/controlhost_id_ed25519.pub`, **HTTP 200** auf alle 8 Endpunkte via nginx (root `/var/lib/tftpboot`).
+- **Disk-Spitze:** Mirror ~13,6 GB unter `/var/lib/tftpboot/almalinux/9.8/`; ISO 15 GB in `/var/tmp/pxe-build/iso/`. Gesamtdisk-Nutzung auf Test-VM: ~57 GB / 89 GB.
 
 ## RIS7 PXE-Quelle (2026-09-04)
 - Rolle `ris7_install` (Default `ris7_install_enabled: true`) publiziert die
