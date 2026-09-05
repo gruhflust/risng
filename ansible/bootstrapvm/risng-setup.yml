@@ -509,6 +509,8 @@
       when: ris7_install_enabled | default(false) | bool
     - role: almalinux98_install
       when: almalinux98_install_enabled | default(true) | bool
+    - role: lp3_repo
+      when: lp3_repo_enabled | default(true) | bool
 
   post_tasks:
     - name: 01.99 Build feuer artifact checklist
@@ -542,6 +544,10 @@
             label: "AlmaLinux 9.8 PXE initrd (RIS8)"
           - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/kickstart/almalinux98.cfg' }}"
             label: "AlmaLinux 9.8 kickstart profile (RIS8 phase 1)"
+          - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/lp3/icas_phii/plattform/repository/repodata/repomd.xml' }}"
+            label: "LP3 plattform RPM repo (RIS8 phase 2)"
+          - path: "{{ (pxe_tftp_dir | default('/var/lib/tftpboot')) ~ '/lp3/icas_phii/products/repository/repodata/repomd.xml' }}"
+            label: "LP3 iCAS_PhII products RPM repo (RIS8 phase 2)"
 
     - name: 01.99a Collect feuer artifact stats
       ansible.builtin.stat:
