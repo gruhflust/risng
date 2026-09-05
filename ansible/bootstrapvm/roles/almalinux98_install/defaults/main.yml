@@ -1,0 +1,64 @@
+---
+# AlmaLinux 9.8 PXE autoinstall (RIS8 phase 1: base OS install).
+# Media comes from the public AlmaLinux mirror (fixed 9.8, not "latest").
+almalinux98_install_enabled: true
+
+# ISO identity (public, fixed minor version 9.8)
+almalinux98_iso_filename: "AlmaLinux-9.8-x86_64-dvd.iso"
+almalinux98_iso_url: "https://repo.almalinux.org/almalinux/9.8/isos/x86_64/{{ almalinux98_iso_filename }}"
+almalinux98_iso_path: "{{ iso_download_dir }}/{{ almalinux98_iso_filename }}"
+almalinux98_iso_sha256: "7a392bdc879afd159b30da39a356b7b26c1ddf618b01549164da9aadbc40d814"
+almalinux98_iso_validate_certs: true
+# 'url' (default, public mirror) or 'local' (ISO pre-staged at almalinux98_iso_path)
+almalinux98_iso_source_mode: "url"
+
+# Downstream repo base (public URL used for cross-checking / offline fallback).
+# Kickstart always uses the locally served copy at almalinux98_repo_root.
+almalinux98_upstream_baseurl: "https://repo.almalinux.org/almalinux/9.8/"
+
+# Layout on the RISng staging host (served via existing nginx HTTP root)
+almalinux98_iso_extract_dir: "{{ pxe_tmp_dir }}/almalinux98-iso"
+almalinux98_repo_relative: "almalinux/9.8"
+almalinux98_repo_root: "{{ pxe_tftp_dir }}/{{ almalinux98_repo_relative }}"
+almalinux98_target_relative: "images/almalinux98"
+almalinux98_target: "{{ pxe_tftp_dir }}/{{ almalinux98_target_relative }}"
+almalinux98_kernel: "vmlinuz"
+almalinux98_initrd: "initrd.img"
+
+# Keep only the repos needed for the base install + phase 2.
+# CRB/HA/NFV/RT are not needed for iCAS_PhII; skip them to save space.
+almalinux98_repo_components:
+  - "BaseOS"
+  - "AppStream"
+
+# Rebuild flag: force re-extract even when artifacts exist
+almalinux98_repo_rebuild_always: false
+
+# Kickstart identity (phase 1: base OS).
+# - root password: locked; access is SSH-key only (default-keys pattern).
+# - user 'nor' is created in phase 2 (LP3 RPMs).
+almalinux98_rootpw_locked: true
+almalinux98_authorized_keys: "{{ lookup('ansible.builtin.file', '~/.ssh/id_ed25519.pub') | default(lookup('ansible.builtin.file', '~/.ssh/id_rsa.pub') | default(''), true) }}"
+
+# PXE net args (identical pattern to ris7/rhel98_install).
+almalinux98_install_net_args: >-
+  ip=dhcp
+  bootdev=bootif
+  BOOTIF=01-${net_default_mac}
+  rd.bootif=1
+  rd.neednet=1
+  inst.waitfornet=60
+  rd.net.timeout.carrier=60
+  rd.net.timeout.ifup=120
+  rd.retry=180
+  noipv6
+
+# Optional extra kernel args appended to installer entries.
+almalinux98_install_extra_args: ""
+
+# PXE menu entries (fragments under pxelinux.cfg/ and boot/grub/)
+almalinux98_bios_label: "almalinux98"
+almalinux98_uefi_menuentry: "AlmaLinux 9.8 (RIS8 base)"
+almalinux98_bios_fragment: "{{ pxelinux_dir }}/28-almalinux98.cfg"
+almalinux98_grub_fragment: "{{ grub_dir }}/28-almalinux98.cfg"
+almalinux98_kickstart_filename: "almalinux98.cfg"

@@ -1,0 +1,4 @@
+menuentry "AlmaLinux 9.8 AutoInstall (RIS8)" {
+    linux {{ almalinux98_target_relative }}/{{ almalinux98_kernel }} inst.stage2=http://{{ tftp_server_ip }}/{{ almalinux98_repo_relative }} inst.repo=http://{{ tftp_server_ip }}/{{ almalinux98_repo_relative }} inst.ks=http://{{ tftp_server_ip }}/kickstart/{{ almalinux98_kickstart_filename }} {{ almalinux98_install_net_args }} {{ almalinux98_install_extra_args }}
+    initrd {{ almalinux98_target_relative }}/{{ almalinux98_initrd }}
+}

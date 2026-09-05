@@ -1,0 +1,169 @@
+---
+# almalinux98_install | feuer path (phase 1 staging)
+# Space-efficient strategy (test VMs are small):
+#   1. Fetch fixed Alma 9.8 DVD ISO (getisos) - used ONLY for PXE kernel/initrd.
+#   2. Mirror BaseOS+AppStream repos from the public mirror into the RISng
+#      HTTP root (rsync, no ISO extraction -> no 15 GB disk spike).
+#   3. Publish kernel/initrd + kickstart + PXE menu fragments.
+
+- name: almalinux98 | Fetch ISO from configured source when required
+  ansible.builtin.import_tasks: fetch_iso.yml
+
+- name: almalinux98 | Ensure staging directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ almalinux98_repo_root }}"
+    - "{{ almalinux98_target }}"
+    - "{{ pxe_tftp_dir }}/kickstart"
+    - "{{ pxelinux_dir }}"
+    - "{{ grub_dir }}"
+
+- name: almalinux98 | Check fetched ISO (needed for PXE kernel/initrd only)
+  ansible.builtin.stat:
+    path: "{{ almalinux98_iso_path }}"
+  register: almalinux98_iso_file
+
+- name: almalinux98 | Fail when ISO is unavailable
+  ansible.builtin.assert:
+    that:
+      - almalinux98_iso_file.stat.exists
+      - almalinux98_iso_file.stat.size | default(0) > 1000000000
+    fail_msg: >-
+      AlmaLinux 9.8 DVD ISO is missing at {{ almalinux98_iso_path }}.
+      Run getisos first (almalinux98_install fetches and validates it).
+
+- name: almalinux98 | Verify ISO checksum
+  ansible.builtin.stat:
+    path: "{{ almalinux98_iso_path }}"
+    checksum_algorithm: sha256
+  register: almalinux98_iso_checksum
+
+- name: almalinux98 | Fail on ISO checksum mismatch
+  ansible.builtin.assert:
+    that:
+      - almalinux98_iso_checksum.stat.checksum == almalinux98_iso_sha256
+    fail_msg: >-
+      SHA-256 mismatch for {{ almalinux98_iso_path }}.
+      Refusing to stage an unverified AlmaLinux installer.
+
+# ---------------------------------------------------------------------------
+# Repo mirror (public upstream -> RISng HTTP root), only BaseOS + AppStream.
+# ---------------------------------------------------------------------------
+
+- name: almalinux98 | Probe published repo artifacts
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ almalinux98_repo_root }}/BaseOS/repodata/repomd.xml"
+    - "{{ almalinux98_repo_root }}/AppStream/repodata/repomd.xml"
+  register: almalinux98_repo_probe
+
+- name: almalinux98 | Determine whether repo mirror is required
+  ansible.builtin.set_fact:
+    almalinux98_repo_needs_rebuild: >-
+      {{
+        (almalinux98_repo_rebuild_always | bool)
+        or ((almalinux98_repo_probe.results | rejectattr('stat.exists') | list | length) > 0)
+      }}
+
+- name: almalinux98 | Mirror BaseOS from public upstream
+  ansible.builtin.command:
+    argv:
+      - rsync
+      - -a
+      - --delete
+      - "https://repo.almalinux.org/almalinux/9.8/BaseOS/"
+      - "{{ almalinux98_repo_root }}/BaseOS/"
+  when: almalinux98_repo_needs_rebuild | bool
+
+- name: almalinux98 | Mirror AppStream from public upstream
+  ansible.builtin.command:
+    argv:
+      - rsync
+      - -a
+      - --delete
+      - "https://repo.almalinux.org/almalinux/9.8/AppStream/"
+      - "{{ almalinux98_repo_root }}/AppStream/"
+  when: almalinux98_repo_needs_rebuild | bool
+
+- name: almalinux98 | Validate published repo tree
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ almalinux98_repo_root }}/BaseOS/repodata/repomd.xml"
+    - "{{ almalinux98_repo_root }}/AppStream/repodata/repomd.xml"
+  register: almalinux98_published_probe
+
+- name: almalinux98 | Fail when published repo tree is incomplete
+  ansible.builtin.assert:
+    that:
+      - almalinux98_published_probe.results | rejectattr('stat.exists') | list | length == 0
+    fail_msg: "AlmaLinux 9.8 repo tree is incomplete under {{ almalinux98_repo_root }}."
+
+# ---------------------------------------------------------------------------
+# PXE kernel/initrd from the (verified) ISO - no full ISO extraction needed.
+# ---------------------------------------------------------------------------
+
+- name: almalinux98 | Probe PXE boot artifacts
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ almalinux98_target }}/{{ almalinux98_kernel }}"
+    - "{{ almalinux98_target }}/{{ almalinux98_initrd }}"
+  register: almalinux98_pxe_probe
+
+- name: almalinux98 | Determine whether PXE artifacts need extraction
+  ansible.builtin.set_fact:
+    almalinux98_pxe_needs_extract: >-
+      {{ (almalinux98_pxe_probe.results | rejectattr('stat.exists') | list | length) > 0 }}
+
+- name: almalinux98 | Mount ISO read-only for PXE artifact extraction
+  ansible.posix.mount:
+    path: "{{ almalinux98_iso_extract_dir }}"
+    src: "{{ almalinux98_iso_path }}"
+    fstype: iso9660
+    opts: "ro,loop"
+    state: mounted
+  when: almalinux98_pxe_needs_extract | bool
+
+- name: almalinux98 | Copy PXE kernel and initrd
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ almalinux98_iso_extract_dir }}/images/pxeboot/{{ item.source }}"
+    dest: "{{ almalinux98_target }}/{{ item.destination }}"
+    mode: "0644"
+  loop:
+    - { source: "vmlinuz", destination: "{{ almalinux98_kernel }}" }
+    - { source: "initrd.img", destination: "{{ almalinux98_initrd }}" }
+  when: almalinux98_pxe_needs_extract | bool
+
+- name: almalinux98 | Unmount ISO after PXE artifact extraction
+  ansible.posix.mount:
+    path: "{{ almalinux98_iso_extract_dir }}"
+    state: absent
+  when: almalinux98_pxe_needs_extract | bool
+
+# ---------------------------------------------------------------------------
+# Kickstart + PXE menu fragments.
+# ---------------------------------------------------------------------------
+
+- name: almalinux98 | Render phase-1 kickstart profile
+  ansible.builtin.template:
+    src: kickstart.cfg.j2
+    dest: "{{ pxe_tftp_dir }}/kickstart/{{ almalinux98_kickstart_filename }}"
+    mode: "0644"
+
+- name: almalinux98 | Publish BIOS PXE menu entry
+  ansible.builtin.template:
+    src: bootentry-pxelinux.cfg.j2
+    dest: "{{ almalinux98_bios_fragment }}"
+    mode: "0644"
+
+- name: almalinux98 | Publish UEFI PXE menu entry
+  ansible.builtin.template:
+    src: bootentry-grub.cfg.j2
+    dest: "{{ almalinux98_grub_fragment }}"
+    mode: "0644"

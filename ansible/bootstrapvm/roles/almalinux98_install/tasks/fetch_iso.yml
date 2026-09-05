@@ -1,0 +1,48 @@
+---
+# almalinux98_install | fetch ISO (getisos path)
+# Download the fixed AlmaLinux 9.8 DVD ISO from the public mirror with
+# SHA-256 validation. Idempotent: skips when a verified copy is cached.
+
+- name: almalinux98 | Ensure ISO cache directory exists
+  ansible.builtin.file:
+    path: "{{ iso_download_dir }}"
+    state: directory
+    owner: "{{ pxe_tmp_owner | default('risng') }}"
+    group: "{{ pxe_tmp_group | default('risng') }}"
+    mode: "{{ pxe_tmp_mode | default('0755') }}"
+
+- name: almalinux98 | Validate ISO source configuration
+  ansible.builtin.assert:
+    that:
+      - almalinux98_iso_source_mode in ['url', 'local']
+      - almalinux98_iso_sha256 | length == 64
+      - almalinux98_iso_source_mode != 'url' or almalinux98_iso_url | length > 0
+    fail_msg: >-
+      almalinux98_iso_source_mode must be 'url' or 'local'. URL mode requires
+      almalinux98_iso_url; local mode expects the ISO at {{ almalinux98_iso_path }}.
+
+- name: almalinux98 | Check cached ISO checksum
+  ansible.builtin.stat:
+    path: "{{ almalinux98_iso_path }}"
+    checksum_algorithm: sha256
+  register: almalinux98_cached_iso
+
+- name: almalinux98 | Download ISO with checksum validation (public mirror)
+  ansible.builtin.get_url:
+    url: "{{ almalinux98_iso_url }}"
+    dest: "{{ almalinux98_iso_path }}"
+    checksum: "sha256:{{ almalinux98_iso_sha256 }}"
+    validate_certs: "{{ almalinux98_iso_validate_certs | bool }}"
+    owner: "{{ pxe_tmp_owner | default('risng') }}"
+    group: "{{ pxe_tmp_group | default('risng') }}"
+    mode: "0644"
+    timeout: "{{ iso_download_timeout | default(600) }}"
+    unsafe_writes: true
+  register: almalinux98_iso_download
+  retries: "{{ iso_download_retries | default(5) }}"
+  delay: "{{ iso_download_retry_delay | default(15) }}"
+  until: almalinux98_iso_download is succeeded
+  when:
+    - almalinux98_iso_source_mode == 'url'
+    - not almalinux98_cached_iso.stat.exists
+      or (almalinux98_cached_iso.stat.checksum | default('')) != almalinux98_iso_sha256
