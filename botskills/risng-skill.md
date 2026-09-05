@@ -121,18 +121,35 @@ Upstream `https://repo.almalinux.org/almalinux/9.8/` (BaseOS/AppStream/CRB + iso
   States unter `/var/lib/tftpboot/runtime/` (z.B. `progress_state.json`)
 - MAC→Rolle: `/etc/risng/mac_role_map.json` (existiert, `report_viewer.py` nutzt sie)
 
-**Fortschritt Paket-Plan (was schon committed / was offen):**
-- P1 Doku+Botskill: DONE (Commit folgt)
-- P2 `almalinux98_install`-Rolle (fetch/mirror/kickstart/pxe/dhcp): TODO
-- P3 Progress-API `/progress/` in webserver: TODO
-- P4 wiring getisos+risng-setup (almalinux98 on, rest off): TODO
-- P5 `lp3_repo` Rolle (plattform+products Publish): TODO
-- P6 Phase-2-Playbook (Basis-RPMs, nor, GPG, SNMP): TODO
-- P7 MAC→Inventory-Router: TODO
-- P8 `icas_base`-Ansible-Rolle: TODO
-- P9 Referenzrolle (dto-Auswahl): TODO
-- P10 Phase-3-Progress-Hooks: TODO
+**Fortschritt Paket-Plan (Stand 2026-07-08, alle DONE-Pakete gepusht nach `origin/RIS8-mockup`):**
+- P1 Doku+Botskill: **DONE** `c8101eb` (Architektur-Doku `docs/requirements/information/Agent-Tasks/RIS8-3-Phasen-Architektur.md`)
+- P2 `almalinux98_install`-Rolle: **DONE** `4f9ca0d` — `ansible/bootstrapvm/roles/almalinux98_install/`
+  - `defaults/main.yml`: fixiert Alma 9.8 (URL+SHA256 `7a392bdc...`), nur BaseOS+AppStream
+  - `tasks/fetch_iso.yml`: ISO-Download (getisos-Pfad), SHA256-Verifiziert, Idempotent
+  - `tasks/main.yml`: **keine** 15-GB-ISO-Extraktion — Repo-Mirror via `rsync` vom öffentlichen Mirror (`https://repo.almalinux.org/almalinux/9.8/{BaseOS,AppStream}/`), PXE kernel/initrd via loop-mount `images/pxeboot/`, Kickstart + PXE-Fragmente `28-almalinux98.cfg`, Controlhost-Public-Key nach `/bootstrap/controlhost_id_ed25519.pub`
+  - `templates/kickstart.cfg.j2`: Phase-1-Basis (rootpw gelocked, SSH-Key, MAC-basierter Fortschritt-POST in %pre/%post, `/etc/risng-role`=ris8-base)
+- P3 Progress-API in `webserver`: **DONE** `da6e430` — `report_viewer.py.j2`
+  - `POST /progress/` (Form oder JSON: mac, phase 1|2|3, step, status running|success|failed|skipped, hostname, message)
+  - `GET /progress/<mac>`, `POST /progress/reset/<mac>`; State `/var/lib/tftpboot/runtime/progress_state.json`
+  - Dashboard: neue Spalte "RIS8 Phase" + Status-Override `RIS8_P<n>:<STATUS>`
+- P4 wiring + Legacy-Aus: **DONE** `c8bb843` — `risng-setup.yml`/`getisos.yml` integrieren `almalinux98_install`; `ris7_install_enabled: false` und `risng_install_enabled: false` (CentOS 7.8) als Defaults → spart 14 GB + 4.8 GB; Live-RIS (Debian) bleibt aktiv
+- P5 `lp3_repo` Rolle (plattform+products Publish, ~580 MB, kein Puppet-RPM): **TODO** — nächste Aufgabe
+- P6 Phase-2-Playbook `ris8-phase2.yml` (Basis-RPMs poco*/plattform-tools, User `nor`, GPG-Keys, SNMP-Grundgerüst, Fortschritt-POST): TODO
+- P7 MAC→Inventory-Router (bestehende `mac_role_map.json` + `secondstage`-Mechanik wiederverwenden): TODO
+- P8 `icas_base`-Ansible-Rolle (Puppet-Grundgerüst → Ansible): TODO
+- P9 Referenzrolle (dto-Auswahl, z.B. `icmd` oder `isar`): TODO
+- P10 Phase-3-Fortschritt-Hooks pro Rolle: TODO
 - P11 Doku-Final + Validierungs-Checkliste: TODO
+
+**Resume-Hinweise (wichtig bei Neustart):**
+- Repo: `~/.openclaw/workspace/risng`, Branch `RIS8-mockup`, Remote `git@github-risng:gruhflust/risng`.
+- Vor jeder Aktion `git pull --rebase`; nach jedem Paket Commit + `git push`.
+- RIS7-ISO für LP3-Artefakte (P5/P6): lokal unter `/mnt/ris7iso` (gemountet, falls noch da) — sonst ISO `LP3_iCAS_PhII-RIS_7.0-00_engver202602-rhel9.6-x86_64.iso` im macagent-Workspace neu mounten; LP3-Repo-Quellen: `components/plattform/repository` (292 MB, 18 RPMs) + `components/products/repository` (290 MB, 46 RPMs).
+- **Kein Puppet**: `puppet-agent`-RPM muss NICHT installiert werden; LP3-Plattform-RPMs sind OK.
+- Test-VM: `user@192.168.188.207` (89 GB, Debian 13, PXE-NIC `ens19`, WAN `ens18`).
+- Alma 9.8 fixiert: `https://repo.almalinux.org/almalinux/9.8/isos/x86_64/AlmaLinux-9.8-x86_64-dvd.iso`, SHA256 `7a392bdc879afd159b30da39a356b7b26c1ddf618b01549164da9aadbc40d814`.
+- Fortschritt-Endpunkt auf RISng-Server: `POST http://<risng>/progress/` (Phase 1 Kickstart postet bereits; Phase 2/3 posten über Playbook-Task).
+- Botskill-Status-Block immer aktuell halten (wie dieser).
 
 ## RHEL 9.8 mockup
 - Branch `RIS8-mockup` adds the enabled-by-default `rhel98_install` role.
