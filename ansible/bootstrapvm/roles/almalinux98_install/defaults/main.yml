@@ -31,6 +31,12 @@ almalinux98_repo_components:
   - "BaseOS"
   - "AppStream"
 
+# Upstream path suffix inside each component (Alma layout: <comp>/x86_64/os/)
+almalinux98_repo_arch_path: "x86_64/os"
+
+# rsync binary with HTTPS support (Debian: rsync-ssl package)
+almalinux98_rsync_cmd: "rsync-ssl"
+
 # Rebuild flag: force re-extract even when artifacts exist
 almalinux98_repo_rebuild_always: false
 

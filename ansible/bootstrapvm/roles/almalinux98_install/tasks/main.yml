@@ -72,20 +72,20 @@
 - name: almalinux98 | Mirror BaseOS from public upstream
   ansible.builtin.command:
     argv:
-      - rsync
+      - "{{ almalinux98_rsync_cmd }}"
       - -a
       - --delete
-      - "https://repo.almalinux.org/almalinux/9.8/BaseOS/"
+      - "{{ almalinux98_upstream_baseurl }}BaseOS/{{ almalinux98_repo_arch_path }}/"
       - "{{ almalinux98_repo_root }}/BaseOS/"
   when: almalinux98_repo_needs_rebuild | bool
 
 - name: almalinux98 | Mirror AppStream from public upstream
   ansible.builtin.command:
     argv:
-      - rsync
+      - "{{ almalinux98_rsync_cmd }}"
       - -a
       - --delete
-      - "https://repo.almalinux.org/almalinux/9.8/AppStream/"
+      - "{{ almalinux98_upstream_baseurl }}AppStream/{{ almalinux98_repo_arch_path }}/"
       - "{{ almalinux98_repo_root }}/AppStream/"
   when: almalinux98_repo_needs_rebuild | bool
 
