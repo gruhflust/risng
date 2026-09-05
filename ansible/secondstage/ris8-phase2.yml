@@ -1,0 +1,282 @@
+---
+# ris8-phase2.yml – Install non-native Alma 9.8 RPMs (LP3 platform + iCAS) on
+# phase-1-successful clients. No Puppet, no stage1.sh, no setup.tar.xz.
+#
+# Discovery: clients that reported phase=1/status=success via /progress/
+# (kickstart %post). IP is resolved from the DHCP leases / static hosts on
+# the RISng host (same sources as report_viewer.py).
+#
+# Per-client work (raw + minimal ansible, no dependency on the LP3 stack):
+#   1. Point /etc/yum.repos.d/ris8-lp3.repo at the LP3 platform + products
+#      HTTP roots (gpgcheck=0: the LP3 ISO carries no repo signing key).
+#   2. dnf install the phase-2 package set (poco-*, plattform-tools,
+#      python-netsnmpagent, disserver, default-keys, jre-8, libs_hmi_icas).
+#   3. Create user 'nor' (wheel) – parity with the LP3 default user.
+#   4. Report phase=2/status=success|failed back to the webserver.
+
+- name: Build RIS8 phase-2 target inventory from progress state
+  hosts: bootstrapvm
+  connection: local
+  gather_facts: false
+  vars:
+    ris8_progress_state_file: /var/lib/tftpboot/runtime/progress_state.json
+    ris8_management_state_file: /var/lib/tftpboot/runtime/management_state.json
+    ris8_leases_files:
+      - /var/lib/dhcp/dhcpd.leases
+      - /var/lib/dhcp/dhcpd.leases~
+    ris8_static_hosts_file: /etc/dhcp/static-hosts.conf
+    ris8_ssh_user: root
+    ris8_ssh_key: "{{ lookup('ansible.builtin.env','HOME') }}/.ssh/id_ed25519"
+    ris8_target_mac: "{{ ris8_target_mac | default('') }}"
+
+  tasks:
+    - name: Load phase-2 success set from progress state
+      ansible.builtin.slurp:
+        src: "{{ ris8_progress_state_file }}"
+      register: ris8_progress_raw
+      failed_when: false
+      changed_when: false
+
+    - name: Parse progress state (mac -> entry)
+      ansible.builtin.set_fact:
+        ris8_progress: >-
+          {{ (ris8_progress_raw.content | b64decode | from_json)
+             if (ris8_progress_raw is defined and ris8_progress_raw.content is defined)
+             else {} }}
+
+    - name: Select phase-1 successful clients
+      ansible.builtin.set_fact:
+        ris8_phase2_candidates: >-
+          {{ ris8_progress
+             | dict2items
+             | selectattr('value.phase', 'equalto', '1')
+             | selectattr('value.status', 'equalto', 'success')
+             | map(attribute='key')
+             | list }}
+
+    - name: Optionally restrict phase-2 to a single target MAC
+      ansible.builtin.set_fact:
+        ris8_phase2_candidates: "{{ ris8_phase2_candidates | select('equalto', ris8_target_mac) | list }}"
+      when: (ris8_target_mac | default('') | length) > 0
+
+    - name: Stop when no phase-1 successful clients are known
+      ansible.builtin.meta: end_play
+      when: (ris8_phase2_candidates | length) == 0
+
+    - name: Load DHCP leases and emit 'mac ip' pairs
+      ansible.builtin.shell: |
+        set -uo pipefail
+        for f in {{ ris8_leases_files | join(' ') }}; do
+          [ -f "$f" ] || continue
+          awk '
+            /hardware ethernet/ { mac=tolower($3); sub(/;$/,"",mac) }
+            /fixed-address/     { ip=$2; sub(/;$/,"",ip) }
+            ip != "" && mac != "" { print mac, ip; mac=""; ip="" }
+          ' "$f" 2>/dev/null
+        done | sort -u
+      args:
+        executable: /bin/bash
+      register: ris8_leases_raw
+      changed_when: false
+      failed_when: false
+
+    - name: Build MAC->IP map from lease pairs
+      ansible.builtin.set_fact:
+        ris8_mac_to_ip: >-
+          {{ dict((ris8_leases_raw.stdout_lines | default([]))
+                  | select('match', '^[0-9a-f]{2}([0-9a-f]{2}:){5}[0-9a-f]{2} [0-9.]+$')
+                  | map('split', ' ') | map('list')
+                  | map(attribute='0')
+                  | zip((ris8_leases_raw.stdout_lines | default([]))
+                        | select('match', '^[0-9a-f]{2}([0-9a-f]{2}:){5}[0-9a-f]{2} [0-9.]+$')
+                        | map('split', ' ') | map('list')
+                        | map(attribute='1')) ) }}
+      when: (ris8_leases_raw.stdout_lines | default([]) | length) > 0
+
+    - name: Load management state (hostname + runtime_ip fallback)
+      ansible.builtin.slurp:
+        src: "{{ ris8_management_state_file }}"
+      register: ris8_mgmt_raw
+      failed_when: false
+      changed_when: false
+
+    - name: Parse management state
+      ansible.builtin.set_fact:
+        ris8_mgmt: >-
+          {{ (ris8_mgmt_raw.content | b64decode | from_json)
+             if (ris8_mgmt_raw is defined and ris8_mgmt_raw.content is defined)
+             else {} }}
+
+    - name: Register RIS8 phase-2 dynamic hosts
+      ansible.builtin.add_host:
+        name: "ris8-{{ item | replace(':', '-') }}"
+        groups: ris8_phase2_targets
+        ansible_host: "{{ (ris8_mac_to_ip | default({})).get(item)
+                          or (ris8_mgmt | default({})).get(item, {}).get('runtime_ip', '') }}"
+        ansible_user: "{{ ris8_ssh_user }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -i {{ ris8_ssh_key }}"
+        ansible_become: true
+        ris8_target_mac_raw: "{{ item }}"
+      loop: "{{ ris8_phase2_candidates }}"
+      when: >-
+        ((ris8_mac_to_ip | default({})).get(item)
+         or (ris8_mgmt | default({})).get(item, {}).get('runtime_ip', '')) | length > 0
+
+    - name: Fail when no resolvable IP was found for any phase-1 client
+      ansible.builtin.fail:
+        msg: >-
+          No resolvable runtime IP for any phase-1 successful client.
+          Candidates: {{ ris8_phase2_candidates }}.
+      when: (ris8_phase2_candidates | length) > 0
+        and ((ris8_mac_to_ip | default({}) | length) == 0
+             and (ris8_mgmt | default({}) | length) == 0)
+
+- name: Apply RIS8 phase-2 RPM stack to selected Alma 9.8 clients
+  hosts: ris8_phase2_targets
+  gather_facts: false
+  become: true
+  vars:
+    ris8_repo_host: "{{ bootstrap_ip | default(hostvars['bootstrapvm'].bootstrap_ip) }}"
+    ris8_lp3_platform_url: "http://{{ ris8_repo_host }}/lp3/icas_phii/plattform/repository"
+    ris8_lp3_products_url:  "http://{{ ris8_repo_host }}/lp3/icas_phii/products/repository"
+    ris8_lp3_repolabel_platform: "RIS8 LP3 platform"
+    ris8_lp3_repolabel_products:  "RIS8 iCAS_PhII products"
+    ris8_phase2_packages:
+      - "poco-foundation"
+      - "poco-util"
+      - "poco-xml"
+      - "poco-json"
+      - "poco-net"
+      - "poco-encodings"
+      - "plattform-tools"
+      - "python-netsnmpagent"
+      - "disserver"
+      - "default-keys"
+      - "jre-8"
+    ris8_lp3_login_user: "nor"
+
+  pre_tasks:
+    - name: Phase-2 | Report running status to the RISng webserver
+      ansible.builtin.raw: |
+        MACADDR="$(ip -o link show up | awk -F': ' '{print $2}' | grep -vE '^(lo|veth)' | head -n1)"
+        MACADDR="$(cat /sys/class/net/${MACADDR}/address 2>/dev/null || true)"
+        [ -n "${MACADDR:-}" ] && curl -sf -m 10 -X POST \
+          "http://{{ ris8_repo_host }}/progress/" \
+          --data-urlencode "mac=${MACADDR}" \
+          --data-urlencode "phase=2" \
+          --data-urlencode "step=starting" \
+          --data-urlencode "status=running" \
+          >/dev/null 2>&1 || true
+      changed_when: false
+      failed_when: false
+
+  tasks:
+    - name: Phase-2 | Ensure dnf is present (Alma 9.8 base)
+      ansible.builtin.raw: command -v dnf >/dev/null 2>&1 && dnf --version | head -n1
+
+    - name: Phase-2 | Write LP3 repo config (no GPG; ISO ships no repo signing key)
+      ansible.builtin.copy:
+        dest: /etc/yum.repos.d/ris8-lp3.repo
+        owner: root
+        group: root
+        mode: "0644"
+        content: |
+          [ris8-lp3-platform]
+          name={{ ris8_lp3_repolabel_platform }}
+          baseurl={{ ris8_lp3_platform_url }}
+          enabled=1
+          gpgcheck=0
+          priority=10
+
+          [ris8-lp3-products]
+          name={{ ris8_lp3_repolabel_products }}
+          baseurl={{ ris8_lp3_products_url }}
+          enabled=1
+          gpgcheck=0
+          priority=20
+
+    - name: Phase-2 | Block install LP3 + iCAS phase-2 stack
+      block:
+        - name: Phase-2 | Refresh dnf metadata for LP3 repos
+          ansible.builtin.raw: dnf -y makecache --disablerepo='*' --enablerepo=ris8-lp3-platform,ris8-lp3-products || dnf -y makecache
+
+        - name: Phase-2 | Install LP3 platform + iCAS phase-2 package set
+          ansible.builtin.raw: >-
+            dnf -y --disablerepo='*' --enablerepo=ris8-lp3-platform,ris8-lp3-products
+            install {{ ris8_phase2_packages | join(' ') }}
+          register: ris8_phase2_install
+
+        - name: Phase-2 | Verify installed LP3 packages
+          ansible.builtin.raw: >-
+            dnf list installed --disablerepo='*' --enablerepo=ris8-lp3-platform,ris8-lp3-products
+          register: ris8_phase2_listed
+          changed_when: false
+
+        - name: Phase-2 | Fail when key LP3 packages are missing
+          ansible.builtin.assert:
+            that:
+              - item in (ris8_phase2_install.stdout | default('') + ris8_phase2_listed.stdout | default(''))
+            fail_msg: "Required LP3 package {{ item }} is not installed."
+          loop:
+            - "poco-foundation"
+            - "plattform-tools"
+            - "python-netsnmpagent"
+            - "disserver"
+            - "default-keys"
+            - "jre-8"
+
+        - name: Phase-2 | Ensure the LP3 login user exists
+          ansible.builtin.user:
+            name: "{{ ris8_lp3_login_user }}"
+            comment: "LP3 default login user (RIS8 phase 2)"
+            shell: /bin/bash
+            groups: wheel
+            state: present
+            create_home: true
+            system: false
+
+        - name: Phase-2 | Mark the machine as RIS8 phase 2 complete
+          ansible.builtin.lineinfile:
+            path: /etc/risng-role
+            regexp: '^RIS8_PHASE=.*$'
+            line: "RIS8_PHASE=2"
+            create: true
+            owner: root
+            group: root
+            mode: "0644"
+
+        - name: Phase-2 | Report success to the RISng webserver
+          ansible.builtin.raw: |
+            MACADDR="$(ip -o link show up | awk -F': ' '{print $2}' | grep -vE '^(lo|veth)' | head -n1)"
+            MACADDR="$(cat /sys/class/net/${MACADDR}/address 2>/dev/null || true)"
+            [ -n "${MACADDR:-}" ] && curl -sf -m 10 -X POST \
+              "http://{{ ris8_repo_host }}/progress/" \
+              --data-urlencode "mac=${MACADDR}" \
+              --data-urlencode "phase=2" \
+              --data-urlencode "step=done" \
+              --data-urlencode "status=success" \
+              --data-urlencode "hostname=$(hostname)" \
+              >/dev/null 2>&1 || true
+          changed_when: false
+          failed_when: false
+
+      rescue:
+        - name: Phase-2 | Report failure to the RISng webserver
+          ansible.builtin.raw: |
+            MACADDR="$(ip -o link show up | awk -F': ' '{print $2}' | grep -vE '^(lo|veth)' | head -n1)"
+            MACADDR="$(cat /sys/class/net/${MACADDR}/address 2>/dev/null || true)"
+            [ -n "${MACADDR:-}" ] && curl -sf -m 10 -X POST \
+              "http://{{ ris8_repo_host }}/progress/" \
+              --data-urlencode "mac=${MACADDR}" \
+              --data-urlencode "phase=2" \
+              --data-urlencode "step=failed" \
+              --data-urlencode "status=failed" \
+              --data-urlencode "hostname=$(hostname)" \
+              >/dev/null 2>&1 || true
+          changed_when: false
+          failed_when: false
+          ignore_errors: true
+
+        - name: Phase-2 | Re-raise so the operator sees the failure
+          ansible.builtin.fail:
+            msg: "RIS8 phase-2 install failed on {{ inventory_hostname }}. See Ansible log."

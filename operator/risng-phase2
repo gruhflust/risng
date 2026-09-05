@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# risng-phase2 – run RIS8 phase 2 (LP3/iCAS RPM install) on phase-1-successful clients.
+# Usage:
+#   risng-phase2                  # all phase-1 successful clients
+#   risng-phase2 <MAC>            # single client (aa:bb:cc:dd:ee:ff)
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+PLAYBOOK="${REPO_ROOT}/ansible/secondstage/ris8-phase2.yml"
+INVENTORY="${REPO_ROOT}/ansible/inventory/hosts.yml"
+
+if [ ! -f "$PLAYBOOK" ]; then
+  echo "ERROR: playbook not found: $PLAYBOOK" >&2
+  exit 2
+fi
+
+ARGS=(
+  ansible-playbook
+  -i "$INVENTORY"
+  "$PLAYBOOK"
+)
+
+if [ "${1:-}" ]; then
+  MAC="$(echo "${1}" | tr 'A-F' 'a-f')"
+  ARGS+=("-e" "ris8_target_mac=${MAC}")
+fi
+
+echo "+ ${ARGS[*]}"
+exec "${ARGS[@]}"
