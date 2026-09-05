@@ -133,13 +133,20 @@ Upstream `https://repo.almalinux.org/almalinux/9.8/` (BaseOS/AppStream/CRB + iso
   - `GET /progress/<mac>`, `POST /progress/reset/<mac>`; State `/var/lib/tftpboot/runtime/progress_state.json`
   - Dashboard: neue Spalte "RIS8 Phase" + Status-Override `RIS8_P<n>:<STATUS>`
 - P4 wiring + Legacy-Aus: **DONE** `c8bb843` — `risng-setup.yml`/`getisos.yml` integrieren `almalinux98_install`; `ris7_install_enabled: false` und `risng_install_enabled: false` (CentOS 7.8) als Defaults → spart 14 GB + 4.8 GB; Live-RIS (Debian) bleibt aktiv
-- P5 `lp3_repo` Rolle (plattform+products Publish, ~580 MB, kein Puppet-RPM): **TODO** — nächste Aufgabe
-- P6 Phase-2-Playbook `ris8-phase2.yml` (Basis-RPMs poco*/plattform-tools, User `nor`, GPG-Keys, SNMP-Grundgerüst, Fortschritt-POST): TODO
+- P5 `lp3_repo` Rolle (plattform+products Publish, ~580 MB, kein Puppet-RPM): **DONE** `2734d8a` + Wiring `cd22903`
+    - `ansible/bootstrapvm/roles/lp3_repo/`: NUR `plattform/`+`products/` via `rsync --exclude=puppet-*.rpm` nach `lp3/icas_phii/{plattform,products}/repository/`; Quelle gemountetes ISO-Dir ODER ISO-Datei (loop-mount ro)
+    - **Kein Puppet**: `--exclude=puppet-*.rpm` + `find`-Prüfe (kein anderes LP3-Paket braucht puppet-agent); lokal gegen gemountete RIS7-ISO getestet: 561 MB, jre-8+poco-foundation, 0x puppet — nächste Aufgabe
+- P6 Phase-2-Playbook `ris8-phase2.yml` (Basis-RPMs poco*/plattform-tools, User `nor`): **DONE** `f7b4cf8`
+    - `ansible/secondstage/ris8-phase2.yml`: Play 1 (bootstrapvm) liest Phase-1-Erfolg aus `progress_state.json` + IP aus DHCP-Lease/management_state, dynam. Gruppe `ris8_phase2_targets`, optional `-e ris8_target_mac=`
+    - Play 2 (Ziel): `ris8-lp3.repo` (gpgcheck=0) + `dnf install poco-* plattform-tools python-netsnmpagent disserver default-keys jre-8` + User `nor` (wheel) + `/etc/risng-role` RIS8_PHASE=2 + Progress-POST phase=2; rescue: Failure-POST + Re-Raise; Wrapper `operator/risng-phase2`; **Syntax OK**üst, Fortschritt-POST): TODO
+- **Status: P1-P6 DONE (gepusht). Phase 1 (Basis-Install) + Phase 2 (RPMs) komplett. Phase 3 (Rollen, Puppet zu Ansible) steht an (P7-P10).**
 - P7 MAC→Inventory-Router (bestehende `mac_role_map.json` + `secondstage`-Mechanik wiederverwenden): TODO
 - P8 `icas_base`-Ansible-Rolle (Puppet-Grundgerüst → Ansible): TODO
 - P9 Referenzrolle (dto-Auswahl, z.B. `icmd` oder `isar`): TODO
 - P10 Phase-3-Fortschritt-Hooks pro Rolle: TODO
 - P11 Doku-Final + Validierungs-Checkliste: TODO
+
+**Phase-3-Einstieg (nächster Schritt):** LP3-Rollen liegen als `setup.tar.xz` (442 MB product-rootfs) im RIS7-Mount; Puppet-Manifeste/Module sind der Referenz-Baukasten für die Ansible-Umsetzung. P7 = MAC zu Rollen-Play-Router; P8 = `icas_base`-Rolle (SNMP, DisServer-Client, rsyslog, sudoers, tftp-Layout); P9 = erste konkrete Rolle (dto-Auswahl).
 
 **Resume-Hinweise (wichtig bei Neustart):**
 - Repo: `~/.openclaw/workspace/risng`, Branch `RIS8-mockup`, Remote `git@github-risng:gruhflust/risng`.
