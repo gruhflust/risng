@@ -1,0 +1,235 @@
+---
+# ris8-phase3.yml – RIS8 phase 3: apply the role configured in mac_role_map.json
+# on phase-2-successful Alma 9.8 clients.
+#
+# Discovery (bootstrapvm):
+#   - Phase 2 successful clients from /var/lib/tftpboot/runtime/progress_state.json
+#     (phase=2, status=success)
+#   - Their iCAS role from /etc/risng/mac_role_map.json (mac -> {role, ip, name})
+#   - IP fallback: management_state.json or DHCP leases
+#   - add_host into the dynamic group ris8_phase3_targets with var ris8_role
+#
+# Execution (ris8_phase3_targets):
+#   - include_role: r8_<role> (e.g. r8_icas_base, r8_isar, r8_icmd, ...)
+#   - Unknown role => report failed to /progress/ and skip
+#   - Progress-POST phase=3 start/success/failed
+
+- name: Build RIS8 phase-3 target inventory from mac_role_map + progress state
+  hosts: bootstrapvm
+  connection: local
+  gather_facts: false
+  vars:
+    ris8_progress_state_file: /var/lib/tftpboot/runtime/progress_state.json
+    ris8_management_state_file: /var/lib/tftpboot/runtime/management_state.json
+    ris8_mac_role_map_file: /etc/risng/mac_role_map.json
+    ris8_leases_files:
+      - /var/lib/dhcp/dhcpd.leases
+      - /var/lib/dhcp/dhcpd.leases~
+    ris8_ssh_user: root
+    ris8_ssh_key: "{{ lookup('ansible.builtin.env','HOME') }}/.ssh/id_ed25519"
+    ris8_target_mac: "{{ ris8_target_mac | default('') }}"
+    ris8_known_roles:
+      - "icas_base"
+      - "isar"
+      - "icmd"
+      - "icwp"
+      - "ifdo"
+      - "fdps"
+      - "corrp"
+      - "itg"
+      - "itapserver"
+      - "itapclient"
+      - "atg"
+      - "epp"
+      - "fls"
+      - "smp"
+      - "drf"
+      - "install"
+
+  tasks:
+    - name: Load phase-3 eligible clients (phase=2 successful)
+      ansible.builtin.slurp:
+        src: "{{ ris8_progress_state_file }}"
+      register: ris8_progress_raw
+      failed_when: false
+      changed_when: false
+
+    - name: Parse progress state
+      ansible.builtin.set_fact:
+        ris8_progress: >-
+          {{ (ris8_progress_raw.content | b64decode | from_json)
+             if (ris8_progress_raw is defined and ris8_progress_raw.content is defined)
+             else {} }}
+
+    - name: Select phase-2 successful candidates
+      ansible.builtin.set_fact:
+        ris8_phase3_candidates: >-
+          {{ ris8_progress
+             | dict2items
+             | selectattr('value.phase', 'equalto', '2')
+             | selectattr('value.status', 'equalto', 'success')
+             | map(attribute='key')
+             | list }}
+
+    - name: Optionally restrict phase-3 to a single MAC
+      ansible.builtin.set_fact:
+        ris8_phase3_candidates: "{{ ris8_phase3_candidates | select('equalto', ris8_target_mac) | list }}"
+      when: (ris8_target_mac | default('') | length) > 0
+
+    - name: Stop when no phase-2 successful clients are known
+      ansible.builtin.meta: end_play
+      when: (ris8_phase3_candidates | length) == 0
+
+    - name: Load mac_role_map (mac -> {role, ip, name})
+      ansible.builtin.slurp:
+        src: "{{ ris8_mac_role_map_file }}"
+      register: ris8_rolemap_raw
+      failed_when: false
+      changed_when: false
+
+    - name: Parse mac_role_map
+      ansible.builtin.set_fact:
+        ris8_rolemap: >-
+          {{ (ris8_rolemap_raw.content | b64decode | from_json)
+             if (ris8_rolemap_raw is defined and ris8_rolemap_raw.content is defined)
+             else {} }}
+
+    - name: Load management state (hostname + runtime_ip fallback)
+      ansible.builtin.slurp:
+        src: "{{ ris8_management_state_file }}"
+      register: ris8_mgmt_raw
+      failed_when: false
+      changed_when: false
+
+    - name: Parse management state
+      ansible.builtin.set_fact:
+        ris8_mgmt: >-
+          {{ (ris8_mgmt_raw.content | b64decode | from_json)
+             if (ris8_mgmt_raw is defined and ris8_mgmt_raw.content is defined)
+             else {} }}
+
+    - name: Load DHCP leases (mac ip pairs)
+      ansible.builtin.shell: |
+        set -uo pipefail
+        for f in {{ ris8_leases_files | join(' ') }}; do
+          [ -f "$f" ] || continue
+          awk '
+            /hardware ethernet/ { mac=tolower($3); sub(/;$/,"",mac) }
+            /fixed-address/     { ip=$2; sub(/;$/,"",ip) }
+            ip != "" && mac != "" { print mac, ip; mac=""; ip="" }
+          ' "$f" 2>/dev/null
+        done | sort -u
+      args:
+        executable: /bin/bash
+      register: ris8_leases_raw
+      changed_when: false
+      failed_when: false
+
+    - name: Build MAC->IP map from lease pairs
+      ansible.builtin.set_fact:
+        ris8_mac_to_ip: >-
+          {{ dict((ris8_leases_raw.stdout_lines | default([]))
+                  | select('match', '^[0-9a-f]{2}([0-9a-f]{2}:){5}[0-9a-f]{2} [0-9.]+$')
+                  | map('split', ' ') | map('list')) }}
+      when: (ris8_leases_raw.stdout_lines | default([]) | length) > 0
+
+    - name: Warn about phase-3 candidates without a role in mac_role_map
+      ansible.builtin.debug:
+        msg: "MAC {{ item }} is phase-2 ready but has no role assigned in {{ ris8_mac_role_map_file }} - skipped."
+      loop: "{{ ris8_phase3_candidates }}"
+      when: item not in (ris8_rolemap | default({}))
+
+    - name: Register RIS8 phase-3 dynamic hosts (only MACs with a role)
+      ansible.builtin.add_host:
+        name: "ris8-{{ item | replace(':', '-') }}-{{ (ris8_rolemap | default({})).get(item, {}).get('role', 'unknown') }}"
+        groups: ris8_phase3_targets
+        ansible_host: >-
+          {{ ((ris8_rolemap | default({})).get(item, {}).get('ip', ''))
+             or ((ris8_mac_to_ip | default({})).get(item, ''))
+             or ((ris8_mgmt | default({})).get(item, {}).get('runtime_ip', '')) }}
+        ansible_user: "{{ ris8_ssh_user }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o IdentitiesOnly=yes -i {{ ris8_ssh_key }}"
+        ansible_become: true
+        ris8_mac: "{{ item }}"
+        ris8_role: "{{ (ris8_rolemap | default({})).get(item, {}).get('role', '') }}"
+        ris8_role_name: "{{ (ris8_rolemap | default({})).get(item, {}).get('name', '') }}"
+        ris8_role_known: "{{ (ris8_rolemap | default({})).get(item, {}).get('role', '') | lower in ris8_known_roles }}"
+      loop: "{{ ris8_phase3_candidates }}"
+      when: item in (ris8_rolemap | default({}))
+
+    - name: Fail when no resolvable target was registered
+      ansible.builtin.fail:
+        msg: "No phase-3 target registered (need phase=2 success AND role in mac_role_map.json)."
+      when: (ris8_phase3_candidates | length) > 0
+        and (ris8_rolemap | default({}) | length) == 0
+
+- name: Apply RIS8 phase-3 role to selected Alma 9.8 clients
+  hosts: ris8_phase3_targets
+  gather_facts: false
+  become: true
+  vars:
+    ris8_repo_host: "{{ hostvars['bootstrapvm'].bootstrap_ip | default('10.228.229.7') }}"
+    ris8_role_known: "{{ ris8_role_known | default(false) }}"
+
+  pre_tasks:
+    - name: Phase-3 | Validate role is known
+      ansible.builtin.fail:
+        msg: "Unknown iCAS role '{{ ris8_role }}' for MAC {{ ris8_mac }}. Set the role in {{ '/etc/risng/mac_role_map.json' }} to one of the known iCAS roles (isar, icmd, icwp, ifdo, fdps, corrp, itg, ...)."
+      when: not (ris8_role_known | bool)
+
+    - name: Phase-3 | Report running status to the RISng webserver
+      ansible.builtin.raw: |
+        MACADDR="{{ ris8_mac }}"
+        [ -n "${MACADDR:-}" ] && curl -sf -m 10 -X POST \
+          "http://{{ ris8_repo_host }}/progress/" \
+          --data-urlencode "mac=${MACADDR}" \
+          --data-urlencode "phase=3" \
+          --data-urlencode "step=starting" \
+          --data-urlencode "status=running" \
+          --data-urlencode "role={{ ris8_role }}" \
+          >/dev/null 2>&1 || true
+      changed_when: false
+      failed_when: false
+
+  tasks:
+    - name: Phase-3 | Block apply role-specific Ansible role (r8_<role>)
+      block:
+        - name: Phase-3 | Include the role-specific Ansible role (r8_<role>)
+          ansible.builtin.include_role:
+            name: "r8_{{ ris8_role | lower }}"
+
+        - name: Phase-3 | Report success to the RISng webserver
+          ansible.builtin.raw: |
+            MACADDR="{{ ris8_mac }}"
+            [ -n "${MACADDR:-}" ] && curl -sf -m 10 -X POST \
+              "http://{{ ris8_repo_host }}/progress/" \
+              --data-urlencode "mac=${MACADDR}" \
+              --data-urlencode "phase=3" \
+              --data-urlencode "step=done" \
+              --data-urlencode "status=success" \
+              --data-urlencode "role={{ ris8_role }}" \
+              --data-urlencode "hostname=$(hostname)" \
+              >/dev/null 2>&1 || true
+          changed_when: false
+          failed_when: false
+
+      rescue:
+        - name: Phase-3 | Report failure to the RISng webserver
+          ansible.builtin.raw: |
+            MACADDR="{{ ris8_mac }}"
+            [ -n "${MACADDR:-}" ] && curl -sf -m 10 -X POST \
+              "http://{{ ris8_repo_host }}/progress/" \
+              --data-urlencode "mac=${MACADDR}" \
+              --data-urlencode "phase=3" \
+              --data-urlencode "step=failed" \
+              --data-urlencode "status=failed" \
+              --data-urlencode "role={{ ris8_role }}" \
+              --data-urlencode "hostname=$(hostname)" \
+              >/dev/null 2>&1 || true
+          changed_when: false
+          failed_when: false
+          ignore_errors: true
+
+        - name: Phase-3 | Re-raise the original failure
+          ansible.builtin.fail:
+            msg: "RIS8 phase-3 role {{ ris8_role }} failed on {{ inventory_hostname }}. See Ansible log."
