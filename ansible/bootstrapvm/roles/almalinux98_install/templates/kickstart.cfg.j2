@@ -14,8 +14,10 @@ authselect select --nsswitch-file=/etc/nsswitch.conf minimal
 # Network: DHCP on boot interface (MAC-based role routing happens after install)
 network --bootproto=dhcp --device=bootif --activate --onboot=yes --noipv6
 
-# Base repo: locally mirrored AlmaLinux 9.8 (BaseOS + AppStream)
-url --urlpoint=http://{{ tftp_server_ip }}/{{ almalinux98_repo_relative }}
+# Base repo: locally mirrored AlmaLinux 9.8 DVD tree (Anaconda-ready layout:
+# each component dir holds repodata/ + Packages/)
+repo --name="almalinux98-baseos" --baseurl="http://{{ tftp_server_ip }}/{{ almalinux98_repo_relative }}/BaseOS" --cost=100
+repo --name="almalinux98-appstream" --baseurl="http://{{ tftp_server_ip }}/{{ almalinux98_repo_relative }}/AppStream" --cost=100
 
 # Access: root password locked; SSH key-only (controlhost key published by RISng).
 rootpw --lock

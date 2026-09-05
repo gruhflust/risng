@@ -1,10 +1,11 @@
 ---
 # almalinux98_install | feuer path (phase 1 staging)
-# Space-efficient strategy (test VMs are small):
-#   1. Fetch fixed Alma 9.8 DVD ISO (getisos) - used ONLY for PXE kernel/initrd.
-#   2. Mirror BaseOS+AppStream repos from the public mirror into the RISng
-#      HTTP root (rsync, no ISO extraction -> no 15 GB disk spike).
-#   3. Publish kernel/initrd + kickstart + PXE menu fragments.
+# Strategy:
+#   1. Fetch fixed Alma 9.8 DVD ISO (getisos) - the single source of truth.
+#   2. Mount it read-only once; rsync BaseOS+AppStream repos (Anaconda-ready
+#      <comp>/{repodata,Packages} layout) + copy PXE kernel/initrd into the
+#      RISng HTTP root. No internet mirroring, no 15 GB disk re-download.
+#   3. Render kickstart + PXE menu fragments (BIOS pxelinux + UEFI GRUB).
 
 - name: almalinux98 | Fetch ISO from configured source when required
   ansible.builtin.import_tasks: fetch_iso.yml
@@ -50,7 +51,10 @@
       Refusing to stage an unverified AlmaLinux installer.
 
 # ---------------------------------------------------------------------------
-# Repo mirror (public upstream -> RISng HTTP root), only BaseOS + AppStream.
+# Repo mirror + PXE boot files come straight from the (checksum-verified)
+# AlmaLinux 9.8 DVD ISO. The DVD already ships an Anaconda-ready layout:
+#   BaseOS/{repodata,Packages}  and  AppStream/{repodata,Packages}
+# so `rsync` (local, no https module needed) is the only transport.
 # ---------------------------------------------------------------------------
 
 - name: almalinux98 | Probe published repo artifacts
@@ -61,33 +65,68 @@
     - "{{ almalinux98_repo_root }}/AppStream/repodata/repomd.xml"
   register: almalinux98_repo_probe
 
-- name: almalinux98 | Determine whether repo mirror is required
+- name: almalinux98 | Probe PXE boot artifacts
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ almalinux98_target }}/{{ almalinux98_kernel }}"
+    - "{{ almalinux98_target }}/{{ almalinux98_initrd }}"
+  register: almalinux98_pxe_probe
+
+- name: almalinux98 | Determine whether ISO extraction is required
   ansible.builtin.set_fact:
-    almalinux98_repo_needs_rebuild: >-
+    almalinux98_needs_extract: >-
       {{
         (almalinux98_repo_rebuild_always | bool)
         or ((almalinux98_repo_probe.results | rejectattr('stat.exists') | list | length) > 0)
+        or ((almalinux98_pxe_probe.results | rejectattr('stat.exists') | list | length) > 0)
       }}
 
-- name: almalinux98 | Mirror BaseOS from public upstream
-  ansible.builtin.command:
-    argv:
-      - "{{ almalinux98_rsync_cmd }}"
-      - -a
-      - --delete
-      - "{{ almalinux98_upstream_baseurl }}BaseOS/{{ almalinux98_repo_arch_path }}/"
-      - "{{ almalinux98_repo_root }}/BaseOS/"
-  when: almalinux98_repo_needs_rebuild | bool
+- name: almalinux98 | Mount ISO read-only (repos + PXE artifacts in one pass)
+  ansible.posix.mount:
+    path: "{{ almalinux98_iso_extract_dir }}"
+    src: "{{ almalinux98_iso_path }}"
+    fstype: iso9660
+    opts: "ro,loop"
+    state: mounted
+  when: almalinux98_needs_extract | bool
 
-- name: almalinux98 | Mirror AppStream from public upstream
+- name: almalinux98 | Mirror BaseOS repo from the DVD
   ansible.builtin.command:
     argv:
-      - "{{ almalinux98_rsync_cmd }}"
+      - rsync
       - -a
       - --delete
-      - "{{ almalinux98_upstream_baseurl }}AppStream/{{ almalinux98_repo_arch_path }}/"
+      - "{{ almalinux98_iso_extract_dir }}/BaseOS/"
+      - "{{ almalinux98_repo_root }}/BaseOS/"
+  when: almalinux98_needs_extract | bool
+
+- name: almalinux98 | Mirror AppStream repo from the DVD
+  ansible.builtin.command:
+    argv:
+      - rsync
+      - -a
+      - --delete
+      - "{{ almalinux98_iso_extract_dir }}/AppStream/"
       - "{{ almalinux98_repo_root }}/AppStream/"
-  when: almalinux98_repo_needs_rebuild | bool
+  when: almalinux98_needs_extract | bool
+
+- name: almalinux98 | Copy PXE kernel and initrd
+  ansible.builtin.copy:
+    remote_src: true
+    src: "{{ almalinux98_iso_extract_dir }}/images/pxeboot/{{ item.source }}"
+    dest: "{{ almalinux98_target }}/{{ item.destination }}"
+    mode: "0644"
+  loop:
+    - { source: "vmlinuz", destination: "{{ almalinux98_kernel }}" }
+    - { source: "initrd.img", destination: "{{ almalinux98_initrd }}" }
+  when: almalinux98_needs_extract | bool
+
+- name: almalinux98 | Unmount ISO after extraction
+  ansible.posix.mount:
+    path: "{{ almalinux98_iso_extract_dir }}"
+    state: absent
+  when: almalinux98_needs_extract | bool
 
 - name: almalinux98 | Validate published repo tree
   ansible.builtin.stat:
@@ -102,49 +141,6 @@
     that:
       - almalinux98_published_probe.results | rejectattr('stat.exists') | list | length == 0
     fail_msg: "AlmaLinux 9.8 repo tree is incomplete under {{ almalinux98_repo_root }}."
-
-# ---------------------------------------------------------------------------
-# PXE kernel/initrd from the (verified) ISO - no full ISO extraction needed.
-# ---------------------------------------------------------------------------
-
-- name: almalinux98 | Probe PXE boot artifacts
-  ansible.builtin.stat:
-    path: "{{ item }}"
-  loop:
-    - "{{ almalinux98_target }}/{{ almalinux98_kernel }}"
-    - "{{ almalinux98_target }}/{{ almalinux98_initrd }}"
-  register: almalinux98_pxe_probe
-
-- name: almalinux98 | Determine whether PXE artifacts need extraction
-  ansible.builtin.set_fact:
-    almalinux98_pxe_needs_extract: >-
-      {{ (almalinux98_pxe_probe.results | rejectattr('stat.exists') | list | length) > 0 }}
-
-- name: almalinux98 | Mount ISO read-only for PXE artifact extraction
-  ansible.posix.mount:
-    path: "{{ almalinux98_iso_extract_dir }}"
-    src: "{{ almalinux98_iso_path }}"
-    fstype: iso9660
-    opts: "ro,loop"
-    state: mounted
-  when: almalinux98_pxe_needs_extract | bool
-
-- name: almalinux98 | Copy PXE kernel and initrd
-  ansible.builtin.copy:
-    remote_src: true
-    src: "{{ almalinux98_iso_extract_dir }}/images/pxeboot/{{ item.source }}"
-    dest: "{{ almalinux98_target }}/{{ item.destination }}"
-    mode: "0644"
-  loop:
-    - { source: "vmlinuz", destination: "{{ almalinux98_kernel }}" }
-    - { source: "initrd.img", destination: "{{ almalinux98_initrd }}" }
-  when: almalinux98_pxe_needs_extract | bool
-
-- name: almalinux98 | Unmount ISO after PXE artifact extraction
-  ansible.posix.mount:
-    path: "{{ almalinux98_iso_extract_dir }}"
-    state: absent
-  when: almalinux98_pxe_needs_extract | bool
 
 # ---------------------------------------------------------------------------
 # Kickstart + PXE menu fragments.
