@@ -193,6 +193,41 @@ Upstream `https://repo.almalinux.org/almalinux/9.8/` (BaseOS/AppStream/CRB + iso
 - Offen: PXE-Boot-Integrationstest auf dem RISng-Staginghost
   (`getisos` → `feuer` → `trigger-pxe-boot`, DHCP-Override `boot_profile: ris7`).
 
+## Lokale Entwicklung – Testlauf-Workflow auf .207 (2026-09-06, dto-Weisung)
+
+**Ziel:** Eigenständiger automatisierter Testzyklus auf der Proxmox-Test-VM
+`user@192.168.188.207` (Proxmox-Host `192.168.188.92`, Rechte dazu noch offen
+beim dto). Der Zyklus:
+
+1. **Snapshot zurücksetzen:** Proxmox-Snapshot `isosLoaded` der VM207
+   (ISOs bereits geladen, saubere Basis). Über Proxmox-API/CLI auf
+   `192.168.188.92`: `qm rollback 207 isosLoaded` (bzw. `qm rollback 207` +
+   `qm start 207`). VM207 = die Test-VM, nicht der Proxmox-Host.
+2. **VM starten** und **~60–120 s** warten, bis SSH erreichbar:
+   `ssh user@192.168.188.207` (Key-Auth, bereits funktioniert).
+3. **Repo aktualisieren:** `cd ~/risng && git pull --rebase` (Branch `RIS8-mockup`).
+4. **feuer anstoßen:** `feuer` (Alias → `risng-setup.yml`), läuft min. ~6 min
+   (typisch 6–40 min je nach ISO-Cache). Log: `~/feuer.log`.
+5. **Ergebnis kontrollieren:**
+   - `grep -nE "failed=[1-9]|fatal:" ~/feuer.log | tail`
+   - `grep -A2 "PLAY RECAP" ~/feuer.log | tail -3` → `failed=0` = grün.
+   - Bei Fehler: `sed -n` um die `fatal:`-Zeile + `TASKS RECAP` für Langzeit.
+6. **Bei Fehler:** Log auswerten → Fix im Workspace-Repo
+   (`~/.openclaw/workspace/risng`) → commit + push → auf VM `git pull` →
+   **Snapshot-Reset** → neuer Lauf. Erst nach grünem Lauf Ergebnis als
+   Validierung werten.
+
+**Wichtige Regeln dazu:**
+- `feuer` NICHT parallel starten; vor Lauf prüfen, dass kein `ansible-playbook`
+   auf der VM läuft: `pgrep -af ansible-playbook`.
+- Snapshot `isosLoaded` ist die **einzige** definierte Reset-Basis; keine
+   anderen Snapshots anfassen.
+- Proxmox-Zugang: erst wenn dto Rechte auf `192.168.188.92` gibt (API-Token
+   oder SSH); bis dahin manuell vom dto anstoßen, Rest (SSH auf .207, Log-
+   Auswertung, Fix, Push) läuft eigenständig.
+- `git dubious ownership` auf der VM: `git config --global --add safe.directory
+   /home/user/risng` (einmalig, bereits gesetzt 2026-09-06).
+
 ## Wrapper-Funktionen
 - `run_risng_playbook [opts] playbook logfile [inventory]` — Auto-detects RISNG_DIR
 - Eigenes ansible.cfg: `RISNG_ANSIBLE_CFG="$RISNG_CODE_DIR/ansible/ansible.cfg"`
