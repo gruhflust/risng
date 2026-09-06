@@ -559,7 +559,7 @@
     - name: 01.99b Print feuer artifact summary
       ansible.builtin.debug:
         msg: >-
-          {{ item.item.label }} => {{ item.stat.path }} |
+          {{ item.item.label }} => {{ item.item.path }} |
           exists={{ item.stat.exists | default(false) }} |
           size={{ item.stat.size | default(0) }}
       loop: "{{ risng_feuer_artifact_stats.results }}"
