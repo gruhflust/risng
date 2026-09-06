@@ -1,32 +1,26 @@
 ---
 # lp3_repo | Publish LP3 platform + iCAS product RPM repos for RIS8 phase 2.
-# Source: operator-supplied LP3 ISO (never downloaded / not stored in Git).
-# Strategy: only the two component repos (~580 MB) are published via rsync,
-#   NOT the full 14 GB ISO, NOT setup.tar.xz, NOT the RHEL base.
-# Puppet is forbidden in RIS8; the puppet-agent RPM is dropped from the
-# published tree (nothing else in the LP3 set requires it - verified).
-lp3_repo_enabled: true
+#
+# IMPORTANT (2026-09-06):
+# The LP3 source tree is OPERATOR-STAGED. The LP3/RIS7 ISO is an agent
+# information source (mounts on the build VM only) and MUST NOT be a
+# dependency of the Ansible pipeline: no ISO download, no ISO mount,
+# no ISO path on the PXE host.
+#
+# Staging contract (done out-of-band, e.g. on the build VM from the
+# mounted ISO):
+#   <lp3_repo_staging_root>/
+#     plattform/repository/   (RPMs + repodata)
+#     products/repository/    (RPMs + repodata, no puppet-*.rpm)
+# The role rsyncs that tree to the HTTP root and validates the result.
+lp3_repo_enabled: false
 
-# Source ISO. Two acceptable locations, in priority order (auto-detected):
-#   1. lp3_repo_iso_path     - pre-staged ISO file (mounted read-only on demand)
-#   2. lp3_repo_iso_mountpoint - an already-mounted read-only ISO dir
-lp3_repo_iso_path: "{{ iso_download_dir }}/ris7.iso"
-lp3_repo_iso_mountpoint: "{{ pxe_tmp_dir }}/lp3-iso"
-
-# Components to publish (relative to ISO root).
-lp3_repo_components:
-  - "plattform"
-  - "products"
+# Operator-staged source tree (relative component repos, ISO-free).
+lp3_repo_staging_root: "{{ pxe_tmp_dir }}/lp3-staging"
 
 # Published HTTP root (served by the existing nginx on the RISng host).
 lp3_repo_relative: "lp3/icas_phii"
 lp3_repo_root: "{{ pxe_tftp_dir }}/{{ lp3_repo_relative }}"
-
-# Drop these RPM filenames from the published tree (Puppet is forbidden).
-lp3_repo_drop_globs:
-  - "puppet-agent-*.rpm"
-  - "puppet-server-*.rpm"
-  - "puppet-*.rpm"
 
 # Rebuild flag.
 lp3_repo_rebuild_always: false

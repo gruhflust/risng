@@ -81,7 +81,13 @@ Historical feature branches are preserved as annotated
 **Git:** iron pnt gitgud
 **Sonst:** ginit watcher terror guck status
 
-### RIS7 ISO-Analyse (Doku)
+### RIS7 ISO-Regel (2026-09-06, dto-Weisung)
+- Die mounted RIS7/LP3-ISO (`/mnt/ris7iso`, agent-eigene Mounts) ist **NUR** Informationsquelle fuer mich (LP3-Rollen-Design, Kickstart-Referenz, RPM-Liste). Sie darf **niemals** Teil der Ansible-Pipeline werden: kein Download, kein Mount auf dem PXE-Host, kein ISO-Pfad in Rollen/Playbooks.
+- `lp3_repo` (2026-09-06 umbaut): `default(false)`, einzige Quelle ist der operator-gestagte Baum `lp3_repo_staging_root` (default `/var/tmp/pxe-build/lp3-staging`) mit `plattform/repository` + `products/repository`. Ohne Staging-Baum: harte Fehlermeldung inkl. Staging-Hinweis. Aktiv: `-e lp3_repo_enabled=true`.
+- `ris7_install` bleibt `default(false)` (operator-supplied ISO, Legacy-RIS7-PXE-Pfad).
+- Folge: `getisos` -> `feuer` laeuft ohne LP3-ISO gruene durch (vorher: fatal "No LP3 source found" bei `lp3_repo | Fail when no LP3 source is available`).
+
+## RIS7 ISO-Analyse (Doku)
 - `docs/requirements/information/RIS7-ISO-Analyse.md` dokumentiert die
   gemountete RIS7-DVD `LP3_iCAS_PhII-RIS_7.0-00_engver202602-rhel9.6-x86_64.iso`
   (Mountpoint `RIS7/` im macagent-Workspace): LP3 3.31.0 auf RHEL 9.6,

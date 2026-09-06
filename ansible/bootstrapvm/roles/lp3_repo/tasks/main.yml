@@ -1,8 +1,10 @@
 ---
 # lp3_repo | Publish LP3 platform + iCAS product repos (RIS8 phase 2 source).
-# Source is an operator-supplied ISO (file) or an already-mounted ISO dir.
-# Only plattform + products component repos are published (~580 MB). Puppet
-# RPMs are dropped. No full ISO extraction, no RHEL base, no setup.tar.xz.
+# Source is an OPERATOR-STAGED tree (no ISO on the host, by design):
+#   <lp3_repo_staging_root>/plattform/repository/
+#   <lp3_repo_staging_root>/products/repository/
+# Only these two component repos (~580 MB) are published. Puppet RPMs are
+# rejected. No ISO download, no ISO mount, no full-ISO extraction.
 
 - name: lp3_repo | Ensure publish root exists
   ansible.builtin.file:
@@ -10,70 +12,25 @@
     state: directory
     mode: "0755"
 
-- name: lp3_repo | Ensure ISO mountpoint directory exists (no mode force; may be an existing ro mount)
-  ansible.builtin.file:
-    path: "{{ lp3_repo_iso_mountpoint }}"
-    state: directory
-  when: not (lp3_repo_iso_mountpoint | basename in ('','.'))
-
-- name: lp3_repo | Probe candidate LP3 sources
+- name: lp3_repo | Probe operator-staged LP3 source tree
   ansible.builtin.stat:
     path: "{{ item }}"
   loop:
-    - "{{ lp3_repo_iso_path }}"
-    - "{{ lp3_repo_iso_mountpoint }}/components/plattform/repository"
-    - "{{ lp3_repo_iso_mountpoint }}/components/products/repository"
+    - "{{ lp3_repo_staging_root }}/plattform/repository"
+    - "{{ lp3_repo_staging_root }}/products/repository"
   register: lp3_src_probe
 
-- name: lp3_repo | Determine LP3 source mode (file vs mounted dir)
-  ansible.builtin.set_fact:
-    lp3_src_is_mounted: >-
-      {{
-        (lp3_src_probe.results[1].stat.exists | default(false))
-        and (lp3_src_probe.results[2].stat.exists | default(false))
-      }}
-    lp3_src_iso_file_exists: >-
-      {{ lp3_src_probe.results[0].stat.exists | default(false)
-         and lp3_src_probe.results[0].stat.size | default(0) > 1000000000 }}
-
-- name: lp3_repo | Fail when no LP3 source is available
+- name: lp3_repo | Fail when no staged LP3 source is available
   ansible.builtin.assert:
     that:
-      - lp3_src_is_mounted | bool or lp3_src_iso_file_exists | bool
+      - lp3_src_probe.results | rejectattr('stat.exists') | list | length == 0
     fail_msg: >-
-      No LP3 source found. Provide the operator-supplied LP3 ISO at
-      {{ lp3_repo_iso_path }} (a file > 1 GB) OR mount it read-only at
-      {{ lp3_repo_iso_mountpoint }} with components/plattform and
-      components/products present.
-
-- name: lp3_repo | Resolve LP3 source root
-  ansible.builtin.set_fact:
-    lp3_src_root: >-
-      {{ lp3_repo_iso_mountpoint if (lp3_src_is_mounted | bool)
-         else lp3_repo_iso_mountpoint }}
-
-- name: lp3_repo | Mount LP3 ISO read-only (loop) when using a file source
-  ansible.posix.mount:
-    path: "{{ lp3_repo_iso_mountpoint }}"
-    src: "{{ lp3_repo_iso_path }}"
-    fstype: iso9660
-    opts: "ro,loop"
-    state: mounted
-  when: not (lp3_src_is_mounted | bool)
-
-- name: lp3_repo | Validate LP3 component repos are present in the source
-  ansible.builtin.stat:
-    path: "{{ item }}"
-  loop:
-    - "{{ lp3_src_root }}/components/plattform/repository/repodata"
-    - "{{ lp3_src_root }}/components/products/repository/repodata"
-  register: lp3_component_probe
-
-- name: lp3_repo | Fail when LP3 component repos are incomplete
-  ansible.builtin.assert:
-    that:
-      - lp3_component_probe.results | rejectattr('stat.exists') | list | length == 0
-    fail_msg: "LP3 component repos (plattform/products) are incomplete at {{ lp3_src_root }}."
+      No staged LP3 source tree found at {{ lp3_repo_staging_root }}.
+      Stage the LP3 component repos out-of-band (from the mounted LP3/RIS7
+      ISO on the build VM): copy components/plattform/repository and
+      components/products/repository into {{ lp3_repo_staging_root }} as
+      plattform/repository and products/repository (exclude puppet-*.rpm),
+      then re-run with -e lp3_repo_enabled=true.
 
 # ---------------------------------------------------------------------------
 # Probe published artifacts to decide whether a rebuild is needed.
@@ -95,27 +52,25 @@
       }}
 
 # ---------------------------------------------------------------------------
-# Publish plattform + products component repos (Puppet RPMs dropped).
+# Publish plattform + products component repos (Puppet RPMs rejected).
 # ---------------------------------------------------------------------------
-- name: lp3_repo | Publish LP3 plattform component repo (exclude Puppet RPMs)
+- name: lp3_repo | Publish LP3 plattform component repo
   ansible.builtin.command:
     argv:
       - rsync
       - "-a"
       - "--mkpath"
-      - "--exclude=puppet-*.rpm"
-      - "{{ lp3_src_root }}/components/plattform/repository/"
+      - "{{ lp3_repo_staging_root }}/plattform/repository/"
       - "{{ lp3_repo_root }}/plattform/repository/"
   when: lp3_needs_rebuild | bool
 
-- name: lp3_repo | Publish LP3 products component repo (exclude Puppet RPMs)
+- name: lp3_repo | Publish LP3 products component repo
   ansible.builtin.command:
     argv:
       - rsync
       - "-a"
       - "--mkpath"
-      - "--exclude=puppet-*.rpm"
-      - "{{ lp3_src_root }}/components/products/repository/"
+      - "{{ lp3_repo_staging_root }}/products/repository/"
       - "{{ lp3_repo_root }}/products/repository/"
   when: lp3_needs_rebuild | bool
 
@@ -125,8 +80,6 @@
   loop:
     - "{{ lp3_repo_root }}/plattform/repository/repodata/repomd.xml"
     - "{{ lp3_repo_root }}/products/repository/repodata/repomd.xml"
-    - "{{ lp3_repo_root }}/plattform/repository/x86_64/poco-foundation-1.9.4-1.el9.x86_64.rpm"
-    - "{{ lp3_repo_root }}/products/repository/x86_64/jre-8u202-linux-x64.rpm"
   register: lp3_pub_validate
 
 - name: lp3_repo | Fail when published LP3 tree is incomplete
@@ -146,9 +99,3 @@
   ansible.builtin.fail:
     msg: "Puppet RPMs found in published LP3 tree: {{ lp3_puppet_leftovers.stdout }}"
   when: lp3_puppet_leftovers.stdout | default('') | trim | length > 0
-
-- name: lp3_repo | Unmount ISO when it was file-mounted
-  ansible.posix.mount:
-    path: "{{ lp3_repo_iso_mountpoint }}"
-    state: absent
-  when: not (lp3_src_is_mounted | bool)

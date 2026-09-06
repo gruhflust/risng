@@ -510,7 +510,7 @@
     - role: almalinux98_install
       when: almalinux98_install_enabled | default(true) | bool
     - role: lp3_repo
-      when: lp3_repo_enabled | default(true) | bool
+      when: lp3_repo_enabled | default(false) | bool
 
   post_tasks:
     - name: 01.99 Build feuer artifact checklist
